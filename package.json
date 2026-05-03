@@ -1,0 +1,43 @@
+{
+  "name": "eazworld-server",
+  "version": "1.0.0",
+  "description": "EazWorld Web Development - Backend Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@paystack/inline-js": "^2.22.7",
+    "@paystack/paystack-sdk": "^1.0.1",
+    "@react-email/components": "^1.0.9",
+    "@react-email/render": "^2.0.4",
+    "axios": "^1.13.2",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.9.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.0.3",
+    "morgan": "^1.10.1",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.18.0",
+    "resend": "^6.9.3",
+    "streamifier": "^0.1.1",
+    "twilio": "^5.13.0",
+    "xml2js": "^0.6.2",
+    "xss-clean": "^0.1.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
