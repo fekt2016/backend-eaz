@@ -5,6 +5,10 @@ const { extractTLD, getDefaultPrice } = require('../utils/domainHelper');
 
 const parseXml = promisify(parseString);
 
+// In-memory price cache — refreshed every hour
+let priceCache = { data: null, timestamp: 0 };
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
 function hasConfig() {
   return !!(process.env.NAMECHEAP_API_USER && process.env.NAMECHEAP_API_KEY && process.env.NAMECHEAP_CLIENT_IP);
 }
@@ -27,9 +31,87 @@ function buildParams(extra = {}) {
 }
 
 /**
+ * Convert USD to GHS using USD_TO_GHS_RATE env var (default 15.5)
+ * Applies a 20% markup to cover Namecheap cost + profit margin
+ */
+function usdToGhs(usd) {
+  const rate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
+  const markup = parseFloat(process.env.DOMAIN_MARKUP) || 1.2; // 20% markup
+  return Math.ceil(usd * rate * markup);
+}
+
+/**
+ * Fetch live TLD pricing from Namecheap — cached for 1 hour
+ * Returns an object: { '.com': 85, '.net': 75, ... } (in GHS)
+ */
+async function getPricing() {
+  if (!hasConfig()) return {};
+
+  // Return cached prices if still fresh
+  if (priceCache.data && Date.now() - priceCache.timestamp < CACHE_TTL) {
+    return priceCache.data;
+  }
+
+  try {
+    const params = buildParams({
+      Command: 'namecheap.users.getPricing',
+      ProductType: 'DOMAIN',
+      ActionName: 'REGISTER',
+    });
+    const qs = new URLSearchParams(params).toString();
+    const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 15000 });
+    const parsed = await parseXml(response.data);
+
+    const apiResponse = parsed?.ApiResponse;
+    if (apiResponse?.$?.Status !== 'OK') {
+      console.warn('⚠️  Namecheap getPricing returned non-OK status');
+      return priceCache.data || {};
+    }
+
+    const pricing = {};
+    const productTypes = apiResponse?.CommandResponse?.[0]?.UserGetPricingResult?.[0]?.ProductType || [];
+
+    for (const pt of productTypes) {
+      const categories = pt.ProductCategory || [];
+      for (const cat of categories) {
+        const products = cat.Product || [];
+        for (const product of products) {
+          const tldName = product?.$?.Name; // e.g. "com", "com.gh", "net"
+          if (!tldName) continue;
+          const prices = product.Price || [];
+          // Find 1-year registration price
+          const oneYear = prices.find(p => p?.$?.Duration === '1' && p?.$?.DurationType === 'YEAR');
+          if (!oneYear) continue;
+          const usdPrice = parseFloat(oneYear?.$?.YourPrice || oneYear?.$?.Price || '0');
+          if (usdPrice > 0) {
+            pricing[`.${tldName}`] = usdToGhs(usdPrice);
+          }
+        }
+      }
+    }
+
+    if (Object.keys(pricing).length > 0) {
+      priceCache = { data: pricing, timestamp: Date.now() };
+      console.log(`✅ Namecheap pricing loaded: ${Object.keys(pricing).length} TLDs`);
+    }
+
+    return pricing;
+  } catch (err) {
+    console.warn('⚠️  Namecheap getPricing failed:', err.message);
+    return priceCache.data || {};
+  }
+}
+
+/**
+ * Get price for a TLD — live from Namecheap with fallback to defaults
+ */
+async function getTldPrice(tld) {
+  const prices = await getPricing();
+  return prices[tld] ?? getDefaultPrice(tld);
+}
+
+/**
  * Check a single domain availability
- * @param {string} domain - Full domain name (e.g. example.com)
- * @returns {Promise<{ domain: string, available: boolean, price: number }>}
  */
 async function checkDomain(domain) {
   if (!hasConfig()) {
@@ -49,10 +131,8 @@ async function checkDomain(domain) {
     const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 15000 });
     const parsed = await parseXml(response.data);
     const apiResponse = parsed?.ApiResponse;
-    const status = apiResponse?.$?.Status;
-    const ns = apiResponse?.$?.['xmlns'] || '';
 
-    if (status !== 'OK') {
+    if (apiResponse?.$?.Status !== 'OK') {
       const errors = apiResponse?.Errors?.[0]?.Error;
       const errMsg = Array.isArray(errors) ? errors[0]?.$?.['Number'] : errors?.$?.['Number'];
       return {
@@ -63,22 +143,19 @@ async function checkDomain(domain) {
       };
     }
 
-    const commandResponse = apiResponse?.CommandResponse?.[0];
-    const domainCheckResult = commandResponse?.DomainCheckResult?.[0]?.$;
+    const domainCheckResult = apiResponse?.CommandResponse?.[0]?.DomainCheckResult?.[0]?.$;
     if (!domainCheckResult) {
-      return {
-        domain: domain.trim().toLowerCase(),
-        available: false,
-        price: getDefaultPrice(extractTLD(domain))
-      };
+      return { domain: domain.trim().toLowerCase(), available: false, price: getDefaultPrice(extractTLD(domain)) };
     }
 
     const available = domainCheckResult.Available === 'true';
+    const tld = extractTLD(domainCheckResult.Domain || domain);
     const isPremium = domainCheckResult.IsPremiumName === 'true';
-    const premiumPrice = parseFloat(domainCheckResult.PremiumRegistrationPrice || '0', 10);
-    const price = available && isPremium && premiumPrice > 0
-      ? premiumPrice
-      : getDefaultPrice(extractTLD(domainCheckResult.Domain || domain));
+    const premiumUsd = parseFloat(domainCheckResult.PremiumRegistrationPrice || '0');
+
+    const price = isPremium && premiumUsd > 0
+      ? usdToGhs(premiumUsd)
+      : await getTldPrice(tld);
 
     return {
       domain: (domainCheckResult.Domain || domain).trim().toLowerCase(),
@@ -90,16 +167,13 @@ async function checkDomain(domain) {
       domain: domain.trim().toLowerCase(),
       available: false,
       price: getDefaultPrice(extractTLD(domain)),
-      error: err.response?.data || err.message || 'Namecheap check failed'
+      error: err.message || 'Namecheap check failed'
     };
   }
 }
 
 /**
- * Check multiple domains (e.g. baseName + tlds)
- * @param {string} name - Base name or comma-separated domain list
- * @param {string[]} [tlds] - TLDs to check (e.g. ['.com', '.net']). If not provided, name is treated as comma-separated domain list.
- * @returns {Promise<Array<{ domain: string, available: boolean, price: number }>>}
+ * Check multiple domains and return live availability + prices
  */
 async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io', '.africa', '.com.gh', '.gh']) {
   let domainList;
@@ -110,16 +184,15 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
     domainList = name.split(',').map(d => d.trim()).filter(Boolean);
   }
 
-  if (domainList.length === 0) {
-    return [];
-  }
+  if (domainList.length === 0) return [];
+  if (!hasConfig()) return Promise.all(domainList.map(d => checkDomain(d)));
 
-  if (!hasConfig()) {
-    return Promise.all(domainList.map(d => checkDomain(d)));
-  }
+  // Fetch pricing once before the availability checks
+  const livePrices = await getPricing();
 
   const maxPerRequest = 50;
   const results = [];
+
   for (let i = 0; i < domainList.length; i += maxPerRequest) {
     const chunk = domainList.slice(i, i + maxPerRequest);
     const params = buildParams({
@@ -127,34 +200,32 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
       DomainList: chunk.join(',')
     });
     const qs = new URLSearchParams(params).toString();
+
     try {
       const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 20000 });
       const parsed = await parseXml(response.data);
       const apiResponse = parsed?.ApiResponse;
-      const status = apiResponse?.$?.Status;
 
-      if (status !== 'OK') {
+      if (apiResponse?.$?.Status !== 'OK') {
         chunk.forEach(d => {
-          results.push({
-            domain: d,
-            available: false,
-            price: getDefaultPrice(extractTLD(d)),
-            error: 'Namecheap check failed'
-          });
+          const tld = extractTLD(d);
+          results.push({ domain: d, available: false, price: livePrices[tld] ?? getDefaultPrice(tld), error: 'Namecheap check failed' });
         });
         continue;
       }
 
-      const commandResponse = apiResponse?.CommandResponse?.[0];
-      const items = commandResponse?.DomainCheckResult || [];
+      const items = apiResponse?.CommandResponse?.[0]?.DomainCheckResult || [];
       for (let j = 0; j < items.length; j++) {
         const attrs = items[j].$ || {};
         const available = attrs.Available === 'true';
+        const tld = extractTLD(attrs.Domain || chunk[j]);
         const isPremium = attrs.IsPremiumName === 'true';
-        const premiumPrice = parseFloat(attrs.PremiumRegistrationPrice || '0', 10);
-        const price = available && isPremium && premiumPrice > 0
-          ? premiumPrice
-          : getDefaultPrice(extractTLD(attrs.Domain || chunk[j]));
+        const premiumUsd = parseFloat(attrs.PremiumRegistrationPrice || '0');
+
+        const price = isPremium && premiumUsd > 0
+          ? usdToGhs(premiumUsd)
+          : (livePrices[tld] ?? getDefaultPrice(tld));
+
         results.push({
           domain: (attrs.Domain || chunk[j]).trim().toLowerCase(),
           available,
@@ -163,12 +234,8 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
       }
     } catch (err) {
       chunk.forEach(d => {
-        results.push({
-          domain: d,
-          available: false,
-          price: getDefaultPrice(extractTLD(d)),
-          error: err.message || 'Namecheap check failed'
-        });
+        const tld = extractTLD(d);
+        results.push({ domain: d, available: false, price: livePrices[tld] ?? getDefaultPrice(tld), error: err.message });
       });
     }
   }
@@ -178,10 +245,6 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
 
 /**
  * Register a domain via Namecheap
- * @param {string} domain - Domain to register
- * @param {number} years - Registration years (1–10)
- * @param {Object} registrant - RegistrantInfo: firstName, lastName, email, phone, address, city, country, postalCode
- * @returns {Promise<{ success: boolean, error?: string }>}
  */
 async function registerDomain(domain, years, registrant) {
   if (!hasConfig()) {
@@ -189,62 +252,42 @@ async function registerDomain(domain, years, registrant) {
   }
 
   const {
-    firstName = '',
-    lastName = '',
-    email = '',
-    phone = '',
-    address = '',
-    city = '',
-    country = 'GH',
-    postalCode = '00233'
+    firstName = '', lastName = '', email = '', phone = '',
+    address = '', city = '', country = 'GH', postalCode = '00233'
   } = registrant || {};
+
+  const contact = {
+    [`Registrant.FirstName`]: firstName, [`Registrant.LastName`]: lastName,
+    [`Registrant.EmailAddress`]: email, [`Registrant.Phone`]: phone,
+    [`Registrant.Address1`]: address, [`Registrant.City`]: city,
+    [`Registrant.Country`]: country, [`Registrant.PostalCode`]: postalCode,
+    [`Tech.FirstName`]: firstName, [`Tech.LastName`]: lastName,
+    [`Tech.EmailAddress`]: email, [`Tech.Phone`]: phone,
+    [`Tech.Address1`]: address, [`Tech.City`]: city,
+    [`Tech.Country`]: country, [`Tech.PostalCode`]: postalCode,
+    [`Admin.FirstName`]: firstName, [`Admin.LastName`]: lastName,
+    [`Admin.EmailAddress`]: email, [`Admin.Phone`]: phone,
+    [`Admin.Address1`]: address, [`Admin.City`]: city,
+    [`Admin.Country`]: country, [`Admin.PostalCode`]: postalCode,
+    [`AuxBilling.FirstName`]: firstName, [`AuxBilling.LastName`]: lastName,
+    [`AuxBilling.EmailAddress`]: email, [`AuxBilling.Phone`]: phone,
+    [`AuxBilling.Address1`]: address, [`AuxBilling.City`]: city,
+    [`AuxBilling.Country`]: country, [`AuxBilling.PostalCode`]: postalCode,
+  };
 
   try {
     const params = buildParams({
       Command: 'namecheap.domains.create',
       DomainName: domain.trim().toLowerCase(),
       Years: Math.min(10, Math.max(1, Number(years) || 1)),
-      'Registrant.FirstName': firstName,
-      'Registrant.LastName': lastName,
-      'Registrant.EmailAddress': email,
-      'Registrant.Phone': phone,
-      'Registrant.Address1': address,
-      'Registrant.City': city,
-      'Registrant.Country': country,
-      'Registrant.PostalCode': postalCode,
-      'Tech.FirstName': firstName,
-      'Tech.LastName': lastName,
-      'Tech.EmailAddress': email,
-      'Tech.Phone': phone,
-      'Tech.Address1': address,
-      'Tech.City': city,
-      'Tech.Country': country,
-      'Tech.PostalCode': postalCode,
-      'Admin.FirstName': firstName,
-      'Admin.LastName': lastName,
-      'Admin.EmailAddress': email,
-      'Admin.Phone': phone,
-      'Admin.Address1': address,
-      'Admin.City': city,
-      'Admin.Country': country,
-      'Admin.PostalCode': postalCode,
-      'AuxBilling.FirstName': firstName,
-      'AuxBilling.LastName': lastName,
-      'AuxBilling.EmailAddress': email,
-      'AuxBilling.Phone': phone,
-      'AuxBilling.Address1': address,
-      'AuxBilling.City': city,
-      'AuxBilling.Country': country,
-      'AuxBilling.PostalCode': postalCode
+      ...contact
     });
-
     const qs = new URLSearchParams(params).toString();
     const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 30000 });
     const parsed = await parseXml(response.data);
     const apiResponse = parsed?.ApiResponse;
-    const status = apiResponse?.$?.Status;
 
-    if (status !== 'OK') {
+    if (apiResponse?.$?.Status !== 'OK') {
       const errors = apiResponse?.Errors?.[0]?.Error;
       const errMsg = Array.isArray(errors)
         ? (errors[0]?.$?.['Description'] || errors[0]?._)?.trim()
@@ -254,16 +297,8 @@ async function registerDomain(domain, years, registrant) {
 
     return { success: true };
   } catch (err) {
-    return {
-      success: false,
-      error: err.response?.data || err.message || 'Domain registration failed'
-    };
+    return { success: false, error: err.message || 'Domain registration failed' };
   }
 }
 
-module.exports = {
-  checkDomain,
-  checkMultipleDomains,
-  registerDomain,
-  hasConfig
-};
+module.exports = { checkDomain, checkMultipleDomains, registerDomain, getPricing, hasConfig };
