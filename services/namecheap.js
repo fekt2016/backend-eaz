@@ -221,6 +221,7 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
       }
 
       const items = apiResponse?.CommandResponse?.[0]?.DomainCheckResult || [];
+      console.log(`[Namecheap] domains.check — ${items.length} results:`, items.map(i => `${i?.$?.Domain}=${i?.$?.Available}`));
       for (let j = 0; j < items.length; j++) {
         const attrs = items[j].$ || {};
         const available = attrs.Available === 'true';
