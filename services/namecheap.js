@@ -113,7 +113,7 @@ async function getPricing() {
  */
 async function getTldPrice(tld) {
   const prices = await getPricing();
-  return prices[tld] ?? getDefaultPrice(tld);
+  return prices[tld] ?? null;
 }
 
 /**
@@ -121,11 +121,7 @@ async function getTldPrice(tld) {
  */
 async function checkDomain(domain) {
   if (!hasConfig()) {
-    return {
-      domain: domain.trim().toLowerCase(),
-      available: false,
-      price: getDefaultPrice(extractTLD(domain))
-    };
+    return { domain: domain.trim().toLowerCase(), available: false, price: null };
   }
 
   try {
@@ -217,8 +213,7 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
         const errMsg = Array.isArray(errors) ? errors[0]?._ : errors?._;
         console.warn(`[Namecheap] domains.check ERROR: ${errMsg || apiResponse?.$?.Status}`);
         chunk.forEach(d => {
-          const tld = extractTLD(d);
-          results.push({ domain: d, available: false, price: livePrices[tld] ?? getDefaultPrice(tld), error: errMsg || 'Namecheap check failed' });
+          results.push({ domain: d, available: false, price: null, error: errMsg || 'Namecheap check failed' });
         });
         continue;
       }
@@ -234,7 +229,7 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
 
         const price = isPremium && premiumUsd > 0
           ? usdToGhs(premiumUsd)
-          : (livePrices[tld] ?? getDefaultPrice(tld));
+          : (livePrices[tld] ?? null);
 
         results.push({
           domain: (attrs.Domain || chunk[j]).trim().toLowerCase(),
