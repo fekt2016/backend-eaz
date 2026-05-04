@@ -457,15 +457,14 @@ const searchDomain = async (req, res, next) => {
     const results = await namecheap.checkMultipleDomains(baseName, tlds);
     const exact = results.find(r => r.domain === normalizedDomain);
     const available = exact ? exact.available : false;
-    const price = exact && exact.available ? exact.price : null;
-    const suggestions = results.map(r => r.domain);
+    const price = exact ? exact.price : null;
 
     const response = {
       domain: normalizedDomain,
       available,
       registered: !available,
       price,
-      suggestions,
+      results,
     };
 
     res.status(200).json(response);
