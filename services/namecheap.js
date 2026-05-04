@@ -213,9 +213,12 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
       const apiResponse = parsed?.ApiResponse;
 
       if (apiResponse?.$?.Status !== 'OK') {
+        const errors = apiResponse?.Errors?.[0]?.Error;
+        const errMsg = Array.isArray(errors) ? errors[0]?._ : errors?._;
+        console.warn(`[Namecheap] domains.check ERROR: ${errMsg || apiResponse?.$?.Status}`);
         chunk.forEach(d => {
           const tld = extractTLD(d);
-          results.push({ domain: d, available: false, price: livePrices[tld] ?? getDefaultPrice(tld), error: 'Namecheap check failed' });
+          results.push({ domain: d, available: false, price: livePrices[tld] ?? getDefaultPrice(tld), error: errMsg || 'Namecheap check failed' });
         });
         continue;
       }
