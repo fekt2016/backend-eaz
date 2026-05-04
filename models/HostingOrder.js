@@ -74,6 +74,30 @@ const hostingOrderSchema = new mongoose.Schema({
   proofUploadedAt: {
     type: Date,
     default: null
+  },
+  domain: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    default: null
+  },
+  provisioningStatus: {
+    type: String,
+    enum: ['pending', 'provisioned', 'failed', 'skipped'],
+    default: 'pending'
+  },
+  provisionedAt: {
+    type: Date,
+    default: null
+  },
+  cpanelUsername: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  provisioningError: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true

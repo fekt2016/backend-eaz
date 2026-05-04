@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const DomainOrder = require('../models/DomainOrder');
 const HostingOrder = require('../models/HostingOrder');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
+const { provisionHostingAccount } = require('../utils/provisionHosting');
 const namecheap = require('../services/namecheap');
 
 /**
@@ -36,6 +37,7 @@ const handlePaystackWebhook = async (req, res) => {
       hostingOrder.paidAt = new Date();
       await hostingOrder.save();
       sendPaymentReceived(hostingOrder).catch(() => {});
+      provisionHostingAccount(hostingOrder).catch(() => {});
       return res.status(200).json({ received: true });
     }
 

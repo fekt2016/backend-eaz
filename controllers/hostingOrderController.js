@@ -5,6 +5,7 @@ const HostingOrder = require('../models/HostingOrder');
 const { getPlanPrice, HOSTING_PLANS } = require('../config/hostingPlans');
 const { cloudinary } = require('../config/cloudinary');
 const { sendOrderConfirmation, sendPaymentReceived } = require('../utils/hostingEmail');
+const { provisionHostingAccount } = require('../utils/provisionHosting');
 const { buildInvoiceBuffer } = require('../utils/hostingInvoice');
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
@@ -45,7 +46,7 @@ const createOrder = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
 
-    const { planType, tier, billingCycle, addons = [], customer, paymentMethod, mobileNumber, network } = req.body;
+    const { planType, tier, billingCycle, addons = [], customer, paymentMethod, mobileNumber, network, domain } = req.body;
 
     if (!planType || !tier || !billingCycle || !customer?.name || !customer?.email) {
       return res.status(400).json({
@@ -79,7 +80,8 @@ const createOrder = async (req, res, next) => {
       amount: totalAmount,
       currency: 'GHS',
       status: 'pending',
-      paymentMethod: paymentMethod || 'bank_transfer'
+      paymentMethod: paymentMethod || 'bank_transfer',
+      ...(domain && { domain: domain.trim().toLowerCase().replace(/^https?:\/\//, '') })
     };
 
     const isPaystack = paymentMethod === 'paystack_card' || paymentMethod === 'mobile_money';
@@ -285,6 +287,7 @@ const updateOrderStatus = async (req, res, next) => {
     await order.save();
     if (status === 'paid') {
       sendPaymentReceived(order).catch(() => {});
+      provisionHostingAccount(order).catch(() => {});
     }
     return res.status(200).json({ success: true, data: order });
   } catch (err) {

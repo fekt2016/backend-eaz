@@ -61,7 +61,43 @@ async function sendPaymentReceived(order) {
   }
 }
 
+async function sendHostingCredentials(order, { username, password, domain }) {
+  if (!resend || !order?.customer?.email) return;
+  const cpanelUrl = `https://${domain}:2083`;
+  const planLabel = `${order.planType} ${order.tier}`;
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: [order.customer.email],
+      subject: 'Your EazWorld hosting account is ready',
+      html: `
+        <h2>Your hosting account is active!</h2>
+        <p>Hi ${order.customer?.name || 'there'},</p>
+        <p>Your <strong>${planLabel}</strong> hosting account has been set up. Here are your login details:</p>
+        <table style="border-collapse:collapse;width:100%;font-size:14px;margin:16px 0;">
+          <tr><td style="padding:8px;color:#6b7280;width:140px;">cPanel URL</td><td style="padding:8px;"><a href="${cpanelUrl}">${cpanelUrl}</a></td></tr>
+          <tr><td style="padding:8px;color:#6b7280;">Username</td><td style="padding:8px;"><strong>${username}</strong></td></tr>
+          <tr><td style="padding:8px;color:#6b7280;">Password</td><td style="padding:8px;"><strong>${password}</strong></td></tr>
+          <tr><td style="padding:8px;color:#6b7280;">Primary domain</td><td style="padding:8px;">${domain}</td></tr>
+        </table>
+        <p style="color:#dc2626;font-size:13px;"><strong>Important:</strong> Please log in and change your password immediately.</p>
+        <p>
+          <a href="${cpanelUrl}"
+             style="display:inline-block;padding:12px 24px;background:#111827;color:#fff;border-radius:50px;text-decoration:none;font-weight:600;">
+            Log in to cPanel →
+          </a>
+        </p>
+        <p style="color:#6b7280;font-size:13px;">Need help? Reply to this email and our support team will assist you.</p>
+        <p>— The EazWorld Team</p>
+      `
+    });
+  } catch (err) {
+    console.error('[hostingEmail] Credentials send failed:', err.message);
+  }
+}
+
 module.exports = {
   sendOrderConfirmation,
-  sendPaymentReceived
+  sendPaymentReceived,
+  sendHostingCredentials
 };
