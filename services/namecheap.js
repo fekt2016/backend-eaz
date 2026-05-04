@@ -5,24 +5,23 @@ const { extractTLD, getDefaultPrice } = require('../utils/domainHelper');
 
 const parseXml = promisify(parseString);
 
-const NAMECHEAP_API_USER = process.env.NAMECHEAP_API_USER;
-const NAMECHEAP_API_KEY = process.env.NAMECHEAP_API_KEY;
-const NAMECHEAP_CLIENT_IP = process.env.NAMECHEAP_CLIENT_IP;
-const SANDBOX = process.env.NAMECHEAP_SANDBOX === 'true' || process.env.NAMECHEAP_SANDBOX === '1';
-const BASE_URL = SANDBOX
-  ? 'https://api.sandbox.namecheap.com/xml.response'
-  : 'https://api.namecheap.com/xml.response';
-
 function hasConfig() {
-  return !!(NAMECHEAP_API_USER && NAMECHEAP_API_KEY && NAMECHEAP_CLIENT_IP);
+  return !!(process.env.NAMECHEAP_API_USER && process.env.NAMECHEAP_API_KEY && process.env.NAMECHEAP_CLIENT_IP);
+}
+
+function getBaseUrl() {
+  const sandbox = process.env.NAMECHEAP_SANDBOX === 'true' || process.env.NAMECHEAP_SANDBOX === '1';
+  return sandbox
+    ? 'https://api.sandbox.namecheap.com/xml.response'
+    : 'https://api.namecheap.com/xml.response';
 }
 
 function buildParams(extra = {}) {
   return {
-    ApiUser: NAMECHEAP_API_USER,
-    ApiKey: NAMECHEAP_API_KEY,
-    UserName: NAMECHEAP_API_USER,
-    ClientIp: NAMECHEAP_CLIENT_IP,
+    ApiUser: process.env.NAMECHEAP_API_USER,
+    ApiKey: process.env.NAMECHEAP_API_KEY,
+    UserName: process.env.NAMECHEAP_API_USER,
+    ClientIp: process.env.NAMECHEAP_CLIENT_IP,
     ...extra
   };
 }
@@ -47,7 +46,7 @@ async function checkDomain(domain) {
       DomainList: domain.trim().toLowerCase()
     });
     const qs = new URLSearchParams(params).toString();
-    const response = await axios.get(`${BASE_URL}?${qs}`, { timeout: 15000 });
+    const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 15000 });
     const parsed = await parseXml(response.data);
     const apiResponse = parsed?.ApiResponse;
     const status = apiResponse?.$?.Status;
@@ -129,7 +128,7 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
     });
     const qs = new URLSearchParams(params).toString();
     try {
-      const response = await axios.get(`${BASE_URL}?${qs}`, { timeout: 20000 });
+      const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 20000 });
       const parsed = await parseXml(response.data);
       const apiResponse = parsed?.ApiResponse;
       const status = apiResponse?.$?.Status;
@@ -240,7 +239,7 @@ async function registerDomain(domain, years, registrant) {
     });
 
     const qs = new URLSearchParams(params).toString();
-    const response = await axios.get(`${BASE_URL}?${qs}`, { timeout: 30000 });
+    const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 30000 });
     const parsed = await parseXml(response.data);
     const apiResponse = parsed?.ApiResponse;
     const status = apiResponse?.$?.Status;
