@@ -445,7 +445,6 @@ const searchDomain = async (req, res, next) => {
 
     const normalizedDomain = normalizeDomain(domain);
     const baseName = extractSLD(normalizedDomain);
-    const tlds = ['.com', '.net', '.org', '.io', '.africa', '.com.gh', '.gh'];
 
     if (!namecheap.hasConfig()) {
       return res.status(503).json({
@@ -454,7 +453,12 @@ const searchDomain = async (req, res, next) => {
       });
     }
 
-    const results = await namecheap.checkMultipleDomains(baseName, tlds);
+    // Only check TLDs that Namecheap actually sells
+    const allPrices = await namecheap.getPricing();
+    const wantedTlds = ['.com', '.net', '.org', '.io', '.co', '.online', '.tech', '.xyz', '.info', '.biz', '.me'];
+    const tlds = wantedTlds.filter(t => allPrices[t]);
+
+    const results = await namecheap.checkMultipleDomains(baseName, tlds.length > 0 ? tlds : wantedTlds);
     const exact = results.find(r => r.domain === normalizedDomain);
     const available = exact ? exact.available : false;
     const price = exact ? exact.price : null;
