@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const Paystack = require('@paystack/paystack-sdk');
 const DomainOrder = require('../models/DomainOrder');
-const { validateDomain, extractTLD, generateFallbackSuggestions, getDefaultPrice, normalizeDomain } = require('../utils/domainHelper');
+const { validateDomain, extractTLD, extractSLD, generateFallbackSuggestions, getDefaultPrice, normalizeDomain } = require('../utils/domainHelper');
 const namecheap = require('../services/namecheap');
 
 // Paystack initialization (secret key: PAYSTACK_SECRET or PAYSTACK_KEY)
@@ -444,8 +444,7 @@ const searchDomain = async (req, res, next) => {
     }
 
     const normalizedDomain = normalizeDomain(domain);
-    const tld = extractTLD(normalizedDomain);
-    const baseName = normalizedDomain.replace(tld, '').replace(/\.$/, '');
+    const baseName = extractSLD(normalizedDomain);
     const tlds = ['.com', '.net', '.org', '.io', '.africa', '.com.gh', '.gh'];
 
     if (!namecheap.hasConfig()) {

@@ -26,12 +26,12 @@ const validateEnv = () => {
 
   // Optional: Warn about recommended variables
   const recommendedVars = [
-    'PAYSTACK_KEY',
     'PAYSTACK_SECRET',
-    'GO_KEY',
-    'GO_SECRET',
-    'DOMAINR_API_KEY',
-    'WHOIS_API_KEY',
+    'RESEND_API_KEY',
+    'CLOUDINARY_CLOUD_NAME',
+    'NAMECHEAP_API_USER',
+    'NAMECHEAP_API_KEY',
+    'NAMECHEAP_CLIENT_IP',
   ];
 
   const missingRecommended = recommendedVars.filter(varName => !process.env[varName]);
