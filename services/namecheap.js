@@ -63,13 +63,19 @@ async function getPricing() {
     const parsed = await parseXml(response.data);
 
     const apiResponse = parsed?.ApiResponse;
-    if (apiResponse?.$?.Status !== 'OK') {
-      console.warn('⚠️  Namecheap getPricing returned non-OK status');
+    const status = apiResponse?.$?.Status;
+    console.log(`[Namecheap] getPricing status: ${status}`);
+
+    if (status !== 'OK') {
+      const errors = apiResponse?.Errors?.[0]?.Error;
+      const errMsg = Array.isArray(errors) ? errors[0]?._ : errors?._;
+      console.warn(`⚠️  Namecheap getPricing failed: ${errMsg || 'non-OK status'}`);
       return priceCache.data || {};
     }
 
     const pricing = {};
     const productTypes = apiResponse?.CommandResponse?.[0]?.UserGetPricingResult?.[0]?.ProductType || [];
+    console.log(`[Namecheap] ProductType entries: ${productTypes.length}`);
 
     for (const pt of productTypes) {
       const categories = pt.ProductCategory || [];
