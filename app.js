@@ -20,6 +20,7 @@ const projectRoutes = require('./routes/projectRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const domainRoutes = require('./routes/domainRoutes');
 const hostingOrderRoutes = require('./routes/hostingOrderRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
 
@@ -36,6 +37,11 @@ console.log(`\n🚀 [EazWorld API] Starting server in ${ENV.toUpperCase()} mode`
 app.use(helmet()); // secure HTTP headers
 app.use(xss()); // prevent XSS
 app.use(mongoSanitize()); // sanitize query/body from NoSQL injection
+
+// ────────────────────────────────────────────────
+// 🪝 Webhook Routes (raw body — must come before JSON parser)
+// ────────────────────────────────────────────────
+app.use('/api/webhooks', webhookRoutes);
 
 // ────────────────────────────────────────────────
 // ⚙️ Body Parsing & Cookies

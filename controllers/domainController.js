@@ -1,8 +1,6 @@
 const crypto = require('crypto');
 const Paystack = require('@paystack/paystack-sdk');
 const DomainOrder = require('../models/DomainOrder');
-const HostingOrder = require('../models/HostingOrder');
-const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { validateDomain, extractTLD, generateFallbackSuggestions, getDefaultPrice, normalizeDomain } = require('../utils/domainHelper');
 const namecheap = require('../services/namecheap');
 
@@ -285,75 +283,6 @@ const createDomainPayment = async (req, res, next) => {
 };
 
 /**
- * Handle Paystack webhook
- */
-const handlePaystackWebhook = async (req, res, next) => {
-  if (!paystack) {
-    return res.status(500).json({ error: 'Paystack is not configured' });
-  }
-
-  try {
-    const hash = crypto
-      .createHmac('sha512', process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY || '')
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-
-    if (hash !== req.headers['x-paystack-signature']) {
-      return res.status(400).json({ error: 'Invalid signature' });
-    }
-
-    const event = req.body;
-
-    if (event.event === 'charge.success') {
-      const { reference } = event.data;
-
-      const hostingOrder = await HostingOrder.findOne({ paystackReference: reference });
-      if (hostingOrder) {
-        hostingOrder.status = 'paid';
-        hostingOrder.paidAt = new Date();
-        await hostingOrder.save();
-        sendPaymentReceived(hostingOrder).catch(() => {});
-        return res.status(200).json({ received: true });
-      }
-
-      const order = await DomainOrder.findOne({ paystackReference: reference });
-
-      if (order) {
-        order.status = 'completed';
-        order.paidAt = new Date();
-        await order.save();
-
-        if (namecheap.hasConfig() && order.registrantInfo) {
-          const regResult = await namecheap.registerDomain(
-            order.domain,
-            order.years || 1,
-            {
-              firstName: order.registrantInfo.firstName || order.customerName?.split(' ')[0] || '',
-              lastName: order.registrantInfo.lastName || order.customerName?.split(' ').slice(1).join(' ') || '',
-              email: order.email,
-              phone: order.phone || '',
-              address: order.registrantInfo.address || '',
-              city: order.registrantInfo.city || '',
-              country: order.registrantInfo.country || 'GH',
-              postalCode: order.registrantInfo.postalCode || '00233'
-            }
-          );
-          if (!regResult.success) {
-            order.registrationError = regResult.error;
-            await order.save({ validateBeforeSave: false }).catch(() => {});
-          }
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    next(error);
-  }
-};
-
-/**
  * Get all domain orders
  */
 const getDomainOrders = async (req, res, next) => {
@@ -553,7 +482,6 @@ module.exports = {
   searchDomain,
   suggestDomain,
   createDomainPayment,
-  handlePaystackWebhook,
   getDomainOrders,
   getDomainOrder,
   updateOrderStatus,

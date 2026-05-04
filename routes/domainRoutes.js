@@ -6,7 +6,6 @@ const {
   searchDomain,
   suggestDomain,
   createDomainPayment,
-  handlePaystackWebhook,
   getDomainOrders,
   getDomainOrder,
   updateOrderStatus,
@@ -22,7 +21,6 @@ router.post('/check/batch', checkDomainBatch);
 router.post('/check-bulk', checkDomainBulk);
 
 router.post('/payment', createDomainPayment);
-router.post('/webhook', handlePaystackWebhook);
 
 router.get('/orders', protect, restrictTo('admin'), getDomainOrders);
 router.get('/orders/:id', getDomainOrder);
