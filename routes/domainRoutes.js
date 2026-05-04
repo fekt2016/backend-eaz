@@ -22,7 +22,7 @@ router.post('/check-bulk', checkDomainBulk);
 
 router.post('/payment', createDomainPayment);
 
-router.get('/orders', protect, restrictTo('admin'), getDomainOrders);
+router.get('/orders', protect, getDomainOrders);
 router.get('/orders/:id', getDomainOrder);
 router.patch('/orders/:id/status', protect, restrictTo('admin'), updateOrderStatus);
 

@@ -283,18 +283,19 @@ const createDomainPayment = async (req, res, next) => {
 };
 
 /**
- * Get all domain orders
+ * Get domain orders — admin sees all, regular users see only their own
  */
 const getDomainOrders = async (req, res, next) => {
   try {
-    const { status, email } = req.query;
-    
+    const { status } = req.query;
+    const isAdmin = req.user?.role === 'admin';
+
     const query = {};
+    if (!isAdmin) {
+      query.email = req.user.email;
+    }
     if (status) {
       query.status = status;
-    }
-    if (email) {
-      query.email = email;
     }
 
     const orders = await DomainOrder.find(query).sort({ createdAt: -1 });
