@@ -1,48 +1,40 @@
-const whm = require('../services/whm');
+const cyberpanel = require('../services/cyberpanel');
 const { sendHostingCredentials } = require('./hostingEmail');
 
-/**
- * Provision a cPanel account for a paid hosting order.
- * Updates the order in-place and saves it.
- * Only runs for shared/wordpress/email plan types — VPS/cloud are manual.
- *
- * @param {import('../models/HostingOrder')} order - Mongoose document
- */
 async function provisionHostingAccount(order) {
   const autoProvisionTypes = ['shared', 'wordpress', 'email'];
+
   if (!autoProvisionTypes.includes(order.planType)) {
     order.provisioningStatus = 'skipped';
     await order.save({ validateBeforeSave: false }).catch(() => {});
     return;
   }
 
-  if (!whm.hasConfig()) {
+  if (!cyberpanel.hasConfig()) {
     order.provisioningStatus = 'failed';
-    order.provisioningError = 'WHM not configured on server';
+    order.provisioningError = 'CyberPanel not configured on server';
     await order.save({ validateBeforeSave: false }).catch(() => {});
     return;
   }
 
-  const username = whm.generateUsername(order.customer.email);
-  const password = whm.generatePassword();
-  const domain = order.domain || `${username}.eazworld.com`;
-
-  const result = await whm.createAccount({
-    username,
-    domain,
-    password,
+  const result = await cyberpanel.createAccount({
     email: order.customer.email,
+    domain: order.domain || null,
     planType: order.planType,
     tier: order.tier,
   });
 
   if (result.success) {
-    order.cpanelUsername = username;
+    order.cpanelUsername = result.username;
     order.provisioningStatus = 'provisioned';
     order.provisionedAt = new Date();
     order.status = 'active';
     await order.save({ validateBeforeSave: false }).catch(() => {});
-    sendHostingCredentials(order, { username, password, domain }).catch(() => {});
+    sendHostingCredentials(order, {
+      username: result.username,
+      password: result.password,
+      domain: result.domain,
+    }).catch(() => {});
   } else {
     order.provisioningStatus = 'failed';
     order.provisioningError = result.error;
