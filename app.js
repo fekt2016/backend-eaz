@@ -21,6 +21,7 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const domainRoutes = require('./routes/domainRoutes');
 const hostingOrderRoutes = require('./routes/hostingOrderRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 
@@ -51,8 +52,25 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // ────────────────────────────────────────────────
-// 🔒 Rate Limiting
+// 🌍 CORS Configuration
 // ────────────────────────────────────────────────
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_URL,
+  'http://localhost:3000',  // Next.js default
+  'http://localhost:5173',  // Vite default
+].filter(Boolean);
+const corsOrigin = allowedOrigins.length > 0 ? allowedOrigins : ['http://localhost:3000', 'http://localhost:5173'];
+console.log(`✅ Allowed CORS origins: ${corsOrigin.join(', ')}`);
+app.use(cors({
+  origin: corsOrigin,
+  credentials: true,
+}));
+
+// ────────────────────────────────────────────────
+// 🔒 Rate Limiting (Temporarily Disabled)
+// ────────────────────────────────────────────────
+/*
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
   max: 100, // 100 requests per window
@@ -77,22 +95,8 @@ const forgotLimiter = rateLimit({
 });
 app.use('/api/v1/auth/login', authLimiter);
 app.use('/api/v1/auth/forgot-password', forgotLimiter);
+*/
 
-// ────────────────────────────────────────────────
-// 🌍 CORS Configuration
-// ────────────────────────────────────────────────
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.CLIENT_URL,
-  'http://localhost:3000',  // Next.js default
-  'http://localhost:5173',  // Vite default
-].filter(Boolean);
-const corsOrigin = allowedOrigins.length > 0 ? allowedOrigins : ['http://localhost:3000', 'http://localhost:5173'];
-console.log(`✅ Allowed CORS origins: ${corsOrigin.join(', ')}`);
-app.use(cors({
-  origin: corsOrigin,
-  credentials: true,
-}));
 
 // ────────────────────────────────────────────────
 // 📝 Logging (only in development)
@@ -110,6 +114,7 @@ app.use('/api/v1/projects', projectRoutes);
 app.use('/api/v1/uploads', uploadRoutes);
 app.use('/api/v1/domain', domainRoutes);
 app.use('/api/v1/hosting', hostingOrderRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // ────────────────────────────────────────────────
 // 🩺 Health Check Route (includes DB connection status)

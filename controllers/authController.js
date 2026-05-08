@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const User = require('../models/User');
+const { protect, restrictTo } = require('../middleware/auth');
 const { sendWelcomeEmail, sendPasswordResetEmail } = require('../utils/email');
 
 const getCookieMaxAge = () => {
@@ -215,11 +216,24 @@ const getMe = async (req, res) => {
   });
 };
 
+const getAllUsers = async (req, res, next) => {
+  try {
+    const users = await User.find().sort({ createdAt: -1 });
+    res.status(200).json({
+      success: true,
+      data: users
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   register,
   login,
   logout,
   forgotPassword,
   resetPassword,
-  getMe
+  getMe,
+  getAllUsers
 };

@@ -1,4 +1,5 @@
 const { Resend } = require('resend');
+const EmailLog = require('../models/EmailLog');
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM = process.env.EMAIL_FROM || 'EazWorld <onboarding@resend.dev>';
@@ -35,41 +36,66 @@ function buildPaymentReceivedHtml(order) {
 
 async function sendOrderConfirmation(order) {
   if (!resend || !order?.customer?.email) return;
+  const subject = `Hosting order received – ${order.planType} ${order.tier}`;
   try {
-    await resend.emails.send({
-      from: FROM,
-      to: [order.customer.email],
-      subject: `Hosting order received – ${order.planType} ${order.tier}`,
-      html: buildOrderConfirmationHtml(order)
-    });
+    await resend.emails.send({ from: FROM, to: [order.customer.email], subject, html: buildOrderConfirmationHtml(order) });
+    EmailLog.create({ to: order.customer.email, subject, type: 'order_confirmation', status: 'sent', orderId: order._id }).catch(() => {});
   } catch (err) {
     console.error('[hostingEmail] Order confirmation send failed:', err.message);
+    EmailLog.create({ to: order.customer.email, subject, type: 'order_confirmation', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
   }
 }
 
 async function sendPaymentReceived(order) {
   if (!resend || !order?.customer?.email) return;
+  const subject = `Payment received – your hosting order`;
   try {
-    await resend.emails.send({
-      from: FROM,
-      to: [order.customer.email],
-      subject: `Payment received – your hosting order`,
-      html: buildPaymentReceivedHtml(order)
-    });
+    await resend.emails.send({ from: FROM, to: [order.customer.email], subject, html: buildPaymentReceivedHtml(order) });
+    EmailLog.create({ to: order.customer.email, subject, type: 'payment_received', status: 'sent', orderId: order._id }).catch(() => {});
   } catch (err) {
     console.error('[hostingEmail] Payment received send failed:', err.message);
+    EmailLog.create({ to: order.customer.email, subject, type: 'payment_received', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
   }
 }
 
 async function sendHostingCredentials(order, { username, password, domain }) {
   if (!resend || !order?.customer?.email) return;
-  const cpanelUrl = `https://${domain}:2083`;
+  const cpanelUrl = process.env.CPANEL_URL || `https://${domain}:2083`;
   const planLabel = `${order.planType} ${order.tier}`;
+  const ns1 = process.env.NAMESERVER_1 || 'ns1.eazworld.com';
+  const ns2 = process.env.NAMESERVER_2 || 'ns2.eazworld.com';
+
+  // A temp domain looks like "username.eazworld.com" — if the customer provided
+  // their own domain, show nameserver setup instructions.
+  const isTempDomain = domain.endsWith('.eazworld.com') && domain.split('.').length === 3;
+  const nameserverSection = isTempDomain ? '' : `
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px;margin:24px 0;">
+      <p style="margin:0 0 8px;font-weight:600;color:#92400e;">📡 Point your domain to EazWorld</p>
+      <p style="margin:0 0 12px;font-size:13px;color:#78350f;">
+        Log in to your domain registrar and update your nameservers to the following:
+      </p>
+      <table style="border-collapse:collapse;font-size:14px;width:100%;">
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;">Nameserver 1</td>
+          <td style="padding:6px 0;font-family:monospace;font-weight:700;color:#111827;">${ns1}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;">Nameserver 2</td>
+          <td style="padding:6px 0;font-family:monospace;font-weight:700;color:#111827;">${ns2}</td>
+        </tr>
+      </table>
+      <p style="margin:12px 0 0;font-size:12px;color:#92400e;">
+        DNS changes can take up to 24–48 hours to propagate worldwide. Your cPanel is already active — you can log in now using the server URL above.
+      </p>
+    </div>
+  `;
+
+  const subject = 'Your EazWorld hosting account is ready';
   try {
     await resend.emails.send({
       from: FROM,
       to: [order.customer.email],
-      subject: 'Your EazWorld hosting account is ready',
+      subject,
       html: `
         <h2>Your hosting account is active!</h2>
         <p>Hi ${order.customer?.name || 'there'},</p>
@@ -81,6 +107,7 @@ async function sendHostingCredentials(order, { username, password, domain }) {
           <tr><td style="padding:8px;color:#6b7280;">Primary domain</td><td style="padding:8px;">${domain}</td></tr>
         </table>
         <p style="color:#dc2626;font-size:13px;"><strong>Important:</strong> Please log in and change your password immediately.</p>
+        ${nameserverSection}
         <p>
           <a href="${cpanelUrl}"
              style="display:inline-block;padding:12px 24px;background:#111827;color:#fff;border-radius:50px;text-decoration:none;font-weight:600;">
@@ -91,8 +118,10 @@ async function sendHostingCredentials(order, { username, password, domain }) {
         <p>— The EazWorld Team</p>
       `
     });
+    EmailLog.create({ to: order.customer.email, subject, type: 'hosting_credentials', status: 'sent', orderId: order._id, meta: { username, domain } }).catch(() => {});
   } catch (err) {
     console.error('[hostingEmail] Credentials send failed:', err.message);
+    EmailLog.create({ to: order.customer.email, subject, type: 'hosting_credentials', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
   }
 }
 

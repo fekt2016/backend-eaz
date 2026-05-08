@@ -81,10 +81,66 @@ const hostingOrderSchema = new mongoose.Schema({
     lowercase: true,
     default: null
   },
+  // 'new'  = register domain for customer (bundled into this order)
+  // 'own'  = customer already owns it, needs to update nameservers manually
+  // 'skip' = no domain attached yet
+  domainMode: {
+    type: String,
+    enum: ['new', 'own', 'skip'],
+    default: 'skip'
+  },
+  domainRegistrationFee: {
+    type: Number,
+    default: 0
+  },
+  domainRegistrationYears: {
+    type: Number,
+    default: 1
+  },
+  domainRegistered: {
+    type: Boolean,
+    default: false
+  },
+  domainRegistrationError: {
+    type: String,
+    default: null
+  },
+  // Subscription lifecycle
+  expiresAt: {
+    type: Date,
+    default: null
+  },
+  renewedAt: {
+    type: Date,
+    default: null
+  },
+  // 'none' | 'sent_30d' | 'sent_7d' | 'sent_1d'
+  renewalReminderSent: {
+    type: String,
+    enum: ['none', 'sent_30d', 'sent_7d', 'sent_1d'],
+    default: 'none'
+  },
+  // Link to the renewal order that extended this subscription
+  renewalOrderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'HostingOrder',
+    default: null
+  },
+  // If this order IS a renewal, link back to the original
+  parentOrderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'HostingOrder',
+    default: null
+  },
+
   provisioningStatus: {
     type: String,
-    enum: ['pending', 'provisioned', 'failed', 'skipped'],
-    default: 'pending'
+    enum: ['not_started', 'pending', 'provisioned', 'failed', 'skipped'],
+    default: 'not_started'
+  },
+  provisioningStartedAt: {
+    type: Date,
+    default: null
   },
   provisionedAt: {
     type: Date,
@@ -106,5 +162,6 @@ const hostingOrderSchema = new mongoose.Schema({
 hostingOrderSchema.index({ user: 1, createdAt: -1 });
 hostingOrderSchema.index({ status: 1 });
 hostingOrderSchema.index({ paystackReference: 1 }, { sparse: true });
+hostingOrderSchema.index({ expiresAt: 1, status: 1 }); // for renewal reminders & expiry checks
 
 module.exports = mongoose.model('HostingOrder', hostingOrderSchema);

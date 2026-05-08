@@ -5,9 +5,10 @@ const {
   logout,
   forgotPassword,
   resetPassword,
-  getMe
+  getMe,
+  getAllUsers
 } = require('../controllers/authController');
-const { protect } = require('../middleware/auth');
+const { protect, restrictTo } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -17,5 +18,6 @@ router.post('/logout', logout);
 router.post('/forgot-password', forgotPassword);
 router.patch('/reset-password/:token', resetPassword);
 router.get('/me', protect, getMe);
+router.get('/users', protect, restrictTo('admin'), getAllUsers);
 
 module.exports = router;

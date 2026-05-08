@@ -88,6 +88,16 @@ const startServer = async () => {
       console.log(`🚀 Server running on http://${HOST}:${PORT}`);
     });
 
+    // Run renewal job once at startup, then every 24 hours
+    try {
+      const { runRenewalJob } = require('./utils/renewalJob');
+      runRenewalJob().catch(() => {});
+      setInterval(() => runRenewalJob().catch(() => {}), 24 * 60 * 60 * 1000);
+      console.log('🔄 Renewal job scheduled (runs every 24h)');
+    } catch (err) {
+      console.warn('⚠️  Renewal job could not be loaded:', err.message);
+    }
+
     // Initialize Socket.io (optional - only if socket server exists)
     try {
       const { initializeSocket } = require("./socket/socketServer");

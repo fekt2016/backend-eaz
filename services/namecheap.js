@@ -249,9 +249,14 @@ async function checkMultipleDomains(name, tlds = ['.com', '.net', '.org', '.io',
 }
 
 /**
- * Register a domain via Namecheap
+ * Register a domain via Namecheap.
+ * @param {string} domain
+ * @param {number} years
+ * @param {object} registrant
+ * @param {object} [options]
+ * @param {boolean} [options.useEazWorldNameservers] - If true, points domain to EazWorld hosting server automatically
  */
-async function registerDomain(domain, years, registrant) {
+async function registerDomain(domain, years, registrant, options = {}) {
   if (!hasConfig()) {
     return { success: false, error: 'Namecheap API not configured' };
   }
@@ -280,12 +285,24 @@ async function registerDomain(domain, years, registrant) {
     [`AuxBilling.Country`]: country, [`AuxBilling.PostalCode`]: postalCode,
   };
 
+  // If the customer also ordered hosting, automatically point the domain
+  // to EazWorld's cPanel server by setting custom nameservers at registration time.
+  const nameserverParams = {};
+  if (options.useEazWorldNameservers) {
+    const ns1 = process.env.NAMESERVER_1 || 'ns1.eazworld.com';
+    const ns2 = process.env.NAMESERVER_2 || 'ns2.eazworld.com';
+    nameserverParams.Nameserver1 = ns1;
+    nameserverParams.Nameserver2 = ns2;
+    console.log(`[Namecheap] Registering ${domain} with EazWorld nameservers: ${ns1}, ${ns2}`);
+  }
+
   try {
     const params = buildParams({
       Command: 'namecheap.domains.create',
       DomainName: domain.trim().toLowerCase(),
       Years: Math.min(10, Math.max(1, Number(years) || 1)),
-      ...contact
+      ...contact,
+      ...nameserverParams,
     });
     const qs = new URLSearchParams(params).toString();
     const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 30000 });
@@ -306,4 +323,45 @@ async function registerDomain(domain, years, registrant) {
   }
 }
 
-module.exports = { checkDomain, checkMultipleDomains, registerDomain, getPricing, hasConfig };
+/**
+ * Update nameservers for an already-registered domain to EazWorld's hosting server.
+ * Call this after hosting is provisioned for a domain that was registered without hosting.
+ * @param {string} domain - e.g. "mybusiness.com"
+ * @returns {Promise<{ success: boolean, error?: string }>}
+ */
+async function setEazWorldNameservers(domain) {
+  if (!hasConfig()) {
+    return { success: false, error: 'Namecheap API not configured' };
+  }
+
+  const ns1 = process.env.NAMESERVER_1 || 'ns1.eazworld.com';
+  const ns2 = process.env.NAMESERVER_2 || 'ns2.eazworld.com';
+  const [sld, ...tldParts] = domain.trim().toLowerCase().split('.');
+  const tld = tldParts.join('.');
+
+  try {
+    const params = buildParams({
+      Command: 'namecheap.domains.dns.setCustom',
+      SLD: sld,
+      TLD: tld,
+      Nameservers: `${ns1},${ns2}`,
+    });
+    const qs = new URLSearchParams(params).toString();
+    const response = await axios.get(`${getBaseUrl()}?${qs}`, { timeout: 15000 });
+    const parsed = await parseXml(response.data);
+    const apiResponse = parsed?.ApiResponse;
+
+    if (apiResponse?.$?.Status !== 'OK') {
+      const errors = apiResponse?.Errors?.[0]?.Error;
+      const errMsg = Array.isArray(errors) ? errors[0]?._ : errors?._;
+      return { success: false, error: errMsg || 'Nameserver update failed' };
+    }
+
+    console.log(`[Namecheap] Nameservers updated for ${domain} → ${ns1}, ${ns2}`);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message || 'Nameserver update failed' };
+  }
+}
+
+module.exports = { checkDomain, checkMultipleDomains, registerDomain, setEazWorldNameservers, getPricing, hasConfig };

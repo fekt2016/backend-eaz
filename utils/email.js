@@ -1,19 +1,24 @@
 const { Resend } = require('resend');
+const EmailLog = require('../models/EmailLog');
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const FROM = process.env.EMAIL_FROM || 'EazWorld <noreply@eazworld.com>';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@eazworld.com';
 
-async function send({ to, subject, html }) {
+async function send({ to, subject, html, type = 'other', orderId = null, meta = {} }) {
+  const recipient = Array.isArray(to) ? to[0] : to;
   if (!resend) {
-    console.warn('[email] Resend not configured — skipping email to', to);
+    console.warn('[email] Resend not configured — skipping email to', recipient);
+    EmailLog.create({ to: recipient, subject, type, status: 'failed', error: 'Resend not configured', orderId, meta }).catch(() => {});
     return;
   }
   try {
     await resend.emails.send({ from: FROM, to: Array.isArray(to) ? to : [to], subject, html });
+    EmailLog.create({ to: recipient, subject, type, status: 'sent', orderId, meta }).catch(() => {});
   } catch (err) {
     console.error('[email] Send failed:', err.message);
+    EmailLog.create({ to: recipient, subject, type, status: 'failed', error: err.message, orderId, meta }).catch(() => {});
   }
 }
 
@@ -22,6 +27,7 @@ async function send({ to, subject, html }) {
 async function sendWelcomeEmail(user) {
   await send({
     to: user.email,
+    type: 'welcome',
     subject: 'Welcome to EazWorld 👋',
     html: `
       <h2>Welcome to EazWorld, ${user.name}!</h2>
@@ -41,6 +47,7 @@ async function sendWelcomeEmail(user) {
 async function sendPasswordResetEmail(user, resetUrl) {
   await send({
     to: user.email,
+    type: 'password_reset',
     subject: 'EazWorld — Reset your password',
     html: `
       <h2>Password reset request</h2>
@@ -63,6 +70,7 @@ async function sendPasswordResetEmail(user, resetUrl) {
 async function sendContactAdminNotification(contact) {
   await send({
     to: ADMIN_EMAIL,
+    type: 'contact_admin',
     subject: `New contact form submission — ${contact.name}`,
     html: `
       <h2>New Contact Form Submission</h2>
@@ -81,6 +89,7 @@ async function sendContactAdminNotification(contact) {
 async function sendContactAutoReply(contact) {
   await send({
     to: contact.email,
+    type: 'contact_autoreply',
     subject: 'We received your message — EazWorld',
     html: `
       <h2>Thanks for reaching out, ${contact.name}!</h2>

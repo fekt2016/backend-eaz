@@ -1,9 +1,29 @@
 const crypto = require('crypto');
+const axios = require('axios');
+const https = require('https');
 const DomainOrder = require('../models/DomainOrder');
 const HostingOrder = require('../models/HostingOrder');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const namecheap = require('../services/namecheap');
+
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+async function unsuspendCpanelAccount(username) {
+  if (!process.env.WHM_HOST || !process.env.WHM_TOKEN) return;
+  const user = process.env.WHM_USER || 'root';
+  try {
+    await axios.get(`${process.env.WHM_HOST}/json-api/unsuspendacct`, {
+      params: { 'api.version': 1, user: username },
+      headers: { Authorization: `whm ${user}:${process.env.WHM_TOKEN}` },
+      httpsAgent,
+      timeout: 15000,
+    });
+    console.log(`[webhook] cPanel account unsuspended: ${username}`);
+  } catch (err) {
+    console.error(`[webhook] Failed to unsuspend ${username}:`, err.message);
+  }
+}
 
 /**
  * POST /api/webhooks/paystack
@@ -30,13 +50,54 @@ const handlePaystackWebhook = async (req, res) => {
 
     const { reference } = event.data;
 
-    // ── Hosting order ────────────────────────────────────────
+    // ── Hosting order (new or renewal) ───────────────────────
     const hostingOrder = await HostingOrder.findOne({ paystackReference: reference });
     if (hostingOrder) {
+      const wasPaidOrActive = hostingOrder.status === 'paid' || hostingOrder.status === 'active';
+
       hostingOrder.status = 'paid';
-      hostingOrder.paidAt = new Date();
-      await hostingOrder.save();
-      sendPaymentReceived(hostingOrder).catch(() => {});
+      if (!hostingOrder.paidAt) hostingOrder.paidAt = new Date();
+
+      // ── Renewal: extend expiresAt on parent order ─────────
+      if (hostingOrder.parentOrderId) {
+        const parent = await HostingOrder.findById(hostingOrder.parentOrderId);
+        if (parent) {
+          // Extend from current expiry (or now if already expired)
+          const base = parent.expiresAt && parent.expiresAt > new Date() ? new Date(parent.expiresAt) : new Date();
+          if (parent.billingCycle === 'annual') {
+            base.setFullYear(base.getFullYear() + 1);
+          } else {
+            base.setMonth(base.getMonth() + 1);
+          }
+          parent.expiresAt = base;
+          parent.renewedAt = new Date();
+          parent.renewalOrderId = hostingOrder._id;
+          parent.renewalReminderSent = 'none'; // reset so reminders fire again next cycle
+          // Reactivate if it was suspended due to expiry
+          if (parent.status === 'cancelled' && parent.cpanelUsername) {
+            parent.status = 'active';
+            await unsuspendCpanelAccount(parent.cpanelUsername).catch(() => {});
+          }
+          await parent.save({ validateBeforeSave: false }).catch(() => {});
+          console.log(`[webhook] Renewal processed for order ${parent._id} — new expiry: ${base}`);
+        }
+
+        // Mark renewal order as active (no re-provisioning needed)
+        hostingOrder.status = 'active';
+        hostingOrder.provisioningStatus = 'skipped';
+        await hostingOrder.save({ validateBeforeSave: false });
+        return res.status(200).json({ received: true });
+      }
+
+      // ── New order: normal flow ────────────────────────────
+      if (hostingOrder.provisioningStatus === 'not_started') {
+        hostingOrder.provisioningStatus = 'pending';
+      }
+      await hostingOrder.save({ validateBeforeSave: false });
+
+      if (!wasPaidOrActive) {
+        sendPaymentReceived(hostingOrder).catch(() => {});
+      }
       provisionHostingAccount(hostingOrder).catch(() => {});
       return res.status(200).json({ received: true });
     }
