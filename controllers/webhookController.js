@@ -3,11 +3,12 @@ const axios = require('axios');
 const https = require('https');
 const DomainOrder = require('../models/DomainOrder');
 const HostingOrder = require('../models/HostingOrder');
+const ServiceOrder = require('../models/ServiceOrder');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const namecheap = require('../services/namecheap');
 
-const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+const httpsAgent = new https.Agent({ rejectUnauthorized: process.env.NODE_ENV === 'production' });
 
 async function unsuspendCpanelAccount(username) {
   if (!process.env.WHM_HOST || !process.env.WHM_TOKEN) return;
@@ -32,7 +33,11 @@ async function unsuspendCpanelAccount(username) {
  */
 const handlePaystackWebhook = async (req, res) => {
   try {
-    const secret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY || '';
+    const secret = process.env.PAYSTACK_SECRET;
+    if (!secret) {
+      console.error('[webhook] PAYSTACK_SECRET not configured — rejecting request');
+      return res.status(400).json({ error: 'Webhook not configured' });
+    }
     const hash = crypto
       .createHmac('sha512', secret)
       .update(req.rawBody)
@@ -55,6 +60,12 @@ const handlePaystackWebhook = async (req, res) => {
     if (hostingOrder) {
       const wasPaidOrActive = hostingOrder.status === 'paid' || hostingOrder.status === 'active';
 
+      // Idempotency: if already fully processed, acknowledge and stop
+      if (wasPaidOrActive && hostingOrder.provisioningStatus !== 'not_started') {
+        console.log(`[webhook] Duplicate webhook for already-processed order ${hostingOrder._id} — skipping`);
+        return res.status(200).json({ received: true });
+      }
+
       hostingOrder.status = 'paid';
       if (!hostingOrder.paidAt) hostingOrder.paidAt = new Date();
 
@@ -62,6 +73,11 @@ const handlePaystackWebhook = async (req, res) => {
       if (hostingOrder.parentOrderId) {
         const parent = await HostingOrder.findById(hostingOrder.parentOrderId);
         if (parent) {
+          // Safety: ensure the renewal belongs to the same customer as the parent
+          if (parent.user?.toString() !== hostingOrder.user?.toString()) {
+            console.error(`[webhook] User mismatch on renewal — parent: ${parent.user}, renewal: ${hostingOrder.user}. Skipping.`);
+            return res.status(200).json({ received: true });
+          }
           // Extend from current expiry (or now if already expired)
           const base = parent.expiresAt && parent.expiresAt > new Date() ? new Date(parent.expiresAt) : new Date();
           if (parent.billingCycle === 'annual') {
@@ -105,6 +121,11 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Domain order ─────────────────────────────────────────
     const domainOrder = await DomainOrder.findOne({ paystackReference: reference });
     if (domainOrder) {
+      // Idempotency: skip if already processed
+      if (domainOrder.status === 'completed') {
+        console.log(`[webhook] Duplicate webhook for already-completed domain order ${domainOrder._id} — skipping`);
+        return res.status(200).json({ received: true });
+      }
       domainOrder.status = 'completed';
       domainOrder.paidAt = new Date();
       await domainOrder.save();
@@ -129,6 +150,19 @@ const handlePaystackWebhook = async (req, res) => {
           await domainOrder.save({ validateBeforeSave: false }).catch(() => {});
         }
       }
+    }
+
+    // ── Service order (web design deposit) ──────────────────
+    const serviceOrder = await ServiceOrder.findOne({ paystackReference: reference });
+    if (serviceOrder) {
+      if (serviceOrder.status === 'paid') {
+        console.log(`[webhook] Duplicate webhook for already-paid service order ${serviceOrder._id} — skipping`);
+        return res.status(200).json({ received: true });
+      }
+      serviceOrder.status = 'paid';
+      serviceOrder.paidAt = new Date();
+      await serviceOrder.save({ validateBeforeSave: false });
+      console.log(`[webhook] Service order paid: ${serviceOrder._id} — ${serviceOrder.package} for ${serviceOrder.email}`);
     }
 
     res.status(200).json({ received: true });

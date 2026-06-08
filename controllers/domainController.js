@@ -3,6 +3,7 @@ const Paystack = require('@paystack/paystack-sdk');
 const DomainOrder = require('../models/DomainOrder');
 const { validateDomain, extractTLD, extractSLD, generateFallbackSuggestions, getDefaultPrice, normalizeDomain } = require('../utils/domainHelper');
 const namecheap = require('../services/namecheap');
+const { sanitizeEmail, sanitizeName, sanitizePhone, sanitizeDomain, sanitizeInt } = require('../utils/sanitize');
 
 // Paystack initialization (secret key: PAYSTACK_SECRET or PAYSTACK_KEY)
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
@@ -73,21 +74,23 @@ const checkDomain = async (req, res, next) => {
  */
 const checkDomainBatch = async (req, res, next) => {
   try {
-    const { domains } = req.body;
+    const rawDomains = req.body.domains;
 
-    if (!domains || !Array.isArray(domains) || domains.length === 0) {
+    if (!rawDomains || !Array.isArray(rawDomains) || rawDomains.length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Domains array is required'
       });
     }
 
-    if (domains.length > 20) {
+    if (rawDomains.length > 20) {
       return res.status(400).json({
         success: false,
         error: 'Maximum 20 domains can be checked at once'
       });
     }
+
+    const domains = rawDomains.map(d => sanitizeDomain(d)).filter(Boolean);
 
     // Validate all domains
     const invalidDomains = domains.filter(d => !validateDomain(d));
@@ -129,21 +132,23 @@ const checkDomainBatch = async (req, res, next) => {
  */
 const checkDomainBulk = async (req, res, next) => {
   try {
-    const { domains } = req.body;
+    const rawDomains = req.body.domains;
 
-    if (!domains || !Array.isArray(domains) || domains.length === 0) {
+    if (!rawDomains || !Array.isArray(rawDomains) || rawDomains.length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Domains array is required'
       });
     }
 
-    if (domains.length > 50) {
+    if (rawDomains.length > 50) {
       return res.status(400).json({
         success: false,
         error: 'Maximum 50 domains can be checked at once'
       });
     }
+
+    const domains = rawDomains.map(d => sanitizeDomain(d)).filter(Boolean);
 
     const invalidDomains = domains.filter(d => !validateDomain(d));
     if (invalidDomains.length > 0) {
@@ -191,19 +196,15 @@ const createDomainPayment = async (req, res, next) => {
       });
     }
 
-    const {
-      domain,
-      email,
-      amount,
-      currency = 'NGN',
-      firstName,
-      lastName,
-      customerName: bodyCustomerName,
-      fullName,
-      phone,
-      registrantInfo,
-      years = 1
-    } = req.body;
+    const domain        = sanitizeDomain(req.body.domain);
+    const email         = sanitizeEmail(req.body.email);
+    const firstName     = sanitizeName(req.body.firstName);
+    const lastName      = sanitizeName(req.body.lastName);
+    const bodyCustomerName = sanitizeName(req.body.customerName);
+    const fullName      = sanitizeName(req.body.fullName);
+    const phone         = sanitizePhone(req.body.phone);
+    const years         = sanitizeInt(req.body.years, 1, 10) ?? 1;
+    const { amount, currency = 'NGN', registrantInfo } = req.body;
 
     if (!domain || !email || !amount) {
       return res.status(400).json({
@@ -213,6 +214,37 @@ const createDomainPayment = async (req, res, next) => {
     }
 
     const tld = extractTLD(domain);
+
+    // ── Server-side price validation ──────────────────────────────────────────
+    // Never trust the client-supplied amount. Look up the real price from
+    // Namecheap (or fallback defaults) and verify the submitted amount is within
+    // a 5% tolerance (to account for currency rounding differences).
+    let expectedPriceUSD = null;
+    try {
+      if (namecheap.hasConfig()) {
+        const pricing = await namecheap.getPricing();
+        expectedPriceUSD = pricing?.[tld]?.register ?? getDefaultPrice(tld);
+      } else {
+        expectedPriceUSD = getDefaultPrice(tld);
+      }
+    } catch {
+      expectedPriceUSD = getDefaultPrice(tld);
+    }
+
+    if (expectedPriceUSD) {
+      const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
+      const markup  = parseFloat(process.env.DOMAIN_MARKUP)   || 1.2;
+      const expectedGHS = expectedPriceUSD * usdRate * markup * Number(Math.min(10, Math.max(1, Number(years) || 1)));
+      const submitted   = Number(amount);
+      const tolerance   = 0.05; // 5%
+      if (submitted < expectedGHS * (1 - tolerance) || submitted > expectedGHS * (1 + tolerance)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid payment amount. Please refresh the page and try again.',
+        });
+      }
+    }
+
     const price = Number(amount);
 
     let customerName = bodyCustomerName || fullName;
@@ -255,12 +287,12 @@ const createDomainPayment = async (req, res, next) => {
     }
 
     const order = await DomainOrder.create({
-      domain: domain.toLowerCase().trim(),
+      domain: domain || '',
       tld,
       price,
-      email: email.trim().toLowerCase(),
-      customerName: customerName.trim(),
-      phone: (phone || '').trim() || undefined,
+      email,
+      customerName: customerName || '',
+      phone: phone || undefined,
       registrantInfo: registrantInfo || undefined,
       years: Math.min(10, Math.max(1, Number(years) || 1)),
       status: 'pending',
@@ -318,16 +350,17 @@ const getDomainOrder = async (req, res, next) => {
     const order = await DomainOrder.findById(req.params.id);
 
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        error: 'Order not found'
-      });
+      return res.status(404).json({ success: false, error: 'Order not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      data: order
-    });
+    // Only the owner or an admin can view the order
+    const isAdmin = req.user?.role === 'admin';
+    const isOwner = order.email === req.user?.email;
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ success: false, error: 'Not authorized to view this order' });
+    }
+
+    res.status(200).json({ success: true, data: order });
   } catch (error) {
     next(error);
   }

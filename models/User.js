@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema({
   phone: {
     type: String,
     trim: true,
-    default: ''
+    sparse: true,
   },
   password: {
     type: String,
@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'user'],
+    enum: ['superadmin', 'admin', 'user', 'staff', 'cashier', 'technician'],
     default: 'user'
   },
   resetPasswordToken: {
@@ -39,10 +39,46 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: {
     type: Date,
     select: false
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verifyPin: {
+    type: String,
+    select: false
+  },
+  verifyPinExpires: {
+    type: Date,
+    select: false
+  },
+  twoFactorEnabled: {
+    type: Boolean,
+    default: false
+  },
+  twoFactorPin: {
+    type: String,
+    select: false
+  },
+  twoFactorPinExpires: {
+    type: Date,
+    select: false
+  },
+  isBlocked: {
+    type: Boolean,
+    default: false
+  },
+  blockedReason: {
+    type: String,
+    default: ''
   }
 }, {
   timestamps: true
 });
+
+// email index is created automatically by unique:true on the field
+userSchema.index({ role: 1 });
+userSchema.index({ isBlocked: 1 });
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();

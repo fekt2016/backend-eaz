@@ -1,4 +1,5 @@
 const Project = require('../models/Project');
+const { sanitizeText, sanitizeName } = require('../utils/sanitize');
 
 /**
  * Get all projects
@@ -55,7 +56,12 @@ const getProject = async (req, res, next) => {
  */
 const createProject = async (req, res, next) => {
   try {
-    const { title, description, image, category, link, featured } = req.body;
+    const title       = sanitizeName(req.body.title, 200);
+    const description = sanitizeText(req.body.description, 2000);
+    const image       = sanitizeText(req.body.image, 500);
+    const category    = sanitizeName(req.body.category, 100);
+    const link        = sanitizeText(req.body.link, 500);
+    const { featured } = req.body;
 
     if (!title || !description || !image) {
       return res.status(400).json({
@@ -87,9 +93,18 @@ const createProject = async (req, res, next) => {
  */
 const updateProject = async (req, res, next) => {
   try {
+    // Sanitize only the fields that may be supplied; omit keys that weren't sent
+    const updates = {};
+    if (req.body.title       !== undefined) updates.title       = sanitizeName(req.body.title, 200);
+    if (req.body.description !== undefined) updates.description = sanitizeText(req.body.description, 2000);
+    if (req.body.image       !== undefined) updates.image       = sanitizeText(req.body.image, 500);
+    if (req.body.category    !== undefined) updates.category    = sanitizeName(req.body.category, 100);
+    if (req.body.link        !== undefined) updates.link        = sanitizeText(req.body.link, 500);
+    if (req.body.featured    !== undefined) updates.featured    = Boolean(req.body.featured);
+
     const project = await Project.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updates,
       { new: true, runValidators: true }
     );
 

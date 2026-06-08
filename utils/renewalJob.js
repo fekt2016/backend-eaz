@@ -157,7 +157,7 @@ async function runRenewalJob() {
 async function suspendCpanelAccount(username) {
   const axios = require('axios');
   const https = require('https');
-  const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+  const httpsAgent = new https.Agent({ rejectUnauthorized: process.env.NODE_ENV === 'production' });
   const user = process.env.WHM_USER || 'root';
 
   try {

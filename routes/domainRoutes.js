@@ -31,10 +31,10 @@ router.get('/suggest', suggestDomain);
 router.post('/check/batch', checkDomainBatch);
 router.post('/check-bulk', checkDomainBulk);
 
-router.post('/payment', createDomainPayment);
+router.post('/payment', protect, createDomainPayment);
 
 router.get('/orders', protect, getDomainOrders);
-router.get('/orders/:id', getDomainOrder);
+router.get('/orders/:id', protect, getDomainOrder);
 router.patch('/orders/:id/status', protect, restrictTo('admin'), updateOrderStatus);
 
 module.exports = router;

@@ -37,7 +37,6 @@ if (process.env.NODE_OPTIONS) {
 // Expected heap limit should be ~512MB, but default Node.js gives ~4GB
 
 
-// Check if memory is to
 // Validate environment variables
 validateEnv();
 
@@ -96,6 +95,17 @@ const startServer = async () => {
       console.log('🔄 Renewal job scheduled (runs every 24h)');
     } catch (err) {
       console.warn('⚠️  Renewal job could not be loaded:', err.message);
+    }
+
+    // Uncollected device reminder — runs once at startup then every 12 hours
+    try {
+      const { runReminderJob } = require('./services/reminderJob');
+      // Small delay so DB is fully ready
+      setTimeout(() => runReminderJob().catch(() => {}), 10_000);
+      setInterval(() => runReminderJob().catch(() => {}), 12 * 60 * 60 * 1000);
+      console.log('🔔 Uncollected device reminder job scheduled (runs every 12h)');
+    } catch (err) {
+      console.warn('⚠️  Reminder job could not be loaded:', err.message);
     }
 
     // Initialize Socket.io (optional - only if socket server exists)

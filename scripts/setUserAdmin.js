@@ -1,7 +1,8 @@
 /**
- * One-off / ops: promote a user to admin by email.
- * Usage: node scripts/setUserAdmin.js user@example.com
- * Loads ../.env (same as server): MONGO_URL, DATABASE_PASSWORD, mongo_url, MONGO_URI
+ * One-off / ops: set any user's role by email.
+ * Usage: node scripts/setUserAdmin.js user@example.com [role]
+ * Role defaults to 'superadmin' if omitted.
+ * Valid roles: superadmin, admin, staff, cashier, technician, user
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -22,22 +23,29 @@ function resolveMongoUrl() {
   return mongoUrlRaw;
 }
 
+const VALID_ROLES = ['superadmin', 'admin', 'staff', 'cashier', 'technician', 'user'];
+
 async function main() {
   const emailArg = (process.argv[2] || '').trim().toLowerCase();
+  const roleArg  = (process.argv[3] || 'superadmin').trim().toLowerCase();
+
   if (!emailArg) {
-    console.error('Usage: node scripts/setUserAdmin.js user@example.com');
+    console.error('Usage: node scripts/setUserAdmin.js user@example.com [role]');
+    console.error('Roles:', VALID_ROLES.join(', '));
+    process.exit(1);
+  }
+
+  if (!VALID_ROLES.includes(roleArg)) {
+    console.error(`Invalid role "${roleArg}". Valid roles: ${VALID_ROLES.join(', ')}`);
     process.exit(1);
   }
 
   const db = resolveMongoUrl();
-  await mongoose.connect(db, {
-    maxPoolSize: 3,
-    serverSelectionTimeoutMS: 10_000,
-  });
+  await mongoose.connect(db, { maxPoolSize: 3, serverSelectionTimeoutMS: 10_000 });
 
   const user = await User.findOneAndUpdate(
     { email: emailArg },
-    { role: 'admin' },
+    { role: roleArg },
     { new: true }
   );
 

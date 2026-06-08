@@ -9,7 +9,7 @@ router.use(protect, restrictTo('admin'));
 
 // GET /api/v1/admin/email-logs
 // Query params: ?type=&status=&q=email&page=1&limit=50
-router.get('/email-logs', async (req, res) => {
+router.get('/email-logs', async (req, res, next) => {
   try {
     const { type, status, q, page = 1, limit = 50 } = req.query;
 
@@ -53,7 +53,7 @@ router.get('/email-logs', async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    next(err);
   }
 });
 

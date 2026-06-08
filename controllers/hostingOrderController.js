@@ -3,7 +3,9 @@ const mongoose = require('mongoose');
 const Paystack = require('@paystack/paystack-sdk');
 const streamifier = require('streamifier');
 const HostingOrder = require('../models/HostingOrder');
+const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, sanitizeDomain } = require('../utils/sanitize');
 const { getPlanPrice, HOSTING_PLANS } = require('../config/hostingPlans');
+const namecheap = require('../services/namecheap');
 const { cloudinary } = require('../config/cloudinary');
 const { sendOrderConfirmation, sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
@@ -55,10 +57,19 @@ const createOrder = async (req, res, next) => {
     const {
       planType, tier, billingCycle, addons = [], customer,
       paymentMethod, mobileNumber, network,
-      domain, domainMode = 'skip', domainRegistrationFee = 0, domainRegistrationYears = 1
+      domainMode = 'skip', domainRegistrationFee = 0, domainRegistrationYears = 1
     } = req.body;
 
-    if (!planType || !tier || !billingCycle || !customer?.name || !customer?.email) {
+    // Sanitize customer fields
+    const customerName    = sanitizeName(customer?.name);
+    const customerEmail   = sanitizeEmail(customer?.email);
+    const customerPhone   = sanitizePhone(customer?.phone);
+    const customerAddress = sanitizeText(customer?.address, 200);
+    const customerCity    = sanitizeText(customer?.city, 100);
+    const mobileNumber_s  = sanitizePhone(mobileNumber);
+    const domain_s        = sanitizeDomain(req.body.domain);
+
+    if (!planType || !tier || !billingCycle || !customerName || !customerEmail) {
       return res.status(400).json({
         success: false,
         error: 'planType, tier, billingCycle, and customer (name, email) are required'
@@ -71,11 +82,32 @@ const createOrder = async (req, res, next) => {
     }
 
     const addonsTotal = computeAddonsTotal(addons);
-    // Include domain registration fee in total when customer wants to register a new domain
-    const domainFee = domainMode === 'new' && domain ? (Number(domainRegistrationFee) || 0) : 0;
+
+    // Re-compute domain fee server-side — never trust client-supplied price
+    let domainFee = 0;
+    if (domainMode === 'new' && domain_s) {
+      try {
+        const tld = domain_s.split('.').slice(1).join('.');
+        const prices = await namecheap.getPricing();
+        const priceUSD = prices[tld] ?? null;
+        if (priceUSD != null) {
+          const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
+          const markup  = parseFloat(process.env.DOMAIN_MARKUP)   || 1.2;
+          const years   = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
+          domainFee = Math.round(priceUSD * usdRate * markup * years * 100) / 100;
+        } else {
+          // Unknown TLD — use client value with sanity cap (≤ GHS 500)
+          domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
+        }
+      } catch {
+        // Namecheap unavailable — fall back to client value with sanity cap
+        domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
+      }
+    }
+
     const totalAmount = planTotal + addonsTotal + domainFee;
 
-    const cleanDomain = domain ? domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '') : null;
+    const cleanDomain = domain_s || null;
 
     const orderPayload = {
       user: userId,
@@ -84,12 +116,12 @@ const createOrder = async (req, res, next) => {
       billingCycle,
       addons: addons.map(a => ({ id: a.id, name: a.name, price: a.price || 0 })),
       customer: {
-        name: customer.name.trim(),
-        email: customer.email.trim().toLowerCase(),
-        phone: (customer.phone || '').trim(),
-        address: (customer.address || '').trim(),
-        city: (customer.city || '').trim(),
-        country: (customer.country || 'Ghana').trim()
+        name: customerName,
+        email: customerEmail,
+        phone: customerPhone || '',
+        address: customerAddress || '',
+        city: customerCity || '',
+        country: (customer?.country || 'Ghana').trim()
       },
       amount: totalAmount,
       currency: 'GHS',
@@ -125,7 +157,7 @@ const createOrder = async (req, res, next) => {
           billingCycle: billingCycle
         },
         callback_url: `${FRONTEND_URL}/hosting/order-confirmation`,
-        ...(paymentMethod === 'mobile_money' && mobileNumber && { mobile_money: { phone: mobileNumber, provider: network || 'mtn' } })
+        ...(paymentMethod === 'mobile_money' && mobileNumber_s && { mobile_money: { phone: mobileNumber_s, provider: network || 'mtn' } })
       });
 
       if (!transaction.status) {
