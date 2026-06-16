@@ -1,17 +1,32 @@
-const crypto = require('crypto');
-const Paystack = require('@paystack/paystack-sdk');
-const DomainOrder = require('../models/DomainOrder');
-const { validateDomain, extractTLD, extractSLD, generateFallbackSuggestions, getDefaultPrice, normalizeDomain } = require('../utils/domainHelper');
-const namecheap = require('../services/namecheap');
-const { sanitizeEmail, sanitizeName, sanitizePhone, sanitizeDomain, sanitizeInt } = require('../utils/sanitize');
+const crypto = require("crypto");
+const Paystack = require("@paystack/paystack-sdk");
+const DomainOrder = require("../models/DomainOrder");
+const {
+  validateDomain,
+  extractTLD,
+  extractSLD,
+  generateFallbackSuggestions,
+  getDefaultPrice,
+  normalizeDomain,
+} = require("../utils/domainHelper");
+const namecheap = require("../services/namecheap");
+const {
+  sanitizeEmail,
+  sanitizeName,
+  sanitizePhone,
+  sanitizeDomain,
+  sanitizeInt,
+} = require("../utils/sanitize");
 
 // Paystack initialization (secret key: PAYSTACK_SECRET or PAYSTACK_KEY)
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
-if (paystackSecret && paystackSecret.startsWith('sk_')) {
+if (paystackSecret && paystackSecret.startsWith("sk_")) {
   paystack = new Paystack(paystackSecret);
 } else {
-  console.warn('⚠️  Paystack secret key not configured. Set PAYSTACK_SECRET or PAYSTACK_KEY (sk_...) for payments.');
+  console.warn(
+    "⚠️  Paystack secret key not configured. Set PAYSTACK_SECRET or PAYSTACK_KEY (sk_...) for payments.",
+  );
 }
 
 /**
@@ -24,14 +39,14 @@ const checkDomain = async (req, res, next) => {
     if (!domain) {
       return res.status(400).json({
         success: false,
-        error: 'Domain name is required'
+        error: "Domain name is required",
       });
     }
 
     if (!validateDomain(domain)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid domain format'
+        error: "Invalid domain format",
       });
     }
 
@@ -44,13 +59,13 @@ const checkDomain = async (req, res, next) => {
         domain,
         available: false,
         price: getDefaultPrice(tldFallback),
-        currency: 'USD',
+        currency: "USD",
         tld: tldFallback,
-        error: 'Domain search not configured'
+        error: "Domain search not configured",
       };
     }
     const tld = result.tld || extractTLD(domain);
-    const currency = result.currency || 'USD';
+    const currency = result.currency || "USD";
 
     res.status(200).json({
       success: true,
@@ -61,10 +76,10 @@ const checkDomain = async (req, res, next) => {
         currency,
         tld,
         ...(result.error && { error: result.error }),
-      }
+      },
     });
   } catch (error) {
-    console.error('Domain check error:', error);
+    console.error("Domain check error:", error);
     next(error);
   }
 };
@@ -79,48 +94,48 @@ const checkDomainBatch = async (req, res, next) => {
     if (!rawDomains || !Array.isArray(rawDomains) || rawDomains.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Domains array is required'
+        error: "Domains array is required",
       });
     }
 
     if (rawDomains.length > 20) {
       return res.status(400).json({
         success: false,
-        error: 'Maximum 20 domains can be checked at once'
+        error: "Maximum 20 domains can be checked at once",
       });
     }
 
-    const domains = rawDomains.map(d => sanitizeDomain(d)).filter(Boolean);
+    const domains = rawDomains.map((d) => sanitizeDomain(d)).filter(Boolean);
 
     // Validate all domains
-    const invalidDomains = domains.filter(d => !validateDomain(d));
+    const invalidDomains = domains.filter((d) => !validateDomain(d));
     if (invalidDomains.length > 0) {
       return res.status(400).json({
         success: false,
-        error: `Invalid domain format: ${invalidDomains.join(', ')}`
+        error: `Invalid domain format: ${invalidDomains.join(", ")}`,
       });
     }
 
     if (!namecheap.hasConfig()) {
       return res.status(503).json({
         success: false,
-        error: 'Domain search is not configured'
+        error: "Domain search is not configured",
       });
     }
 
-    const results = await namecheap.checkMultipleDomains(domains.join(','), []);
-    const normalized = results.map(r => ({
+    const results = await namecheap.checkMultipleDomains(domains.join(","), []);
+    const normalized = results.map((r) => ({
       domain: r.domain,
       available: r.available,
       price: r.price,
-      currency: r.currency || 'USD',
+      currency: r.currency || "USD",
       tld: r.tld || extractTLD(r.domain),
       ...(r.error && { error: r.error }),
     }));
 
     res.status(200).json({
       success: true,
-      data: normalized
+      data: normalized,
     });
   } catch (error) {
     next(error);
@@ -137,47 +152,47 @@ const checkDomainBulk = async (req, res, next) => {
     if (!rawDomains || !Array.isArray(rawDomains) || rawDomains.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Domains array is required'
+        error: "Domains array is required",
       });
     }
 
     if (rawDomains.length > 50) {
       return res.status(400).json({
         success: false,
-        error: 'Maximum 50 domains can be checked at once'
+        error: "Maximum 50 domains can be checked at once",
       });
     }
 
-    const domains = rawDomains.map(d => sanitizeDomain(d)).filter(Boolean);
+    const domains = rawDomains.map((d) => sanitizeDomain(d)).filter(Boolean);
 
-    const invalidDomains = domains.filter(d => !validateDomain(d));
+    const invalidDomains = domains.filter((d) => !validateDomain(d));
     if (invalidDomains.length > 0) {
       return res.status(400).json({
         success: false,
-        error: `Invalid domain format: ${invalidDomains.join(', ')}`
+        error: `Invalid domain format: ${invalidDomains.join(", ")}`,
       });
     }
 
     if (!namecheap.hasConfig()) {
       return res.status(503).json({
         success: false,
-        error: 'Domain search is not configured'
+        error: "Domain search is not configured",
       });
     }
 
-    const results = await namecheap.checkMultipleDomains(domains.join(','), []);
-    const normalized = results.map(r => ({
+    const results = await namecheap.checkMultipleDomains(domains.join(","), []);
+    const normalized = results.map((r) => ({
       domain: r.domain,
       available: r.available,
       price: r.price,
-      currency: r.currency || 'USD',
+      currency: r.currency || "USD",
       tld: r.tld || extractTLD(r.domain),
       ...(r.error && { error: r.error }),
     }));
 
     res.status(200).json({
       success: true,
-      data: normalized
+      data: normalized,
     });
   } catch (error) {
     next(error);
@@ -187,60 +202,78 @@ const checkDomainBulk = async (req, res, next) => {
 /**
  * Create domain payment session
  */
+/**
+ * Create domain payment session
+ */
 const createDomainPayment = async (req, res, next) => {
   try {
     if (!paystack) {
       return res.status(500).json({
         success: false,
-        error: 'Paystack is not configured. Please add PAYSTACK_SECRET to your environment variables.'
+        error:
+          "Paystack is not configured. Please add PAYSTACK_SECRET to your environment variables.",
       });
     }
 
-    const domain        = sanitizeDomain(req.body.domain);
-    const email         = sanitizeEmail(req.body.email);
-    const firstName     = sanitizeName(req.body.firstName);
-    const lastName      = sanitizeName(req.body.lastName);
+    const domain = sanitizeDomain(req.body.domain);
+    const email = sanitizeEmail(req.body.email);
+    const firstName = sanitizeName(req.body.firstName);
+    const lastName = sanitizeName(req.body.lastName);
     const bodyCustomerName = sanitizeName(req.body.customerName);
-    const fullName      = sanitizeName(req.body.fullName);
-    const phone         = sanitizePhone(req.body.phone);
-    const years         = sanitizeInt(req.body.years, 1, 10) ?? 1;
-    const { amount, currency = 'NGN', registrantInfo } = req.body;
+    const fullName = sanitizeName(req.body.fullName);
+    const phone = sanitizePhone(req.body.phone);
+    const years = sanitizeInt(req.body.years, 1, 10) ?? 1;
+    const { amount, currency = "GHS", registrantInfo } = req.body;
 
     if (!domain || !email || !amount) {
       return res.status(400).json({
         success: false,
-        error: 'Domain, email, and amount are required'
+        error: "Domain, email, and amount are required",
       });
     }
 
     const tld = extractTLD(domain);
+    const safeYears = Number(Math.min(10, Math.max(1, Number(years) || 1)));
 
     // ── Server-side price validation ──────────────────────────────────────────
     // Never trust the client-supplied amount. Look up the real price from
     // Namecheap (or fallback defaults) and verify the submitted amount is within
     // a 5% tolerance (to account for currency rounding differences).
-    let expectedPriceUSD = null;
+    let expectedGHS = null;
+
     try {
       if (namecheap.hasConfig()) {
         const pricing = await namecheap.getPricing();
-        expectedPriceUSD = pricing?.[tld]?.register ?? getDefaultPrice(tld);
-      } else {
-        expectedPriceUSD = getDefaultPrice(tld);
+        // pricing[tld] is already a GHS price (1-year), converted by namecheap.usdToGhs()
+        if (pricing?.[tld]) {
+          expectedGHS = pricing[tld] * safeYears;
+        }
       }
     } catch {
-      expectedPriceUSD = getDefaultPrice(tld);
+      expectedGHS = null;
     }
 
-    if (expectedPriceUSD) {
+    if (expectedGHS == null) {
+      // Fallback: getDefaultPrice returns a USD price, so convert to GHS here
       const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
-      const markup  = parseFloat(process.env.DOMAIN_MARKUP)   || 1.2;
-      const expectedGHS = expectedPriceUSD * usdRate * markup * Number(Math.min(10, Math.max(1, Number(years) || 1)));
-      const submitted   = Number(amount);
-      const tolerance   = 0.05; // 5%
-      if (submitted < expectedGHS * (1 - tolerance) || submitted > expectedGHS * (1 + tolerance)) {
+      const markup = parseFloat(process.env.DOMAIN_MARKUP) || 1.2;
+      const defaultUsd = getDefaultPrice(tld);
+      if (defaultUsd) {
+        expectedGHS = defaultUsd * usdRate * markup * safeYears;
+      }
+    }
+
+    if (expectedGHS != null) {
+      const submitted = Number(amount);
+      const tolerance = 0.05; // 5%
+      if (
+        submitted < expectedGHS * (1 - tolerance) ||
+        submitted > expectedGHS * (1 + tolerance)
+      ) {
         return res.status(400).json({
           success: false,
-          error: 'Invalid payment amount. Please refresh the page and try again.',
+          error:
+            "Invalid payment amount. Please refresh the page and try again.",
         });
       }
     }
@@ -249,55 +282,57 @@ const createDomainPayment = async (req, res, next) => {
 
     let customerName = bodyCustomerName || fullName;
     if (!customerName && registrantInfo) {
-      const first = registrantInfo.firstName || '';
-      const last = registrantInfo.lastName || '';
-      customerName = [first, last].filter(Boolean).join(' ').trim();
+      const first = registrantInfo.firstName || "";
+      const last = registrantInfo.lastName || "";
+      customerName = [first, last].filter(Boolean).join(" ").trim();
     }
     if (!customerName && (firstName || lastName)) {
-      customerName = [firstName, lastName].filter(Boolean).join(' ').trim();
+      customerName = [firstName, lastName].filter(Boolean).join(" ").trim();
     }
     if (!customerName) {
-      customerName = email.split('@')[0] || 'Customer';
+      customerName = email.split("@")[0] || "Customer";
     }
 
     // Create payment reference
-    const reference = `DOM_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const reference = `DOM_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
 
     const amountInUnits = Math.round(Number(amount) * 100); // kobo (NGN) or pesewas (GHS)
     const transaction = await paystack.transaction.initialize({
       email,
       amount: amountInUnits,
-      currency: currency || 'NGN',
+      currency: currency || "NGN",
       reference,
-      channels: ['card', 'mobile_money'],
+      channels: ["card", "mobile_money"],
       metadata: {
         domain,
-        type: 'domain_registration',
+        type: "domain_registration",
         years: String(years),
-        ...(registrantInfo && { registrantInfo: JSON.stringify(registrantInfo) })
+        ...(registrantInfo && {
+          registrantInfo: JSON.stringify(registrantInfo),
+        }),
       },
-      callback_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173'}/domain/payment-success`
+      callback_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:3000"}/payment-success?type=domain`,
     });
 
     if (!transaction.status) {
       return res.status(500).json({
         success: false,
-        error: 'Failed to initialize payment'
+        error: "Failed to initialize payment",
       });
     }
 
     const order = await DomainOrder.create({
-      domain: domain || '',
+      domain: domain || "",
       tld,
       price,
       email,
-      customerName: customerName || '',
+      customerName: customerName || "",
       phone: phone || undefined,
       registrantInfo: registrantInfo || undefined,
-      years: Math.min(10, Math.max(1, Number(years) || 1)),
-      status: 'pending',
+      years: safeYears,
+      status: "pending",
       paymentId: reference,
-      paystackReference: reference
+      paystackReference: reference,
     });
 
     res.status(200).json({
@@ -306,21 +341,20 @@ const createDomainPayment = async (req, res, next) => {
         authorizationUrl: transaction.data.authorization_url,
         accessCode: transaction.data.access_code,
         reference: transaction.data.reference,
-        orderId: order._id
-      }
+        orderId: order._id,
+      },
     });
   } catch (error) {
     next(error);
   }
 };
-
 /**
  * Get domain orders — admin sees all, regular users see only their own
  */
 const getDomainOrders = async (req, res, next) => {
   try {
     const { status } = req.query;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = req.user?.role === "admin";
 
     const query = {};
     if (!isAdmin) {
@@ -335,7 +369,7 @@ const getDomainOrders = async (req, res, next) => {
     res.status(200).json({
       success: true,
       count: orders.length,
-      data: orders
+      data: orders,
     });
   } catch (error) {
     next(error);
@@ -350,14 +384,16 @@ const getDomainOrder = async (req, res, next) => {
     const order = await DomainOrder.findById(req.params.id);
 
     if (!order) {
-      return res.status(404).json({ success: false, error: 'Order not found' });
+      return res.status(404).json({ success: false, error: "Order not found" });
     }
 
     // Only the owner or an admin can view the order
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = req.user?.role === "admin";
     const isOwner = order.email === req.user?.email;
     if (!isAdmin && !isOwner) {
-      return res.status(403).json({ success: false, error: 'Not authorized to view this order' });
+      return res
+        .status(403)
+        .json({ success: false, error: "Not authorized to view this order" });
     }
 
     res.status(200).json({ success: true, data: order });
@@ -373,29 +409,29 @@ const updateOrderStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
 
-    if (!['pending', 'completed', 'failed'].includes(status)) {
+    if (!["pending", "completed", "failed"].includes(status)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid status. Must be one of: pending, completed, failed'
+        error: "Invalid status. Must be one of: pending, completed, failed",
       });
     }
 
     const order = await DomainOrder.findByIdAndUpdate(
       req.params.id,
       { status },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     if (!order) {
       return res.status(404).json({
         success: false,
-        error: 'Order not found'
+        error: "Order not found",
       });
     }
 
     res.status(200).json({
       success: true,
-      data: order
+      data: order,
     });
   } catch (error) {
     next(error);
@@ -410,10 +446,10 @@ const suggestDomain = async (req, res, next) => {
   try {
     const { query } = req.query;
 
-    if (!query || typeof query !== 'string') {
+    if (!query || typeof query !== "string") {
       return res.status(400).json({
         success: false,
-        error: 'Query parameter is required'
+        error: "Query parameter is required",
       });
     }
 
@@ -423,7 +459,7 @@ const suggestDomain = async (req, res, next) => {
     if (trimmedQuery.length < 2) {
       return res.status(400).json({
         success: false,
-        error: 'Query must be at least 2 characters long'
+        error: "Query must be at least 2 characters long",
       });
     }
 
@@ -444,10 +480,12 @@ const suggestDomain = async (req, res, next) => {
       suggestions,
     });
   } catch (error) {
-    console.error('Domain suggest error:', error);
-    const fallbackSuggestions = generateFallbackSuggestions(req.query?.query || '');
+    console.error("Domain suggest error:", error);
+    const fallbackSuggestions = generateFallbackSuggestions(
+      req.query?.query || "",
+    );
     res.status(200).json({
-      query: normalizeDomain(req.query?.query || ''),
+      query: normalizeDomain(req.query?.query || ""),
       suggestions: fallbackSuggestions.slice(0, 10),
     });
   }
@@ -464,7 +502,7 @@ const searchDomain = async (req, res, next) => {
     if (!domain) {
       return res.status(400).json({
         success: false,
-        error: 'Domain name is required'
+        error: "Domain name is required",
       });
     }
 
@@ -472,7 +510,7 @@ const searchDomain = async (req, res, next) => {
     if (!validateDomain(domain)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid domain format'
+        error: "Invalid domain format",
       });
     }
 
@@ -482,17 +520,32 @@ const searchDomain = async (req, res, next) => {
     if (!namecheap.hasConfig()) {
       return res.status(503).json({
         success: false,
-        error: 'Domain search is not configured. Please contact support.'
+        error: "Domain search is not configured. Please contact support.",
       });
     }
 
     // Only check TLDs that Namecheap actually sells
     const allPrices = await namecheap.getPricing();
-    const wantedTlds = ['.com', '.net', '.org', '.io', '.co', '.online', '.tech', '.xyz', '.info', '.biz', '.me'];
-    const tlds = wantedTlds.filter(t => allPrices[t]);
+    const wantedTlds = [
+      ".com",
+      ".net",
+      ".org",
+      ".io",
+      ".co",
+      ".online",
+      ".tech",
+      ".xyz",
+      ".info",
+      ".biz",
+      ".me",
+    ];
+    const tlds = wantedTlds.filter((t) => allPrices[t]);
 
-    const results = await namecheap.checkMultipleDomains(baseName, tlds.length > 0 ? tlds : wantedTlds);
-    const exact = results.find(r => r.domain === normalizedDomain);
+    const results = await namecheap.checkMultipleDomains(
+      baseName,
+      tlds.length > 0 ? tlds : wantedTlds,
+    );
+    const exact = results.find((r) => r.domain === normalizedDomain);
     const available = exact ? exact.available : false;
     const price = exact ? exact.price : null;
 
@@ -506,7 +559,7 @@ const searchDomain = async (req, res, next) => {
 
     res.status(200).json(response);
   } catch (error) {
-    console.error('Domain search error:', error);
+    console.error("Domain search error:", error);
     next(error);
   }
 };
