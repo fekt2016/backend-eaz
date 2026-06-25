@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "fuser -k 5000/tcp 2>/dev/null; nodemon server.js"
+    "dev": "nodemon server.js"
   },
   "keywords": [],
   "author": "",

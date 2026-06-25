@@ -107,6 +107,9 @@ const allowedOrigins = [
     ...(!PROD ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'] : []),
   ].filter(Boolean)),
 ];
+
+
+
 if (PROD && !allowedOrigins.length) {
   console.error('❌ FATAL: FRONTEND_URL or CLIENT_URL must be set in production. Exiting.');
   process.exit(1);
