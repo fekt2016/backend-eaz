@@ -11,14 +11,12 @@ const {
 } = require("../utils/domainHelper");
 const namecheap = require("../services/namecheap");
 const {
-  sanitizeEmail,
   sanitizeName,
   sanitizePhone,
   sanitizeDomain,
   sanitizeInt,
 } = require("../utils/sanitize");
 
-// Paystack initialization (secret key: PAYSTACK_SECRET or PAYSTACK_KEY)
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
 if (paystackSecret && paystackSecret.startsWith("sk_")) {
@@ -107,7 +105,6 @@ const checkDomainBatch = async (req, res, next) => {
 
     const domains = rawDomains.map((d) => sanitizeDomain(d)).filter(Boolean);
 
-    // Validate all domains
     const invalidDomains = domains.filter((d) => !validateDomain(d));
     if (invalidDomains.length > 0) {
       return res.status(400).json({
@@ -200,10 +197,9 @@ const checkDomainBulk = async (req, res, next) => {
 };
 
 /**
- * Create domain payment session
- */
-/**
- * Create domain payment session
+ * POST /api/v1/domain/payment
+ * Create domain payment session — requires authentication (protect middleware).
+ * Email and user ID are taken from req.user, never trusted from the request body.
  */
 const createDomainPayment = async (req, res, next) => {
   try {
@@ -215,8 +211,11 @@ const createDomainPayment = async (req, res, next) => {
       });
     }
 
+    // ── Identity comes from the verified JWT, not the request body ──
+    const userId = req.user._id;
+    const email = req.user.email;
+
     const domain = sanitizeDomain(req.body.domain);
-    const email = sanitizeEmail(req.body.email);
     const firstName = sanitizeName(req.body.firstName);
     const lastName = sanitizeName(req.body.lastName);
     const bodyCustomerName = sanitizeName(req.body.customerName);
@@ -225,26 +224,21 @@ const createDomainPayment = async (req, res, next) => {
     const years = sanitizeInt(req.body.years, 1, 10) ?? 1;
     const { amount, currency = "GHS", registrantInfo } = req.body;
 
-    if (!domain || !email || !amount) {
+    if (!domain || !amount) {
       return res.status(400).json({
         success: false,
-        error: "Domain, email, and amount are required",
+        error: "Domain and amount are required",
       });
     }
 
     const tld = extractTLD(domain);
     const safeYears = Number(Math.min(10, Math.max(1, Number(years) || 1)));
 
-    // ── Server-side price validation ──────────────────────────────────────────
-    // Never trust the client-supplied amount. Look up the real price from
-    // Namecheap (or fallback defaults) and verify the submitted amount is within
-    // a 5% tolerance (to account for currency rounding differences).
+    // ── Server-side price validation ─────────────────────────────────
     let expectedGHS = null;
-
     try {
       if (namecheap.hasConfig()) {
         const pricing = await namecheap.getPricing();
-        // pricing[tld] is already a GHS price (1-year), converted by namecheap.usdToGhs()
         if (pricing?.[tld]) {
           expectedGHS = pricing[tld] * safeYears;
         }
@@ -254,7 +248,6 @@ const createDomainPayment = async (req, res, next) => {
     }
 
     if (expectedGHS == null) {
-      // Fallback: getDefaultPrice returns a USD price, so convert to GHS here
       const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
       const markup = parseFloat(process.env.DOMAIN_MARKUP) || 1.2;
       const defaultUsd = getDefaultPrice(tld);
@@ -265,7 +258,7 @@ const createDomainPayment = async (req, res, next) => {
 
     if (expectedGHS != null) {
       const submitted = Number(amount);
-      const tolerance = 0.05; // 5%
+      const tolerance = 0.05;
       if (
         submitted < expectedGHS * (1 - tolerance) ||
         submitted > expectedGHS * (1 + tolerance)
@@ -290,23 +283,23 @@ const createDomainPayment = async (req, res, next) => {
       customerName = [firstName, lastName].filter(Boolean).join(" ").trim();
     }
     if (!customerName) {
-      customerName = email.split("@")[0] || "Customer";
+      customerName = req.user.name || email.split("@")[0] || "Customer";
     }
 
-    // Create payment reference
     const reference = `DOM_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const amountInUnits = Math.round(Number(amount) * 100);
 
-    const amountInUnits = Math.round(Number(amount) * 100); // kobo (NGN) or pesewas (GHS)
     const transaction = await paystack.transaction.initialize({
       email,
       amount: amountInUnits,
-      currency: currency || "NGN",
+      currency: currency || "GHS",
       reference,
       channels: ["card", "mobile_money"],
       metadata: {
         domain,
         type: "domain_registration",
         years: String(years),
+        userId: String(userId),
         ...(registrantInfo && {
           registrantInfo: JSON.stringify(registrantInfo),
         }),
@@ -322,6 +315,7 @@ const createDomainPayment = async (req, res, next) => {
     }
 
     const order = await DomainOrder.create({
+      user: userId,
       domain: domain || "",
       tld,
       price,
@@ -348,8 +342,10 @@ const createDomainPayment = async (req, res, next) => {
     next(error);
   }
 };
+
 /**
- * Get domain orders — admin sees all, regular users see only their own
+ * GET /api/v1/domain/orders
+ * Admin sees all orders; regular users see only their own.
  */
 const getDomainOrders = async (req, res, next) => {
   try {
@@ -358,7 +354,8 @@ const getDomainOrders = async (req, res, next) => {
 
     const query = {};
     if (!isAdmin) {
-      query.email = req.user.email;
+      // Filter by user ObjectId — reliable, no email-spoofing risk
+      query.user = req.user._id;
     }
     if (status) {
       query.status = status;
@@ -387,9 +384,9 @@ const getDomainOrder = async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Order not found" });
     }
 
-    // Only the owner or an admin can view the order
     const isAdmin = req.user?.role === "admin";
-    const isOwner = order.email === req.user?.email;
+    const isOwner = order.user?.toString() === req.user._id.toString();
+
     if (!isAdmin && !isOwner) {
       return res
         .status(403)
@@ -403,7 +400,7 @@ const getDomainOrder = async (req, res, next) => {
 };
 
 /**
- * Update domain order status
+ * Update domain order status (admin only)
  */
 const updateOrderStatus = async (req, res, next) => {
   try {
@@ -439,7 +436,6 @@ const updateOrderStatus = async (req, res, next) => {
 };
 
 /**
- * Get real-time domain suggestions for autocomplete
  * GET /api/domain/suggest?query=xyz
  */
 const suggestDomain = async (req, res, next) => {
@@ -455,7 +451,6 @@ const suggestDomain = async (req, res, next) => {
 
     const trimmedQuery = query.trim();
 
-    // Validate minimum length
     if (trimmedQuery.length < 2) {
       return res.status(400).json({
         success: false,
@@ -492,8 +487,7 @@ const suggestDomain = async (req, res, next) => {
 };
 
 /**
- * Search domain with Domainr API (includes availability, suggestions, and WHOIS)
- * This is the main endpoint for the domain search feature
+ * GET /api/v1/domain/search?domain=xyz
  */
 const searchDomain = async (req, res, next) => {
   try {
@@ -506,7 +500,6 @@ const searchDomain = async (req, res, next) => {
       });
     }
 
-    // Validate domain format
     if (!validateDomain(domain)) {
       return res.status(400).json({
         success: false,
@@ -524,7 +517,6 @@ const searchDomain = async (req, res, next) => {
       });
     }
 
-    // Only check TLDs that Namecheap actually sells
     const allPrices = await namecheap.getPricing();
     const wantedTlds = [
       ".com",
@@ -549,15 +541,13 @@ const searchDomain = async (req, res, next) => {
     const available = exact ? exact.available : false;
     const price = exact ? exact.price : null;
 
-    const response = {
+    res.status(200).json({
       domain: normalizedDomain,
       available,
       registered: !available,
       price,
       results,
-    };
-
-    res.status(200).json(response);
+    });
   } catch (error) {
     console.error("Domain search error:", error);
     next(error);
