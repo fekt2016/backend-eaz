@@ -20,6 +20,9 @@ const projectRoutes = require('./routes/projectRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const domainRoutes = require('./routes/domainRoutes');
 const hostingOrderRoutes = require('./routes/hostingOrderRoutes');
+const productRoutes = require('./routes/productRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+const deliveryZoneRoutes = require('./routes/deliveryZoneRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
@@ -110,6 +113,9 @@ app.use('/api/v1/projects', projectRoutes);
 app.use('/api/v1/uploads', uploadRoutes);
 app.use('/api/v1/domain', domainRoutes);
 app.use('/api/v1/hosting', hostingOrderRoutes);
+app.use('/api/v1/products', productRoutes);
+app.use('/api/v1/orders', orderRoutes);
+app.use('/api/v1/delivery-zones', deliveryZoneRoutes);
 
 // ────────────────────────────────────────────────
 // 🩺 Health Check Route (includes DB connection status)
