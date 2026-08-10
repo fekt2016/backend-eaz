@@ -23,10 +23,24 @@ const validateEnv = () => {
     console.error('Please set JWT_SECRET in your .env file (min 32 characters recommended).');
     process.exit(1);
   }
+  if (process.env.JWT_SECRET.length < 32) {
+    console.error('❌ JWT_SECRET is too short (minimum 32 characters required).');
+    console.error('Generate a strong secret with: openssl rand -hex 64');
+    process.exit(1);
+  }
+
+  // PAYSTACK_SECRET is critical — without it the webhook silently fails
+  if (!process.env.PAYSTACK_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ Missing PAYSTACK_SECRET — payments will not work in production');
+      process.exit(1);
+    } else {
+      console.warn('⚠️  PAYSTACK_SECRET not set — payment webhooks will be rejected');
+    }
+  }
 
   // Optional: Warn about recommended variables
   const recommendedVars = [
-    'PAYSTACK_SECRET',
     'RESEND_API_KEY',
     'CLOUDINARY_CLOUD_NAME',
     'NAMECHEAP_API_USER',

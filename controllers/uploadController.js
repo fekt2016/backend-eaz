@@ -2,10 +2,19 @@ const multer = require('multer');
 const { cloudinary } = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
-// Configure multer for memory storage
-const upload = multer({ 
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+
+// Configure multer for memory storage with type + size validation
+const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files (JPEG, PNG, WebP, GIF) are allowed.'));
+    }
+  },
 });
 
 /**

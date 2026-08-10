@@ -2,7 +2,7 @@ const axios = require('axios');
 const https = require('https');
 const crypto = require('crypto');
 
-const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+const httpsAgent = new https.Agent({ rejectUnauthorized: process.env.NODE_ENV === 'production' });
 
 function hasConfig() {
   return !!(process.env.WHM_HOST && process.env.WHM_TOKEN);
@@ -20,12 +20,18 @@ function generateUsername(email) {
 }
 
 function generatePassword() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
-  return Array.from({ length: 16 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const special = '!@#$%^&*';
+  const all = upper + lower + digits + special;
+  const rand = (set) => set[Math.floor(Math.random() * set.length)];
+  const base = Array.from({ length: 12 }, () => rand(all)).join('');
+  return rand(upper) + rand(lower) + rand(digits) + rand(special) + base;
 }
 
 function planPackageName(planType, tier) {
-  return `eazworld_${planType}_${tier}`.toLowerCase();
+  return `root_eazworld_${planType}_${tier}`.toLowerCase();
 }
 
 /**
@@ -77,4 +83,77 @@ async function createAccount({ username, domain, password, email, planType, tier
   }
 }
 
-module.exports = { hasConfig, createAccount, generateUsername, generatePassword };
+/**
+ * Trigger AutoSSL for a specific cPanel user immediately after account creation.
+ * WHM AutoSSL must be configured with Let's Encrypt (or Sectigo) as the provider.
+ * This runs the SSL check/install for the user's domain without waiting for the nightly cron.
+ *
+ * @param {string} username - cPanel username
+ * @returns {Promise<{ success: boolean, error?: string }>}
+ */
+async function runAutoSSL(username) {
+  if (!hasConfig()) {
+    return { success: false, error: 'WHM not configured' };
+  }
+
+  try {
+    const response = await axios.get(`${process.env.WHM_HOST}/json-api/start_autossl_check_for_one_user`, {
+      params: {
+        'api.version': 1,
+        username,
+      },
+      headers: { Authorization: authHeader() },
+      httpsAgent,
+      timeout: 30000,
+    });
+
+    const data = response.data?.metadata || response.data;
+    if (data?.result === 1 || response.data?.result?.[0]?.status === 1 || data?.status === 1) {
+      console.log(`[WHM] AutoSSL triggered for ${username}`);
+      return { success: true };
+    }
+
+    const reason = response.data?.result?.[0]?.statusmsg || data?.reason || 'AutoSSL trigger failed';
+    console.warn(`[WHM] AutoSSL trigger warning for ${username}: ${reason}`);
+    // Non-fatal — AutoSSL will still run on the nightly cron
+    return { success: false, error: reason };
+  } catch (err) {
+    console.warn(`[WHM] AutoSSL trigger failed for ${username}: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Create a temporary login session for a cPanel user.
+ * @param {string} username - cPanel username
+ * @returns {Promise<{ success: boolean, url?: string, error?: string }>}
+ */
+async function createSession(username) {
+  if (!hasConfig()) {
+    return { success: false, error: 'WHM not configured' };
+  }
+
+  try {
+    const response = await axios.get(`${process.env.WHM_HOST}/json-api/create_user_session`, {
+      params: {
+        'api.version': 1,
+        user: username,
+        service: 'cpaneld',
+      },
+      headers: { Authorization: authHeader() },
+      httpsAgent,
+      timeout: 10000,
+    });
+
+    const data = response.data?.data || {};
+    if (data.url) {
+      return { success: true, url: data.url };
+    }
+
+    return { success: false, error: response.data?.metadata?.reason || 'Failed to create cPanel session' };
+  } catch (err) {
+    return { success: false, error: err.message || 'WHM session request failed' };
+  }
+}
+
+module.exports = { hasConfig, createAccount, generateUsername, generatePassword, createSession, runAutoSSL };

@@ -58,3 +58,5 @@ services:
         value: root
       - key: WHM_TOKEN
         sync: false
+      - key: CPANEL_URL
+        sync: false

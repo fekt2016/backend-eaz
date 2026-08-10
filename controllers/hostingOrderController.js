@@ -1,12 +1,16 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Paystack = require('@paystack/paystack-sdk');
 const streamifier = require('streamifier');
 const HostingOrder = require('../models/HostingOrder');
+const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, sanitizeDomain } = require('../utils/sanitize');
 const { getPlanPrice, HOSTING_PLANS } = require('../config/hostingPlans');
+const namecheap = require('../services/namecheap');
 const { cloudinary } = require('../config/cloudinary');
 const { sendOrderConfirmation, sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const { buildInvoiceBuffer } = require('../utils/hostingInvoice');
+const whm = require('../services/whm');
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -21,6 +25,10 @@ const FRONTEND_URL = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http
 function computeAddonsTotal(addons) {
   if (!Array.isArray(addons)) return 0;
   return addons.reduce((sum, a) => sum + (Number(a.price) || 0), 0);
+}
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -46,9 +54,22 @@ const createOrder = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
 
-    const { planType, tier, billingCycle, addons = [], customer, paymentMethod, mobileNumber, network, domain } = req.body;
+    const {
+      planType, tier, billingCycle, addons = [], customer,
+      paymentMethod, mobileNumber, network,
+      domainMode = 'skip', domainRegistrationFee = 0, domainRegistrationYears = 1
+    } = req.body;
 
-    if (!planType || !tier || !billingCycle || !customer?.name || !customer?.email) {
+    // Sanitize customer fields
+    const customerName    = sanitizeName(customer?.name);
+    const customerEmail   = sanitizeEmail(customer?.email);
+    const customerPhone   = sanitizePhone(customer?.phone);
+    const customerAddress = sanitizeText(customer?.address, 200);
+    const customerCity    = sanitizeText(customer?.city, 100);
+    const mobileNumber_s  = sanitizePhone(mobileNumber);
+    const domain_s        = sanitizeDomain(req.body.domain);
+
+    if (!planType || !tier || !billingCycle || !customerName || !customerEmail) {
       return res.status(400).json({
         success: false,
         error: 'planType, tier, billingCycle, and customer (name, email) are required'
@@ -61,7 +82,32 @@ const createOrder = async (req, res, next) => {
     }
 
     const addonsTotal = computeAddonsTotal(addons);
-    const totalAmount = planTotal + addonsTotal;
+
+    // Re-compute domain fee server-side — never trust client-supplied price
+    let domainFee = 0;
+    if (domainMode === 'new' && domain_s) {
+      try {
+        const tld = domain_s.split('.').slice(1).join('.');
+        const prices = await namecheap.getPricing();
+        const priceUSD = prices[tld] ?? null;
+        if (priceUSD != null) {
+          const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
+          const markup  = parseFloat(process.env.DOMAIN_MARKUP)   || 1.2;
+          const years   = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
+          domainFee = Math.round(priceUSD * usdRate * markup * years * 100) / 100;
+        } else {
+          // Unknown TLD — use client value with sanity cap (≤ GHS 500)
+          domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
+        }
+      } catch {
+        // Namecheap unavailable — fall back to client value with sanity cap
+        domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
+      }
+    }
+
+    const totalAmount = planTotal + addonsTotal + domainFee;
+
+    const cleanDomain = domain_s || null;
 
     const orderPayload = {
       user: userId,
@@ -70,18 +116,26 @@ const createOrder = async (req, res, next) => {
       billingCycle,
       addons: addons.map(a => ({ id: a.id, name: a.name, price: a.price || 0 })),
       customer: {
-        name: customer.name.trim(),
-        email: customer.email.trim().toLowerCase(),
-        phone: (customer.phone || '').trim(),
-        address: (customer.address || '').trim(),
-        city: (customer.city || '').trim(),
-        country: (customer.country || 'Ghana').trim()
+        name: customerName,
+        email: customerEmail,
+        phone: customerPhone || '',
+        address: customerAddress || '',
+        city: customerCity || '',
+        country: (customer?.country || 'Ghana').trim()
       },
       amount: totalAmount,
       currency: 'GHS',
       status: 'pending',
+      provisioningStatus: 'not_started',
+      provisioningStartedAt: null,
       paymentMethod: paymentMethod || 'bank_transfer',
-      ...(domain && { domain: domain.trim().toLowerCase().replace(/^https?:\/\//, '') })
+      ...(cleanDomain && { domain: cleanDomain }),
+      domainMode: ['new', 'own', 'skip'].includes(domainMode) ? domainMode : 'skip',
+      ...(domainMode === 'new' && cleanDomain && {
+        domainRegistrationFee: domainFee,
+        domainRegistrationYears: Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1)),
+        domainRegistered: false,
+      }),
     };
 
     const isPaystack = paymentMethod === 'paystack_card' || paymentMethod === 'mobile_money';
@@ -103,7 +157,7 @@ const createOrder = async (req, res, next) => {
           billingCycle: billingCycle
         },
         callback_url: `${FRONTEND_URL}/hosting/order-confirmation`,
-        ...(paymentMethod === 'mobile_money' && mobileNumber && { mobile_money: { phone: mobileNumber, provider: network || 'mtn' } })
+        ...(paymentMethod === 'mobile_money' && mobileNumber_s && { mobile_money: { phone: mobileNumber_s, provider: network || 'mtn' } })
       });
 
       if (!transaction.status) {
@@ -145,15 +199,196 @@ const createOrder = async (req, res, next) => {
 /**
  * GET /api/v1/hosting/orders
  * List orders for the current user (or all for admin).
+ * Admin-only: optional `q` (search), `limit` (default 200, max 500).
  */
 const getOrders = async (req, res, next) => {
   try {
     const isAdmin = req.user?.role === 'admin';
     const filter = isAdmin ? {} : { user: req.user._id };
-    const orders = await HostingOrder.find(filter)
-      .sort({ createdAt: -1 })
-      .lean();
+    if (req.query?.status) {
+      filter.status = req.query.status;
+    }
+    if (isAdmin && typeof req.query?.q === 'string' && req.query.q.trim()) {
+      const qraw = req.query.q.trim().slice(0, 200);
+      const rx = new RegExp(escapeRegex(qraw), 'i');
+      const or = [
+        { 'customer.email': rx },
+        { 'customer.name': rx },
+        { domain: rx },
+        { cpanelUsername: rx },
+        { paystackReference: rx }
+      ];
+      if (mongoose.Types.ObjectId.isValid(qraw) && String(new mongoose.Types.ObjectId(qraw)) === qraw) {
+        or.unshift({ _id: qraw });
+      }
+      filter.$or = or;
+    }
+
+    let q = HostingOrder.find(filter).sort({ createdAt: -1 });
+    if (isAdmin) {
+      const n = parseInt(req.query?.limit, 10);
+      const lim = Number.isFinite(n) && n > 0 ? Math.min(n, 500) : 200;
+      q = q.limit(lim);
+    }
+    const orders = await q.lean();
     return res.status(200).json({ success: true, data: orders });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/v1/hosting/orders/admin-overview
+ * Full overview for admin home: revenue, orders, users, domains (admin only).
+ */
+const getAdminOverview = async (req, res, next) => {
+  try {
+    const User = require('../models/User');
+    const DomainOrder = require('../models/DomainOrder');
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    const [
+      // Hosting
+      hostingTotal,
+      hostingActive,
+      hostingPending,
+      hostingThisMonth,
+      hostingLastMonth,
+      revenueAgg,
+      revenueThisMonthAgg,
+      revenueLastMonthAgg,
+      expiringIn7Days,
+      // Domains
+      domainTotal,
+      domainThisMonth,
+      domainRevenueAgg,
+      // Users
+      userTotal,
+      userThisMonth,
+    ] = await Promise.all([
+      HostingOrder.countDocuments({}),
+      HostingOrder.countDocuments({ status: 'active' }),
+      HostingOrder.countDocuments({ status: 'pending' }),
+      HostingOrder.countDocuments({ createdAt: { $gte: startOfMonth } }),
+      HostingOrder.countDocuments({ createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
+      HostingOrder.aggregate([{ $match: { status: { $in: ['paid', 'active'] } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      HostingOrder.aggregate([{ $match: { status: { $in: ['paid', 'active'] }, paidAt: { $gte: startOfMonth } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      HostingOrder.aggregate([{ $match: { status: { $in: ['paid', 'active'] }, paidAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      HostingOrder.countDocuments({ status: 'active', expiresAt: { $gt: now, $lt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) } }),
+      DomainOrder.countDocuments({}),
+      DomainOrder.countDocuments({ createdAt: { $gte: startOfMonth } }),
+      DomainOrder.aggregate([{ $match: { status: 'completed' } }, { $group: { _id: null, total: { $sum: '$price' } } }]),
+      User.countDocuments({}),
+      User.countDocuments({ createdAt: { $gte: startOfMonth } }),
+    ]);
+
+    const hostingRevenue = revenueAgg[0]?.total || 0;
+    const hostingRevenueThisMonth = revenueThisMonthAgg[0]?.total || 0;
+    const hostingRevenueLastMonth = revenueLastMonthAgg[0]?.total || 0;
+    const domainRevenue = domainRevenueAgg[0]?.total || 0;
+    const totalRevenue = hostingRevenue + domainRevenue;
+    const revenueGrowth = hostingRevenueLastMonth > 0
+      ? Math.round(((hostingRevenueThisMonth - hostingRevenueLastMonth) / hostingRevenueLastMonth) * 100)
+      : null;
+
+    // Recent 5 hosting orders
+    const recentHostingOrders = await HostingOrder.find({})
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    // Recent 5 domain orders
+    const recentDomainOrders = await DomainOrder.find({})
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        revenue: {
+          total: totalRevenue,
+          hosting: hostingRevenue,
+          domains: domainRevenue,
+          thisMonth: hostingRevenueThisMonth,
+          lastMonth: hostingRevenueLastMonth,
+          growth: revenueGrowth,
+        },
+        hosting: {
+          total: hostingTotal,
+          active: hostingActive,
+          pending: hostingPending,
+          thisMonth: hostingThisMonth,
+          lastMonth: hostingLastMonth,
+          expiringIn7Days,
+        },
+        domains: {
+          total: domainTotal,
+          thisMonth: domainThisMonth,
+        },
+        users: {
+          total: userTotal,
+          thisMonth: userThisMonth,
+        },
+        recentHostingOrders,
+        recentDomainOrders,
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/v1/hosting/orders/admin-summary
+ * Lightweight counts for the admin dashboard (admin only).
+ */
+const getHostingOrdersAdminSummary = async (req, res, next) => {
+  try {
+    const [
+      total,
+      byStatusAgg,
+      provisioningFailed,
+      pendingBankWithProof,
+      paidProvisioningSkipped,
+      stuckProvisioning
+    ] = await Promise.all([
+      HostingOrder.countDocuments({}),
+      HostingOrder.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+      HostingOrder.countDocuments({ status: 'paid', provisioningStatus: 'failed' }),
+      HostingOrder.countDocuments({
+        status: 'pending',
+        paymentMethod: 'bank_transfer',
+        proofUploadUrl: { $nin: [null, ''] }
+      }),
+      HostingOrder.countDocuments({ status: 'paid', provisioningStatus: 'skipped' }),
+      HostingOrder.countDocuments({
+        status: 'paid',
+        provisioningStatus: 'pending'
+      })
+    ]);
+
+    const byStatus = Object.fromEntries(byStatusAgg.map((x) => [x._id, x.count]));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        total,
+        pending: byStatus.pending || 0,
+        paid: byStatus.paid || 0,
+        active: byStatus.active || 0,
+        cancelled: byStatus.cancelled || 0,
+        failed: byStatus.failed || 0,
+        provisioningFailed,
+        pendingBankTransfersWithProof: pendingBankWithProof,
+        paidProvisioningSkippedNeedsManualFulfillment: paidProvisioningSkipped,
+        paidProvisioningInProgress: stuckProvisioning
+      }
+    });
   } catch (err) {
     next(err);
   }
@@ -275,21 +510,200 @@ const updateOrderStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
     const { status } = req.body;
-    const allowed = ['pending', 'paid', 'active', 'cancelled', 'failed'];
+    const allowed = ['pending', 'paid', 'cancelled', 'failed'];
     if (!status || !allowed.includes(status)) {
       return res.status(400).json({ success: false, error: 'Valid status required: ' + allowed.join(', ') });
     }
-    order.status = status;
-    if (status === 'paid' && order.paymentMethod === 'bank_transfer') {
-      order.bankTransferVerifiedAt = new Date();
-      if (!order.paidAt) order.paidAt = new Date();
+
+    const prevStatus = order.status;
+
+    // Active orders are fulfilled; do not allow reverting to paid/pending (avoids accidental re-provisioning states).
+    if (prevStatus === 'active') {
+      if (!['cancelled', 'failed'].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Active hosting orders can only be moved to cancelled or failed'
+        });
+      }
     }
-    await order.save();
+
+    order.status = status;
+
     if (status === 'paid') {
-      sendPaymentReceived(order).catch(() => {});
+      if (!order.paidAt) order.paidAt = new Date();
+
+      if (order.paymentMethod === 'bank_transfer') {
+        order.bankTransferVerifiedAt = new Date();
+      }
+
+      // Queue provisioning if not already fulfilled.
+      if (prevStatus !== 'active' && order.provisioningStatus !== 'provisioned') {
+        order.provisioningStatus = 'pending';
+        order.provisioningError = null;
+      }
+    }
+
+    await order.save({ validateBeforeSave: false });
+
+    if (status === 'paid') {
+      // Only send the "payment received" email the first time we transition into paid.
+      if (prevStatus !== 'paid' && prevStatus !== 'active') {
+        sendPaymentReceived(order).catch(() => {});
+      }
       provisionHostingAccount(order).catch(() => {});
     }
+
     return res.status(200).json({ success: true, data: order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/v1/hosting/orders/:id/cpanel-login
+ * Generate an SSO URL for cPanel (owner or admin).
+ */
+const getCpanelLoginUrl = async (req, res, next) => {
+  try {
+    const order = await HostingOrder.findById(req.params.id).lean();
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    const isOwner = order.user && order.user.toString() === req.user._id.toString();
+    const isAdmin = req.user?.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'Not allowed' });
+    }
+
+    if (order.status !== 'active' || !order.cpanelUsername) {
+      return res.status(400).json({ success: false, error: 'Hosting is not active yet' });
+    }
+
+    const session = await whm.createSession(order.cpanelUsername);
+    if (!session.success) {
+      return res.status(500).json({ success: false, error: session.error });
+    }
+
+    return res.status(200).json({ success: true, data: { url: session.url } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/v1/hosting/orders/:id/renew
+ * Create a renewal payment for an existing hosting order (owner only).
+ * On payment success the webhook extends expiresAt on the parent order.
+ */
+const renewOrder = async (req, res, next) => {
+  try {
+    const original = await HostingOrder.findById(req.params.id);
+    if (!original) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    if (original.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, error: 'Not allowed' });
+    }
+    if (!['active', 'cancelled'].includes(original.status)) {
+      return res.status(400).json({ success: false, error: 'Only active or expired orders can be renewed' });
+    }
+
+    const { paymentMethod, mobileNumber, network } = req.body;
+    if (!paymentMethod) {
+      return res.status(400).json({ success: false, error: 'paymentMethod is required' });
+    }
+
+    // Price is the same plan — no domain fee on renewal
+    const { total: planTotal } = getPlanPrice(original.planType, original.tier, original.billingCycle);
+    if (planTotal == null) {
+      return res.status(400).json({ success: false, error: 'Could not determine renewal price' });
+    }
+
+    const renewalPayload = {
+      user: original.user,
+      planType: original.planType,
+      tier: original.tier,
+      billingCycle: original.billingCycle,
+      addons: original.addons || [],
+      customer: original.customer,
+      amount: planTotal,
+      currency: 'GHS',
+      status: 'pending',
+      provisioningStatus: 'not_started',
+      paymentMethod,
+      domain: original.domain || null,
+      domainMode: 'skip', // domain already set up, no re-registration
+      parentOrderId: original._id,
+    };
+
+    const isPaystack = paymentMethod === 'paystack_card' || paymentMethod === 'mobile_money';
+
+    if (isPaystack && paystack) {
+      const reference = `RENEW_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const amountInPesewas = Math.round(planTotal * 100);
+
+      const transaction = await paystack.transaction.initialize({
+        email: original.customer.email,
+        amount: amountInPesewas,
+        currency: 'GHS',
+        reference,
+        channels: paymentMethod === 'mobile_money' ? ['mobile_money'] : ['card', 'mobile_money'],
+        metadata: {
+          type: 'hosting_renewal',
+          planType: original.planType,
+          tier: original.tier,
+          billingCycle: original.billingCycle,
+          parentOrderId: String(original._id),
+        },
+        callback_url: `${FRONTEND_URL}/hosting/order-confirmation`,
+        ...(paymentMethod === 'mobile_money' && mobileNumber && { mobile_money: { phone: mobileNumber, provider: network || 'mtn' } })
+      });
+
+      if (!transaction.status) {
+        return res.status(500).json({ success: false, error: 'Failed to initialize renewal payment' });
+      }
+
+      renewalPayload.paystackReference = reference;
+      const renewalOrder = await HostingOrder.create(renewalPayload);
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          authorizationUrl: transaction.data.authorization_url,
+          accessCode: transaction.data.access_code,
+          reference: transaction.data.reference,
+          orderId: renewalOrder._id,
+          renewalAmount: planTotal,
+        }
+      });
+    }
+
+    // Bank transfer renewal
+    const renewalOrder = await HostingOrder.create(renewalPayload);
+    return res.status(200).json({
+      success: true,
+      data: {
+        orderId: renewalOrder._id,
+        renewalAmount: planTotal,
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * DELETE /api/v1/hosting/orders/:id
+ * Delete a hosting order (admin only).
+ */
+const deleteOrder = async (req, res, next) => {
+  try {
+    const order = await HostingOrder.findByIdAndDelete(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    return res.status(200).json({ success: true, message: 'Order deleted from system' });
   } catch (err) {
     next(err);
   }
@@ -299,9 +713,14 @@ module.exports = {
   getPlans,
   createOrder,
   getOrders,
+  getAdminOverview,
+  getHostingOrdersAdminSummary,
   getOrder,
   getOrderByReference,
   getInvoice,
   updateOrderStatus,
-  uploadOrderProof
+  uploadOrderProof,
+  getCpanelLoginUrl,
+  renewOrder,
+  deleteOrder
 };
