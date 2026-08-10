@@ -42,7 +42,9 @@ const protect = async (req, res, next) => {
 
 const restrictTo = (...roles) => {
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    // superadmin has full access — it implicitly satisfies every role check.
+    const allowed = req.user && (req.user.role === 'superadmin' || roles.includes(req.user.role));
+    if (!allowed) {
       return res.status(403).json({
         success: false,
         error: 'You do not have permission to perform this action.'
