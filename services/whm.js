@@ -30,8 +30,16 @@ function generatePassword() {
   return rand(upper) + rand(lower) + rand(digits) + rand(special) + base;
 }
 
+// WHM packages are owned by — and prefixed with — the reseller username.
+// On an Asura cPanel RESELLER account this is NOT 'root'; it's your reseller
+// username. Set WHM_PACKAGE_PREFIX (or WHM_USER) to that username so the package
+// name resolves to one that actually exists on the server.
+function packagePrefix() {
+  return (process.env.WHM_PACKAGE_PREFIX || process.env.WHM_USER || 'root').trim();
+}
+
 function planPackageName(planType, tier) {
-  return `root_eazworld_${planType}_${tier}`.toLowerCase();
+  return `${packagePrefix()}_eazworld_${planType}_${tier}`.toLowerCase();
 }
 
 /**
@@ -45,7 +53,7 @@ function planPackageName(planType, tier) {
  * @param {string} opts.tier      - e.g. 'deluxe'
  * @returns {Promise<{ success: boolean, username?: string, password?: string, error?: string }>}
  */
-async function createAccount({ username, domain, password, email, planType, tier }) {
+async function createAccount({ username, domain, password, email, planType, tier, plan }) {
   if (!hasConfig()) {
     return { success: false, error: 'WHM not configured' };
   }
@@ -58,7 +66,8 @@ async function createAccount({ username, domain, password, email, planType, tier
         domain,
         password,
         contactemail: email,
-        plan: planPackageName(planType, tier),
+        // Explicit `plan` (full WHM package name) wins; otherwise derive it.
+        plan: plan || planPackageName(planType, tier),
         reseller: 0,
       },
       headers: { Authorization: authHeader() },
@@ -156,4 +165,89 @@ async function createSession(username) {
   }
 }
 
-module.exports = { hasConfig, createAccount, generateUsername, generatePassword, createSession, runAutoSSL };
+// ── Shared WHM API v1 caller for the lifecycle/status endpoints ──────────────
+// All of these are documented cPanel WHM API v1 functions.
+async function callWhm(func, params = {}, timeout = 30000) {
+  if (!hasConfig()) return { success: false, error: 'WHM not configured' };
+  try {
+    const response = await axios.get(`${process.env.WHM_HOST}/json-api/${func}`, {
+      params: { 'api.version': 1, ...params },
+      headers: { Authorization: authHeader() },
+      httpsAgent,
+      timeout,
+    });
+    const meta = response.data?.metadata || {};
+    const ok = meta.result === 1 || response.data?.result?.[0]?.status === 1;
+    if (ok) return { success: true, data: response.data?.data || {} };
+    return {
+      success: false,
+      error: response.data?.result?.[0]?.statusmsg || meta.reason || `${func} failed`,
+    };
+  } catch (err) {
+    return { success: false, error: err.message || `WHM ${func} request failed` };
+  }
+}
+
+/** Suspend a cPanel account (WHM `suspendacct`). */
+function suspendAccount(username, reason = 'Subscription expired') {
+  return callWhm('suspendacct', { user: username, reason });
+}
+
+/** Unsuspend a cPanel account (WHM `unsuspendacct`). */
+function unsuspendAccount(username) {
+  return callWhm('unsuspendacct', { user: username });
+}
+
+/** Permanently remove a cPanel account (WHM `removeacct`). Irreversible. */
+function terminateAccount(username, keepDns = false) {
+  return callWhm('removeacct', { user: username, keepdns: keepDns ? 1 : 0 });
+}
+
+/** Change a cPanel account's password (WHM `passwd`). Never log the password. */
+function changePassword(username, password) {
+  return callWhm('passwd', { user: username, password });
+}
+
+/** Live account status/summary (WHM `accountsummary`). */
+async function getAccountStatus(username) {
+  const res = await callWhm('accountsummary', { user: username }, 10000);
+  if (!res.success) return res;
+  const acct = res.data?.acct?.[0];
+  if (!acct) return { success: false, error: 'Account not found' };
+  return {
+    success: true,
+    suspended: acct.suspended === 1 || acct.suspended === '1',
+    domain: acct.domain,
+    ip: acct.ip,
+    plan: acct.plan,
+    diskUsed: acct.diskused,
+    diskLimit: acct.disklimit,
+    startdate: acct.startdate,
+  };
+}
+
+/** List WHM packages owned by the reseller (WHM `listpkgs`) — for admin/config validation. */
+async function listPackages() {
+  const res = await callWhm('listpkgs', {}, 10000);
+  if (!res.success) return res;
+  const raw = res.data?.pkg || res.data?.package || [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return { success: true, packages: list.map((p) => p?.name || p).filter(Boolean) };
+}
+
+module.exports = {
+  hasConfig,
+  createAccount,
+  generateUsername,
+  generatePassword,
+  createSession,
+  runAutoSSL,
+  planPackageName,
+  packagePrefix,
+  suspendAccount,
+  unsuspendAccount,
+  terminateAccount,
+  changePassword,
+  getAccountStatus,
+  listPackages,
+};

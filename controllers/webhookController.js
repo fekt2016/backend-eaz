@@ -1,6 +1,4 @@
 const crypto = require('crypto');
-const axios = require('axios');
-const https = require('https');
 const DomainOrder = require('../models/DomainOrder');
 const HostingOrder = require('../models/HostingOrder');
 const Order = require('../models/Order');
@@ -10,25 +8,22 @@ const User = require('../models/User');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const namecheap = require('../services/namecheap');
+const whm = require('../services/whm');
 
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: process.env.NODE_ENV === 'production',
-});
-
-async function unsuspendCpanelAccount(username) {
-  if (!process.env.WHM_HOST || !process.env.WHM_TOKEN) return;
-  const user = process.env.WHM_USER || 'root';
-  try {
-    await axios.get(`${process.env.WHM_HOST}/json-api/unsuspendacct`, {
-      params: { 'api.version': 1, user: username },
-      headers: { Authorization: `whm ${user}:${process.env.WHM_TOKEN}` },
-      httpsAgent,
-      timeout: 15000,
-    });
-    console.log(`[webhook] cPanel account unsuspended: ${username}`);
-  } catch (err) {
-    console.error(`[webhook] Failed to unsuspend ${username}:`, err.message);
-  }
+/**
+ * Reject a webhook whose charged amount/currency doesn't match the order.
+ * `expectedPesewas` must be in the smallest currency unit (pesewas), the same
+ * unit Paystack reports in `event.data.amount`. Hosting/domain/service store
+ * amounts in major GHS units, so callers pass `Math.round(field * 100)`; the
+ * shop Order stores `total` already in pesewas. When no reliable expected
+ * amount is available (missing/zero), we do NOT block — legacy orders without
+ * the field must still be able to fulfil.
+ */
+function amountMismatch(eventData, expectedPesewas) {
+  if (!Number.isFinite(expectedPesewas) || expectedPesewas <= 0) return false;
+  if (Number(eventData.amount) !== expectedPesewas) return true;
+  if (eventData.currency && eventData.currency !== 'GHS') return true;
+  return false;
 }
 
 /**
@@ -64,6 +59,12 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Hosting order (new or renewal) ───────────────────────────────
     const hostingOrder = await HostingOrder.findOne({ paystackReference: reference });
     if (hostingOrder) {
+      // Amount stored in major GHS units → compare against pesewas.
+      if (amountMismatch(event.data, Math.round((hostingOrder.amount || 0) * 100))) {
+        console.error(`[webhook] Amount mismatch for hosting order ${hostingOrder._id}`);
+        return res.status(400).json({ error: 'Amount mismatch' });
+      }
+
       const wasPaidOrActive =
         hostingOrder.status === 'paid' || hostingOrder.status === 'active';
 
@@ -99,9 +100,9 @@ const handlePaystackWebhook = async (req, res) => {
           parent.renewedAt = new Date();
           parent.renewalOrderId = hostingOrder._id;
           parent.renewalReminderSent = 'none';
-          if (parent.status === 'cancelled' && parent.cpanelUsername) {
+          if (['cancelled', 'suspended'].includes(parent.status) && parent.cpanelUsername) {
             parent.status = 'active';
-            await unsuspendCpanelAccount(parent.cpanelUsername).catch(() => {});
+            await whm.unsuspendAccount(parent.cpanelUsername).catch(() => {});
           }
           await parent.save({ validateBeforeSave: false }).catch(() => {});
           console.log(
@@ -130,6 +131,12 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Domain order ─────────────────────────────────────────────────
     const domainOrder = await DomainOrder.findOne({ paystackReference: reference });
     if (domainOrder) {
+      // Price stored in major GHS units → compare against pesewas.
+      if (amountMismatch(event.data, Math.round((domainOrder.price || 0) * 100))) {
+        console.error(`[webhook] Amount mismatch for domain order ${domainOrder._id}`);
+        return res.status(400).json({ error: 'Amount mismatch' });
+      }
+
       if (domainOrder.status === 'completed') {
         console.log(
           `[webhook] Duplicate webhook for already-completed domain order ${domainOrder._id} — skipping`
@@ -259,6 +266,12 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Service order (web design deposit) ──────────────────────────
     const serviceOrder = await ServiceOrder.findOne({ paystackReference: reference });
     if (serviceOrder) {
+      // depositAmount stored in major GHS units → compare against pesewas.
+      if (amountMismatch(event.data, Math.round((serviceOrder.depositAmount || 0) * 100))) {
+        console.error(`[webhook] Amount mismatch for service order ${serviceOrder._id}`);
+        return res.status(400).json({ error: 'Amount mismatch' });
+      }
+
       if (serviceOrder.status === 'paid') {
         console.log(
           `[webhook] Duplicate webhook for already-paid service order ${serviceOrder._id} — skipping`
@@ -280,4 +293,4 @@ const handlePaystackWebhook = async (req, res) => {
   }
 };
 
-module.exports = { handlePaystackWebhook };
+module.exports = { handlePaystackWebhook, amountMismatch };

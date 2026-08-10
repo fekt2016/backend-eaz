@@ -8,6 +8,12 @@ function slugify(value) {
     .replace(/(^-|-$)/g, "");
 }
 
+// Escape regex metacharacters so user-supplied search text is matched
+// literally — prevents ReDoS and unintended regex-metacharacter matching.
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const getProducts = async (req, res, next) => {
   try {
     const { category, q, sort } = req.query;
@@ -25,7 +31,7 @@ const getProducts = async (req, res, next) => {
     }
 
     if (q && q.trim()) {
-      const search = q.trim();
+      const search = escapeRegex(q.trim());
       query.$or = [
         { name: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },

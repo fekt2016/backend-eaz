@@ -343,8 +343,25 @@ function getPlanPrice(planType, tier, billingCycle) {
   return { basePrice, total: basePrice, billingCycle };
 }
 
+// Nameservers customers must point their domain at (for 'own'/'skip' domains).
+// Set HOSTING_NAMESERVERS to a comma-separated list from your Asura/WHM server,
+// e.g. "ns1.eazworld.com,ns2.eazworld.com".
+const HOSTING_NAMESERVERS = (process.env.HOSTING_NAMESERVERS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// Expiry lifecycle timing (days), env-configurable. Default: 7-day grace after
+// expiry → suspend; 30 days after suspension → terminate.
+const LIFECYCLE = {
+  graceDays: Number(process.env.HOSTING_GRACE_DAYS) || 7,
+  suspendToTerminateDays: Number(process.env.HOSTING_SUSPEND_TO_TERMINATE_DAYS) || 30,
+};
+
 module.exports = {
   HOSTING_PLANS,
   getPlanPrice,
+  HOSTING_NAMESERVERS,
+  LIFECYCLE,
 };
 

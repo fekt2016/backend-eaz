@@ -12,6 +12,9 @@ const HostingOrder = require('../models/HostingOrder');
 const EmailLog = require('../models/EmailLog');
 const { Resend } = require('resend');
 const whm = require('../services/whm');
+const { LIFECYCLE } = require('../config/hostingPlans');
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM = process.env.EMAIL_FROM || 'EazWorld <onboarding@resend.dev>';
@@ -129,47 +132,84 @@ async function runRenewalJob() {
       }
     }
 
-    // ── 2. Suspend expired accounts ─────────────────────────────────────────────
-    const expired = await HostingOrder.find({
+    // ── 2. Suspend accounts past their grace period ─────────────────────────────
+    // Accounts stay active during the grace window (still serving the site), then
+    // are suspended — never terminated immediately after a missed renewal.
+    const suspendCutoff = new Date(now.getTime() - LIFECYCLE.graceDays * DAY_MS);
+    const toSuspend = await HostingOrder.find({
       status: 'active',
-      expiresAt: { $lt: now },
+      expiresAt: { $lt: suspendCutoff },
     });
 
-    for (const order of expired) {
-      console.log(`[renewalJob] Suspending expired account: ${order.cpanelUsername} (${order.customer.email})`);
-
-      // Suspend in WHM if username exists
+    let suspended = 0;
+    for (const order of toSuspend) {
+      console.log(`[renewalJob] Suspending expired account past grace: ${order.cpanelUsername} (${order.customer.email})`);
       if (order.cpanelUsername && whm.hasConfig()) {
-        await suspendCpanelAccount(order.cpanelUsername).catch(() => {});
+        const r = await whm.suspendAccount(order.cpanelUsername, 'Subscription expired');
+        if (!r.success) {
+          console.error(`[renewalJob] Suspend failed for ${order.cpanelUsername}: ${r.error}`);
+          continue; // leave active; retry next run
+        }
       }
-
-      order.status = 'cancelled';
+      order.status = 'suspended';
+      order.suspendedAt = now;
       await order.save({ validateBeforeSave: false }).catch(() => {});
       await sendExpiredNotice(order).catch(() => {});
+      suspended += 1;
     }
 
-    console.log(`[renewalJob] Done — ${upcoming.length} reminders checked, ${expired.length} expired accounts processed`);
+    // ── 3. Terminate accounts suspended beyond the retention window ──────────────
+    const terminateCutoff = new Date(now.getTime() - LIFECYCLE.suspendToTerminateDays * DAY_MS);
+    const toTerminate = await HostingOrder.find({
+      status: 'suspended',
+      suspendedAt: { $lt: terminateCutoff },
+    });
+
+    let terminated = 0;
+    for (const order of toTerminate) {
+      console.log(`[renewalJob] Terminating long-suspended account: ${order.cpanelUsername} (${order.customer.email})`);
+      if (order.cpanelUsername && whm.hasConfig()) {
+        const r = await whm.terminateAccount(order.cpanelUsername);
+        if (!r.success) {
+          console.error(`[renewalJob] Terminate failed for ${order.cpanelUsername}: ${r.error}`);
+          continue; // retry next run
+        }
+      }
+      order.status = 'terminated';
+      order.terminatedAt = now;
+      await order.save({ validateBeforeSave: false }).catch(() => {});
+      await sendTerminatedNotice(order).catch(() => {});
+      terminated += 1;
+    }
+
+    console.log(`[renewalJob] Done — ${upcoming.length} reminders checked, ${suspended} suspended, ${terminated} terminated`);
   } catch (err) {
     console.error('[renewalJob] Error:', err.message);
   }
 }
 
-async function suspendCpanelAccount(username) {
-  const axios = require('axios');
-  const https = require('https');
-  const httpsAgent = new https.Agent({ rejectUnauthorized: process.env.NODE_ENV === 'production' });
-  const user = process.env.WHM_USER || 'root';
+async function sendTerminatedNotice(order) {
+  if (!resend || !order?.customer?.email) return;
+  const planLabel = `${order.planType} ${order.tier}`;
+  const subject = '⛔ Your EazWorld hosting account has been terminated';
 
   try {
-    await axios.get(`${process.env.WHM_HOST}/json-api/suspendacct`, {
-      params: { 'api.version': 1, user: username, reason: 'Subscription expired' },
-      headers: { Authorization: `whm ${user}:${process.env.WHM_TOKEN}` },
-      httpsAgent,
-      timeout: 15000,
+    await resend.emails.send({
+      from: FROM,
+      to: [order.customer.email],
+      subject,
+      html: `
+        <h2>Your hosting account has been terminated</h2>
+        <p>Hi ${order.customer?.name || 'there'},</p>
+        <p>Your <strong>${planLabel}</strong> hosting plan${order.domain ? ` for <strong>${order.domain}</strong>` : ''} was suspended for more than ${LIFECYCLE.suspendToTerminateDays} days and has now been terminated. Associated data has been removed.</p>
+        <p>If you would like to host with us again, you are welcome to place a new order at any time.</p>
+        <p>— The EazWorld Team</p>
+      `
     });
-    console.log(`[renewalJob] cPanel account suspended: ${username}`);
+    EmailLog.create({ to: order.customer.email, subject, type: 'terminated_notice', status: 'sent', orderId: order._id }).catch(() => {});
   } catch (err) {
-    console.error(`[renewalJob] Failed to suspend ${username}:`, err.message);
+    console.error(`[renewalJob] Terminated notice email failed for ${order.customer.email}:`, err.message);
+    EmailLog.create({ to: order.customer.email, subject, type: 'terminated_notice', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
   }
 }
 

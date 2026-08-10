@@ -709,6 +709,120 @@ const deleteOrder = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/v1/hosting/orders/:id/status
+ * Live cPanel account status from WHM (owner or admin).
+ */
+const getServiceStatus = async (req, res, next) => {
+  try {
+    const order = await HostingOrder.findById(req.params.id).lean();
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    const isOwner = order.user && order.user.toString() === req.user._id.toString();
+    if (!isOwner && req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Not allowed' });
+    }
+    if (!order.cpanelUsername) {
+      return res.status(200).json({ success: true, data: { provisioned: false, status: order.status } });
+    }
+    const live = await whm.getAccountStatus(order.cpanelUsername);
+    if (!live.success) {
+      // Don't leak raw WHM errors — return the stored status instead.
+      return res.status(200).json({ success: true, data: { provisioned: true, status: order.status, live: null } });
+    }
+    return res.status(200).json({
+      success: true,
+      data: {
+        provisioned: true,
+        status: order.status,
+        suspended: live.suspended,
+        domain: live.domain,
+        ip: live.ip,
+        diskUsed: live.diskUsed,
+        diskLimit: live.diskLimit,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/v1/hosting/orders/:id/password
+ * Reset the cPanel password (owner or admin). Returns the new password ONCE to
+ * the authorized caller; it is never logged.
+ */
+const changeHostingPassword = async (req, res, next) => {
+  try {
+    const order = await HostingOrder.findById(req.params.id).lean();
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    const isOwner = order.user && order.user.toString() === req.user._id.toString();
+    if (!isOwner && req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Not allowed' });
+    }
+    if (order.status !== 'active' || !order.cpanelUsername) {
+      return res.status(400).json({ success: false, error: 'Hosting is not active' });
+    }
+    const newPassword = whm.generatePassword();
+    const result = await whm.changePassword(order.cpanelUsername, newPassword);
+    if (!result.success) {
+      return res.status(502).json({ success: false, error: 'Could not update the hosting password. Please try again later.' });
+    }
+    return res.status(200).json({
+      success: true,
+      data: { username: order.cpanelUsername, password: newPassword },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Admin lifecycle action helper: suspend | unsuspend | terminate (admin only).
+ */
+function adminLifecycleAction(action) {
+  return async (req, res, next) => {
+    try {
+      const order = await HostingOrder.findById(req.params.id);
+      if (!order) {
+        return res.status(404).json({ success: false, error: 'Order not found' });
+      }
+      if (!order.cpanelUsername) {
+        return res.status(400).json({ success: false, error: 'No provisioned cPanel account for this order' });
+      }
+      if (!whm.hasConfig()) {
+        return res.status(503).json({ success: false, error: 'Hosting server is not configured' });
+      }
+
+      let result;
+      if (action === 'suspend') {
+        result = await whm.suspendAccount(order.cpanelUsername, req.body?.reason || 'Suspended by admin');
+        if (result.success) { order.status = 'suspended'; order.suspendedAt = new Date(); }
+      } else if (action === 'unsuspend') {
+        result = await whm.unsuspendAccount(order.cpanelUsername);
+        if (result.success) { order.status = 'active'; order.suspendedAt = null; }
+      } else if (action === 'terminate') {
+        if (req.body?.confirm !== true) {
+          return res.status(400).json({ success: false, error: 'Termination requires { "confirm": true }' });
+        }
+        result = await whm.terminateAccount(order.cpanelUsername);
+        if (result.success) { order.status = 'terminated'; order.terminatedAt = new Date(); }
+      }
+
+      if (!result || !result.success) {
+        return res.status(502).json({ success: false, error: `Hosting ${action} failed. Please try again.` });
+      }
+      await order.save({ validateBeforeSave: false });
+      return res.status(200).json({ success: true, data: order });
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
 module.exports = {
   getPlans,
   createOrder,
@@ -722,5 +836,10 @@ module.exports = {
   uploadOrderProof,
   getCpanelLoginUrl,
   renewOrder,
-  deleteOrder
+  deleteOrder,
+  getServiceStatus,
+  changeHostingPassword,
+  suspendService: adminLifecycleAction('suspend'),
+  unsuspendService: adminLifecycleAction('unsuspend'),
+  terminateService: adminLifecycleAction('terminate'),
 };

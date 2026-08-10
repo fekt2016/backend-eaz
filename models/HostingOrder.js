@@ -46,7 +46,7 @@ const hostingOrderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'paid', 'active', 'cancelled', 'failed'],
+    enum: ['pending', 'paid', 'active', 'suspended', 'cancelled', 'terminated', 'failed'],
     default: 'pending'
   },
   paymentMethod: {
@@ -153,6 +153,15 @@ const hostingOrderSchema = new mongoose.Schema({
   },
   provisioningError: {
     type: String,
+    default: null
+  },
+  // Expiry lifecycle (grace → suspend → terminate)
+  suspendedAt: {
+    type: Date,
+    default: null
+  },
+  terminatedAt: {
+    type: Date,
     default: null
   }
 }, {

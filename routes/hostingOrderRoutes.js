@@ -26,7 +26,12 @@ const {
   uploadOrderProof,
   getCpanelLoginUrl,
   renewOrder,
-  deleteOrder
+  deleteOrder,
+  getServiceStatus,
+  changeHostingPassword,
+  suspendService,
+  unsuspendService,
+  terminateService
 } = require('../controllers/hostingOrderController');
 
 const router = express.Router();
@@ -39,9 +44,14 @@ router.get('/orders/admin-summary', protect, restrictTo('admin'), getHostingOrde
 router.get('/orders/by-reference/:reference', protect, getOrderByReference);
 router.get('/orders/:id/invoice', protect, getInvoice);
 router.get('/orders/:id/cpanel-login', protect, getCpanelLoginUrl);
+router.get('/orders/:id/status', protect, getServiceStatus);
 router.get('/orders/:id', protect, getOrder);
 router.post('/orders/:id/proof', protect, upload.single('proof'), uploadOrderProof);
 router.post('/orders/:id/renew', protect, renewOrder);
+router.post('/orders/:id/password', protect, changeHostingPassword);
+router.post('/orders/:id/suspend', protect, restrictTo('admin'), suspendService);
+router.post('/orders/:id/unsuspend', protect, restrictTo('admin'), unsuspendService);
+router.post('/orders/:id/terminate', protect, restrictTo('admin'), terminateService);
 router.patch('/orders/:id', protect, restrictTo('admin'), updateOrderStatus);
 router.delete('/orders/:id', protect, restrictTo('admin'), deleteOrder);
 
