@@ -11,6 +11,7 @@
  */
 
 const RepairJob = require('../models/RepairJob');
+const { notifyReminder } = require('./notify');
 
 const REMIND_AFTER_DAYS    = parseInt(process.env.REMINDER_AFTER_DAYS    || '3',  10);
 const REMIND_INTERVAL_DAYS = parseInt(process.env.REMINDER_INTERVAL_DAYS || '3',  10);
@@ -84,7 +85,7 @@ async function runReminderJob() {
         { lastReminderAt: { $lte: _daysAgo(REMIND_INTERVAL_DAYS) } },
       ],
     })
-      .populate('customer', 'name phone')
+      .populate('customer', 'name phone email')
       .select('jobNumber deviceBrand deviceModel status customer remindersSent lastReminderAt trackingToken');
 
     if (!jobs.length) {
@@ -95,33 +96,37 @@ async function runReminderJob() {
     console.log(`[reminders] Found ${jobs.length} job(s) to remind.`);
 
     for (const job of jobs) {
-      const phone = job.customer?.phone;
-      if (!phone) {
-        console.warn(`[reminders] Job ${job.jobNumber} — no customer phone, skipping.`);
-        continue;
-      }
-
-      const to = _toHubtelNumber(phone);
-      if (!to) {
-        console.warn(`[reminders] Job ${job.jobNumber} — could not parse phone ${phone}, skipping.`);
-        continue;
-      }
-
       const count   = job.remindersSent + 1;
       const content = _message(job, count);
 
-      // Dev mode: just log
-      if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`[reminders] (Hubtel not configured) Would SMS ${to}: ${content}`);
+      // Email first (Resend) — only fall back to SMS when the customer has no email.
+      const emailed = await notifyReminder(job, count);
+      if (!emailed) {
+        const phone = job.customer?.phone;
+        if (!phone) {
+          console.warn(`[reminders] Job ${job.jobNumber} — no customer phone, skipping.`);
+          continue;
         }
-      } else {
-        try {
-          await _sendSms(to, content);
-          console.log(`[reminders] SMS sent to ${to} for job ${job.jobNumber} (reminder #${count})`);
-        } catch (err) {
-          console.error(`[reminders] SMS failed for job ${job.jobNumber}:`, err.message);
-          continue; // don't update counter if SMS failed
+
+        const to = _toHubtelNumber(phone);
+        if (!to) {
+          console.warn(`[reminders] Job ${job.jobNumber} — could not parse phone ${phone}, skipping.`);
+          continue;
+        }
+
+        // Dev mode: just log
+        if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[reminders] (Hubtel not configured) Would SMS ${to}: ${content}`);
+          }
+        } else {
+          try {
+            await _sendSms(to, content);
+            console.log(`[reminders] SMS sent to ${to} for job ${job.jobNumber} (reminder #${count})`);
+          } catch (err) {
+            console.error(`[reminders] SMS failed for job ${job.jobNumber}:`, err.message);
+            continue; // don't update counter if SMS failed
+          }
         }
       }
 

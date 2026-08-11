@@ -36,80 +36,58 @@ const createOrder = async (req, res, next) => {
       return res.status(400).json({ success: false, error: "Cart is empty" });
     }
     if (!customer?.name || !customer?.phone) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Name and phone are required" });
+      return res.status(400).json({ success: false, error: "Name and phone are required" });
     }
 
-    const qtyBySlug = {};
+    const productItems = [];
+    const partItems = [];
+
     for (const item of items) {
       const slug = typeof item === "string" ? item : item.slug;
-      if (!slug) continue;
       const qty = Math.max(1, Math.floor(Number(item.qty) || 1));
-      qtyBySlug[slug] = (qtyBySlug[slug] || 0) + qty;
-    }
-    const slugs = Object.keys(qtyBySlug);
-    if (slugs.length === 0) {
-      return res.status(400).json({ success: false, error: "Cart is empty" });
-    }
 
-    const products = await Product.find({
-      slug: { $in: slugs },
-      isActive: true,
-    });
-    if (products.length !== slugs.length) {
-      const found = new Set(products.map((p) => p.slug));
-      const missing = slugs.filter((s) => !found.has(s));
-      return res.status(400).json({
-        success: false,
-        error: `Some products are no longer available: ${missing.join(", ")}`,
-      });
-    }
-
-    const orderItems = products.map((product) => ({
-      product: product._id,
-      name: product.name,
-      price: product.price,
-      qty: qtyBySlug[product.slug],
-    }));
-
-    for (const item of orderItems) {
-      const product = products.find(
-        (p) => p._id.toString() === item.product.toString(),
-      );
-      if (item.qty > product.stock) {
-        return res.status(400).json({
-          success: false,
-          error: `${product.name} only has ${product.stock} in stock`,
-        });
+      if (slug.startsWith("part-")) {
+        const partId = slug.replace("part-", "");
+        const part = await Part.findById(partId);
+        if (!part) {
+          return res.status(400).json({ success: false, error: `Part with id ${partId} not found.` });
+        }
+        if (part.quantity < qty) {
+          return res.status(400).json({ success: false, error: `${part.name} only has ${part.quantity} in stock.` });
+        }
+        partItems.push({ partId: part._id, partName: part.name, quantity: qty, unitPriceGhs: part.sellingPrice });
+        continue;
       }
+
+      if (!slug) continue;
+
+      const product = await Product.findOne({ slug, isActive: true });
+      if (!product) {
+        return res.status(400).json({ success: false, error: `Product "${slug}" not found.` });
+      }
+      if (product.stock < qty) {
+        return res.status(400).json({ success: false, error: `${product.name} only has ${product.stock} in stock.` });
+      }
+      productItems.push({ productId: product._id, name: product.name, price: product.price, qty, stock: product.stock });
     }
 
-    const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+    const subtotal = productItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+    const partSubtotal = partItems.reduce((sum, i) => sum + i.unitPriceGhs * i.quantity, 0);
 
     let deliveryFee = 0;
     let deliveryZone = null;
     if (deliveryZoneId) {
-      deliveryZone = await DeliveryZone.findOne({
-        _id: deliveryZoneId,
-        isActive: true,
-      });
+      deliveryZone = await DeliveryZone.findOne({ _id: deliveryZoneId, isActive: true });
       if (!deliveryZone) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid delivery zone" });
+        return res.status(400).json({ success: false, error: "Invalid delivery zone" });
       }
       deliveryFee = deliveryZone.fee;
     }
 
-    const total = subtotal + deliveryFee;
+    const total = subtotal + partSubtotal + deliveryFee;
 
     if (!paystack) {
-      return res.status(500).json({
-        success: false,
-        error:
-          "Paystack is not configured. Please add PAYSTACK_SECRET to your environment variables.",
-      });
+      return res.status(500).json({ success: false, error: "Paystack not configured." });
     }
 
     const reference = `ORD_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
@@ -121,21 +99,18 @@ const createOrder = async (req, res, next) => {
       currency: "GHS",
       reference,
       channels: ["card", "mobile_money"],
-      metadata: {
-        type: "shop_order",
-      },
+      metadata: { type: "shop_order" },
       callback_url: `${FRONTEND_URL}/order-confirmation/${reference}`,
     });
 
     if (!transaction.status) {
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to initialize payment" });
+      return res.status(500).json({ success: false, error: "Failed to initialize payment." });
     }
 
     const order = await Order.create({
       orderNumber: generateOrderNumber(),
-      items: orderItems,
+      items: productItems,
+      ...(partItems.length > 0 ? { items: [...productItems, ...partItems] } : {}),
       subtotal,
       ...(deliveryZone && { deliveryZone: deliveryZone._id }),
       deliveryFee,

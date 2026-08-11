@@ -11,14 +11,16 @@ async function send({ to, subject, html, type = 'other', orderId = null, meta = 
   if (!resend) {
     console.warn('[email] Resend not configured — skipping email to', recipient);
     EmailLog.create({ to: recipient, subject, type, status: 'failed', error: 'Resend not configured', orderId, meta }).catch(() => {});
-    return;
+    return false;
   }
   try {
     await resend.emails.send({ from: FROM, to: Array.isArray(to) ? to : [to], subject, html });
     EmailLog.create({ to: recipient, subject, type, status: 'sent', orderId, meta }).catch(() => {});
+    return true;
   } catch (err) {
     console.error('[email] Send failed:', err.message);
     EmailLog.create({ to: recipient, subject, type, status: 'failed', error: err.message, orderId, meta }).catch(() => {});
+    return false;
   }
 }
 
@@ -346,6 +348,7 @@ async function sendAccountCreatedEmail(user, password) {
 }
 
 module.exports = {
+  send,
   sendWelcomeEmail,
   sendAccountCreatedEmail,
   sendPasswordResetEmail,

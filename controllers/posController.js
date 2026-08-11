@@ -5,6 +5,7 @@ const PosCustomer = require('../models/PosCustomer');
 const RepairJob   = require('../models/RepairJob');
 const Part        = require('../models/Part');
 const PosPayment  = require('../models/PosPayment');
+const PartOrder   = require('../models/PartOrder');
 const Sale        = require('../models/Sale');
 const User        = require('../models/User');
 const Expense     = require('../models/Expense');
@@ -18,6 +19,14 @@ const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 const paystack = (paystackSecret && paystackSecret.startsWith('sk_'))
   ? new Paystack(paystackSecret)
   : null;
+
+const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000').replace(/\/$/, '');
+
+function normalizePhone(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('233')) digits = `0${digits.slice(3)}`;
+  return digits;
+}
 
 // ─── CUSTOMERS ───────────────────────────────────────────────────────────────
 
@@ -121,7 +130,7 @@ const createJob = async (req, res, next) => {
     });
 
     const populated = await job.populate([
-      { path: 'customer', select: 'name phone' },
+      { path: 'customer', select: 'name phone email' },
       { path: 'assignedTo', select: 'name' },
       { path: 'createdBy', select: 'name' },
     ]);
@@ -277,7 +286,7 @@ const updateJob = async (req, res, next) => {
 
     await job.save();
     const populated = await job.populate([
-      { path: 'customer', select: 'name phone' },
+      { path: 'customer', select: 'name phone email' },
       { path: 'assignedTo', select: 'name' },
       { path: 'parts.part', select: 'name sku' },
     ]);
@@ -343,9 +352,13 @@ const getJobByToken = async (req, res, next) => {
   try {
     const job = await RepairJob.findOne({ trackingToken: req.params.token })
       .populate('customer', 'name')
-      .select('jobNumber deviceBrand deviceModel deviceType status faultDescription repairWork estimatedCompletion completedAt warrantyDays warrantyExpires warrantyNotes createdAt trackingToken photos');
+      .select('jobNumber deviceBrand deviceModel deviceType status faultDescription repairWork estimatedCompletion completedAt warrantyDays warrantyExpires warrantyNotes createdAt trackingToken parts photos');
 
     if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
+
+    const partOrders = await PartOrder.find({ job: job._id })
+      .select('partName quantity unitPriceGhs amountGhs status createdAt paystackReference')
+      .sort({ createdAt: -1 });
 
     // Only expose what the customer needs — no internal notes, payments, or staff info
     res.json({
@@ -365,6 +378,106 @@ const getJobByToken = async (req, res, next) => {
         warrantyStatus:      job.warrantyStatus,
         createdAt:           job.createdAt,
         photos:              (job.photos || []).map(p => ({ url: p.url, caption: p.caption || null })),
+        parts:               (job.parts || []).map(p => ({
+          id:        p._id,
+          name:      p.name,
+          quantity:  p.quantity,
+          priceGhs:  p.priceAtTime || 0,
+          isLinked:  Boolean(p.part),
+        })),
+        partOrders: partOrders.map(o => ({
+          id:             o._id,
+          partName:       o.partName,
+          quantity:       o.quantity,
+          amountGhs:      o.amountGhs,
+          status:         o.status,
+          reference:      o.paystackReference || null,
+          createdAt:      o.createdAt,
+        })),
+      },
+    });
+  } catch (err) { next(err); }
+};
+
+/**
+ * POST /track/:token/part-orders
+ * Public — the customer prepays for a part on their repair job via Paystack.
+ * The part must already be a line on the job; the price is always read
+ * server-side from the job (never from the client).
+ */
+const createPartOrder = async (req, res, next) => {
+  try {
+    if (!paystack) return res.status(503).json({ success: false, error: 'Paystack not configured.' });
+
+    const { token } = req.params;
+    const { partLineId, quantity = 1, name, phone, email: rawEmail } = req.body;
+
+    const job = await RepairJob.findOne({ trackingToken: token }).populate('customer', 'name phone email');
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
+
+    const cleanPhone = sanitizePhone(phone);
+    if (!cleanPhone) return res.status(400).json({ success: false, error: 'Phone number is required.' });
+    if (!job.customer?.phone || normalizePhone(cleanPhone) !== normalizePhone(job.customer.phone)) {
+      return res.status(403).json({ success: false, error: 'Phone number does not match this repair job.' });
+    }
+
+    // Capture the customer's email so future repair updates go by email (primary channel).
+    const cleanEmail = sanitizeEmail(rawEmail);
+    if (cleanEmail && (!job.customer?.email || job.customer.email !== cleanEmail)) {
+      await PosCustomer.findByIdAndUpdate(job.customer._id, { email: cleanEmail });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(partLineId)) {
+      return res.status(400).json({ success: false, error: 'Invalid part.' });
+    }
+    const partLine = job.parts.id(partLineId);
+    if (!partLine) return res.status(400).json({ success: false, error: 'Part not found on this job.' });
+    if (!Number(partLine.priceAtTime)) {
+      return res.status(400).json({ success: false, error: 'This part has no price yet. Please contact the shop.' });
+    }
+
+    const qty          = Math.max(1, Math.min(10, Math.floor(Number(quantity) || 1)));
+    const unitPriceGhs = Math.max(0, Number(partLine.priceAtTime));
+    const amountGhs    = unitPriceGhs * qty;
+    const subtotalPesewas = amountGhs * 100;
+
+    const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
+    const reference = `PRT_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
+
+    const transaction = await paystack.transaction.initialize({
+      email,
+      amount:   subtotalPesewas,
+      currency: 'GHS',
+      reference,
+      channels: ['card', 'mobile_money'],
+      metadata: { type: 'repair_part_order', jobId: job._id.toString(), jobNumber: job.jobNumber },
+      callback_url: `${FRONTEND_URL}/track/${token}`,
+    });
+
+    if (!transaction.status) {
+      return res.status(500).json({ success: false, error: 'Failed to initialize payment.' });
+    }
+
+    const partOrder = await PartOrder.create({
+      job:            job._id,
+      part:           partLine.part || undefined,
+      partName:       partLine.name,
+      quantity:       qty,
+      unitPriceGhs,
+      subtotalPesewas,
+      amountGhs,
+      customerName:   sanitizeName(name, 100),
+      customerPhone:  cleanPhone,
+      status:         'pending',
+      paystackReference: transaction.data.reference,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        authorizationUrl: transaction.data.authorization_url,
+        reference:        transaction.data.reference,
+        partOrderId:      partOrder._id,
       },
     });
   } catch (err) { next(err); }
@@ -667,7 +780,7 @@ const getOverview = async (req, res, next) => {
       { $sort: { grossProfit: -1 } },
       { $limit: 5 },
       { $lookup: { from: 'poscustomers', localField: 'customer', foreignField: '_id', as: 'customer' } },
-      { $unwind: { path: '$customer', preserveNullAndEmpty: true } },
+      { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
       { $project: { jobNumber: 1, deviceBrand: 1, deviceModel: 1, totalRevenue: 1, totalCost: 1, grossProfit: 1, 'customer.name': 1 } },
     ]);
 
@@ -1216,7 +1329,7 @@ module.exports = {
   createJob, getJobs, getJob, updateJob,
   uploadJobPhoto, deleteJobPhoto,
   addPayment,
-  getJobByToken,
+  getJobByToken, createPartOrder,
   getWarrantyJobs,
   getParts, createPart, updatePart, deletePart,
   scanLookup,

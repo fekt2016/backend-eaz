@@ -4,6 +4,8 @@ const { protect, restrictTo } = require('../middleware/auth');
 const { sendWelcomeEmail, sendPasswordResetEmail, sendVerificationPin, sendTwoFactorPin } = require('../utils/email');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, validatePassword } = require('../utils/sanitize');
 
+const ALLOWED_ROLES = ['user', 'admin', 'staff', 'cashier', 'technician', 'superadmin'];
+
 // Generate a 6-digit PIN
 const generatePin = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -508,6 +510,87 @@ const adminChangePassword = async (req, res, next) => {
   }
 };
 
+// ── Admin: Create a user with a role ─────────────────────────────────────
+const adminCreateUser = async (req, res, next) => {
+  try {
+    const name = sanitizeName(req.body.name);
+    const email = sanitizeEmail(req.body.email);
+    const phone = sanitizePhone(req.body.phone);
+    const { password } = req.body;
+    const role = req.body.role || 'user';
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Name, email, and password are required.'
+      });
+    }
+
+    const pwError = validatePassword(password);
+    if (pwError) {
+      return res.status(400).json({ success: false, error: pwError });
+    }
+
+    if (!ALLOWED_ROLES.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid role. Allowed roles: ${ALLOWED_ROLES.join(', ')}.`
+      });
+    }
+
+    // Only a superadmin can create another superadmin.
+    if (role === 'superadmin' && req.user.role !== 'superadmin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only a super admin can create another super admin.'
+      });
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email already registered.'
+      });
+    }
+
+    const user = await User.create({
+      name,
+      email,
+      ...(phone ? { phone } : {}),
+      password,
+      role,
+      isVerified: true,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id:    user._id,
+        name:  user.name,
+        email: user.email,
+        phone: user.phone || '',
+        role:  user.role,
+      },
+    });
+  } catch (error) {
+    if (error.code === 11000 && error.keyPattern?.email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email already registered.'
+      });
+    }
+    if (error.name === 'ValidationError') {
+      const msg = error.message || Object.values(error.errors || {}).map((e) => e.message).join(', ');
+      return res.status(400).json({
+        success: false,
+        error: msg
+      });
+    }
+    next(error);
+  }
+};
+
 // ── Admin: Update any user ─────────────────────────────────────────────────
 const adminUpdateUser = async (req, res, next) => {
   try {
@@ -521,7 +604,7 @@ const adminUpdateUser = async (req, res, next) => {
     }
 
     // Prevent admin from demoting themselves
-    if (String(targetUser._id) === String(req.user._id) && role && role !== 'admin') {
+    if (String(targetUser._id) === String(req.user._id) && role && role !== 'admin' && role !== 'superadmin') {
       return res.status(400).json({ success: false, error: 'You cannot remove your own admin role.' });
     }
 
@@ -529,7 +612,13 @@ const adminUpdateUser = async (req, res, next) => {
     if (name)  updates.name  = name;
     if (email) updates.email = email;
     if (phone !== undefined) updates.phone = phone || '';
-    if (role && ['admin', 'user'].includes(role)) updates.role = role;
+    if (role && ALLOWED_ROLES.includes(role)) {
+      // Only a superadmin can assign the superadmin role.
+      if (role === 'superadmin' && req.user.role !== 'superadmin') {
+        return res.status(403).json({ success: false, error: 'Only a super admin can assign the super admin role.' });
+      }
+      updates.role = role;
+    }
 
     const updated = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     res.json({ success: true, data: updated });
@@ -568,6 +657,7 @@ module.exports = {
   resetPassword,
   getMe,
   getAllUsers,
+  adminCreateUser,
   adminUpdateUser,
   adminToggleBlock,
   adminChangePassword,

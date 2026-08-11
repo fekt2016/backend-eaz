@@ -1,4 +1,5 @@
 const Product = require("../models/Product");
+const Part = require("../models/Part");
 
 function slugify(value) {
   return String(value || "")
@@ -37,6 +38,7 @@ const getProducts = async (req, res, next) => {
         { description: { $regex: search, $options: "i" } },
         { category: { $regex: search, $options: "i" } },
         { sku: { $regex: search, $options: "i" } },
+        { "parts.name": { $regex: search, $options: "i" } },
       ];
     }
 
@@ -46,10 +48,61 @@ const getProducts = async (req, res, next) => {
     if (sort === "name") sortQuery = { name: 1 };
     if (sort === "newest") sortQuery = { createdAt: -1 };
 
-    const [data, total] = await Promise.all([
+    const [productData, productTotal] = await Promise.all([
       Product.find(query).sort(sortQuery).skip(skip).limit(limit),
       Product.countDocuments(query),
     ]);
+
+    const [partData, partTotal] = await Promise.all([
+      Part.find({ isRetail: true, quantity: { $gt: 0 } }).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Part.countDocuments({ isRetail: true, quantity: { $gt: 0 } }),
+    ]);
+
+    const allProducts = [
+      ...productData.map((p) => ({
+        _id: p._id,
+        slug: p.slug,
+        name: p.name,
+        description: p.description,
+        price: p.price,
+        category: p.category,
+        stock: p.stock,
+        sku: p.sku,
+        variants: p.variants,
+        isActive: p.isActive,
+        kind: "product",
+        partId: null,
+        images: p.images,
+      })),
+      ...partData.map((p) => ({
+        _id: p._id,
+        slug: `part-${p._id}`,
+        name: p.name,
+        description: p.notes || "",
+        price: p.sellingPrice * 100,
+        category: p.category,
+        stock: p.quantity,
+        sku: p.sku,
+        variants: [],
+        isActive: true,
+        kind: "part",
+        partId: p._id,
+        images: [],
+      })),
+    ];
+
+    const sortFn = (a, b) => {
+      if (sort === "price-asc") return a.price - b.price;
+      if (sort === "price-desc") return b.price - a.price;
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "newest") return (a.createdAt || b.createdAt) - (b.createdAt || a.createdAt);
+      return 0;
+    };
+
+    allProducts.sort(sortFn);
+
+    const data = allProducts.slice(skip, skip + limit);
+    const total = allProducts.length;
 
     res.status(200).json({
       success: true,

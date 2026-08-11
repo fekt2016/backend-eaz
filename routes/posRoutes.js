@@ -32,8 +32,8 @@ const router = express.Router();
 router.use(protect);
 router.use(restrictTo('superadmin', 'admin', 'staff', 'cashier', 'technician'));
 
-// ── Overview / reports (superadmin + staff only) ─────────────────────────────
-router.get('/overview', restrictTo('superadmin', 'staff'), getOverview);
+// ── Overview / reports (superadmin + admin + staff) ──────────────────────────
+router.get('/overview', restrictTo('superadmin', 'admin', 'staff'), getOverview);
 
 // ── Scanner lookup (all POS roles) ───────────────────────────────────────────
 router.get('/scan/:code', scanLookup);
@@ -58,15 +58,15 @@ router.route('/sales').get(getSales).post(createSale);
 router.route('/sales/:id').get(getSale);
 router.patch('/sales/:id/void', restrictTo('superadmin'), voidSale);
 
-// ── Inventory (superadmin + staff write; others read-only) ───────────────────
+// ── Inventory (superadmin + staff + admin write; others read-only) ───────────
 router.get('/inventory', getParts);
-router.post('/inventory',         restrictTo('superadmin', 'staff'), createPart);
-router.patch('/inventory/:id',    restrictTo('superadmin', 'staff'), updatePart);
-router.delete('/inventory/:id',   restrictTo('superadmin'),           deletePart);
+router.post('/inventory',         restrictTo('superadmin', 'staff', 'admin'), createPart);
+router.patch('/inventory/:id',    restrictTo('superadmin', 'staff', 'admin'), updatePart);
+router.delete('/inventory/:id',   restrictTo('superadmin', 'admin'),          deletePart);
 
-// ── Suppliers (superadmin + staff read; superadmin write) ────────────────────
-router.get('/suppliers',      restrictTo('superadmin', 'staff'), getSuppliers);
-router.get('/suppliers/:id',  restrictTo('superadmin', 'staff'), getSupplier);
+// ── Suppliers (superadmin + staff + admin read; superadmin write) ────────────
+router.get('/suppliers',      restrictTo('superadmin', 'staff', 'admin'), getSuppliers);
+router.get('/suppliers/:id',  restrictTo('superadmin', 'staff', 'admin'), getSupplier);
 router.post('/suppliers',     restrictTo('superadmin'), createSupplier);
 router.patch('/suppliers/:id',  restrictTo('superadmin'), updateSupplier);
 router.delete('/suppliers/:id', restrictTo('superadmin'), deleteSupplier);

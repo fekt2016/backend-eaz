@@ -5,8 +5,12 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const ServiceOrder = require('../models/ServiceOrder');
 const User = require('../models/User');
+const PartOrder = require('../models/PartOrder');
+const PosPayment = require('../models/PosPayment');
+const RepairJob = require('../models/RepairJob');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
+const { notifyCustomer } = require('../services/notify');
 const namecheap = require('../services/namecheap');
 const whm = require('../services/whm');
 
@@ -249,6 +253,20 @@ const handlePaystackWebhook = async (req, res) => {
       // Decrement stock atomically per item. Never oversell: if the guard
       // fails for an item, log it and continue.
       for (const item of paid.items) {
+        if (item.part) {
+          // Part item: decrement Part.quantity.
+          const result = await Part.findOneAndUpdate(
+            { _id: item.part, quantity: { $gte: item.qty } },
+            { $inc: { quantity: -item.qty } }
+          );
+          if (!result) {
+            console.error(
+              `[webhook] Part stock decrement failed for order ${paid.orderNumber} item ${item.part} (qty ${item.qty})`
+            );
+          }
+          continue;
+        }
+
         const result = await Product.findOneAndUpdate(
           { _id: item.product, stock: { $gte: item.qty } },
           { $inc: { stock: -item.qty } }
@@ -260,6 +278,32 @@ const handlePaystackWebhook = async (req, res) => {
         }
       }
 
+      return res.status(200).json({ received: true });
+    }
+
+    // ── Repair part order ────────────────────────────────────────────
+    const partOrder = await PartOrder.findOne({ paystackReference: reference });
+    if (partOrder) {
+      // subtotalPesewas is Paystack-native (amount × 100 from the GHS unit price).
+      if (amountMismatch(event.data, partOrder.subtotalPesewas)) {
+        console.error(`[webhook] Amount mismatch for part order ${partOrder._id}`);
+        return res.status(400).json({ error: 'Amount mismatch' });
+      }
+
+      // Atomic pending→paid transition. Null means already paid — idempotent.
+      const paid = await PartOrder.findOneAndUpdate(
+        { paystackReference: reference, status: 'pending' },
+        { $set: { status: 'paid', paidAt: new Date() } },
+        { new: true }
+      );
+
+      if (!paid) {
+        return res.status(200).json({ received: true, idempotent: true });
+      }
+
+      fulfilPartOrder(paid).catch((err) =>
+        console.error(`[webhook] Failed to fulfil part order ${paid._id}:`, err.message)
+      );
       return res.status(200).json({ received: true });
     }
 
@@ -292,5 +336,58 @@ const handlePaystackWebhook = async (req, res) => {
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 };
+
+/**
+ * After a part order is paid: record the revenue as a POS payment against the
+ * job, ensure the part line exists on the job, and flag the job as
+ * waiting_for_parts so staff know to start the repair once the part is in.
+ */
+async function fulfilPartOrder(partOrder) {
+  const job = await RepairJob.findById(partOrder.job).populate('customer', 'name phone email');
+  if (!job) return;
+
+  // Record revenue so POS reports capture online part payments.
+  const alreadyRecorded = await PosPayment.exists({ reference: partOrder.paystackReference });
+  if (!alreadyRecorded) {
+    await PosPayment.create({
+      job:        job._id,
+      amount:     partOrder.amountGhs,
+      method:     'card',
+      reference:  partOrder.paystackReference,
+      receivedBy: job.createdBy || partOrder.job,
+      notes:      `Online part order — ${partOrder.partName} ×${partOrder.quantity}`,
+    });
+  }
+
+  // Ensure the paid part is on the job (re-add if staff removed it meanwhile).
+  const hasLine = job.parts.some(
+    (p) =>
+      (p.part && partOrder.part && p.part.toString() === partOrder.part.toString()) ||
+      p.name === partOrder.partName
+  );
+  if (!hasLine) {
+    job.parts.push({
+      part:        partOrder.part || undefined,
+      name:        partOrder.partName,
+      quantity:    partOrder.quantity,
+      priceAtTime: partOrder.unitPriceGhs,
+      costAtTime:  partOrder.unitPriceGhs,
+    });
+  }
+
+  const before = job.status;
+  if (['received', 'diagnosing'].includes(job.status)) {
+    job.status = 'waiting_for_parts';
+  }
+  await job.save({ validateBeforeSave: false });
+
+  if (before !== job.status) {
+    notifyCustomer(job, 'waiting_for_parts').catch(() => {});
+  }
+
+  console.log(
+    `[webhook] Part order ${partOrder._id} fulfilled — ${partOrder.partName} ×${partOrder.quantity} on job ${job.jobNumber}`
+  );
+}
 
 module.exports = { handlePaystackWebhook, amountMismatch };

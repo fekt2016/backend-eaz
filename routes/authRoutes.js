@@ -7,6 +7,7 @@ const {
   resetPassword,
   getMe,
   getAllUsers,
+  adminCreateUser,
   adminUpdateUser,
   adminToggleBlock,
   adminChangePassword,
@@ -20,6 +21,7 @@ const {
   verifyTwoFactor,
 } = require('../controllers/authController');
 const { protect, restrictTo } = require('../middleware/auth');
+const { createUserSchema } = require('../validation/authSchema');
 
 const router = express.Router();
 
@@ -38,6 +40,19 @@ router.post('/2fa/confirm', protect, confirmTwoFactor);
 router.post('/2fa/disable', protect, disableTwoFactor);
 router.post('/2fa/verify', verifyTwoFactor);
 router.get('/users', protect, restrictTo('admin'), getAllUsers);
+router.post('/users',
+  protect,
+  restrictTo('admin'),
+  (req, res, next) => {
+    const parsed = createUserSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid input.' });
+    }
+    req.body = parsed.data;
+    next();
+  },
+  adminCreateUser,
+);
 router.patch('/users/:id', protect, restrictTo('admin'), adminUpdateUser);
 router.patch('/users/:id/block', protect, restrictTo('admin'), adminToggleBlock);
 router.patch('/users/:id/password', protect, restrictTo('admin'), adminChangePassword);
