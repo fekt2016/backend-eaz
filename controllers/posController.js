@@ -657,7 +657,7 @@ const getStaff = async (req, res, next) => {
     const rolesParam = req.query.roles;
     const roles = rolesParam
       ? rolesParam.split(',').map(r => r.trim()).filter(Boolean)
-      : ['staff', 'cashier', 'technician'];
+      : ['staff', 'technician'];
     const staff = await User.find({ role: { $in: roles } })
       .select('name email phone role createdAt')
       .sort({ name: 1 });
@@ -679,9 +679,9 @@ const createStaff = async (req, res, next) => {
     const pwError = validatePassword(password);
     if (pwError) return res.status(400).json({ success: false, error: pwError });
 
-    const allowed = ['cashier', 'technician', 'staff'];
+    const allowed = ['technician', 'staff'];
     if (!allowed.includes(role)) {
-      return res.status(400).json({ success: false, error: 'Role must be cashier, technician, or staff.' });
+      return res.status(400).json({ success: false, error: 'Role must be technician or staff.' });
     }
 
     const exists = await User.findOne({ email });
@@ -851,6 +851,140 @@ const getOverview = async (req, res, next) => {
         topProfitJobs,
       },
     });
+  } catch (err) { next(err); }
+};
+
+// ─── MY DASHBOARD (staff & technician — scoped to the logged-in user) ─────────
+// Technician: analytics for the jobs assigned to them, plus recent jobs to update.
+// Staff:      the jobs they created, plus the sales (products) they rang up and
+//             low-stock parts. Staff may see money; technicians never do.
+const getMyOverview = async (req, res, next) => {
+  try {
+    const userId  = req.user._id;
+    const isTech  = req.user.role === 'technician';
+    const canSeeMoney = !isTech; // technicians never see money
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+
+    // Which jobs "belong" to this user:
+    //  - technicians own the jobs assigned to them
+    //  - everyone else owns the jobs they created
+    const jobScope = isTech ? { assignedTo: userId } : { createdBy: userId };
+
+    const [
+      myTotalJobs, myTodayJobs, myPendingJobs, myReadyJobs, myCompletedJobs,
+      jobsByStatus, recentJobs,
+    ] = await Promise.all([
+      RepairJob.countDocuments(jobScope),
+      RepairJob.countDocuments({ ...jobScope, createdAt: { $gte: today, $lt: tomorrow } }),
+      RepairJob.countDocuments({ ...jobScope, status: { $in: ['received', 'diagnosing', 'repairing'] } }),
+      RepairJob.countDocuments({ ...jobScope, status: 'ready' }),
+      RepairJob.countDocuments({ ...jobScope, status: 'collected' }),
+      RepairJob.aggregate([
+        { $match: jobScope },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+      RepairJob.find(jobScope)
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .populate('customer', 'name phone')
+        .populate('assignedTo', 'name')
+        .select('jobNumber status priority deviceBrand deviceModel createdAt'),
+    ]);
+
+    const stats = { myTotalJobs, myTodayJobs, myPendingJobs, myReadyJobs, myCompletedJobs };
+
+    // Staff (and above) additionally see the sales they rang up + stock health.
+    if (canSeeMoney) {
+      const [salesAgg, todaySalesAgg, lowStockCount] = await Promise.all([
+        Sale.aggregate([
+          { $match: { cashier: userId, voided: { $ne: true } } },
+          { $group: { _id: null, revenue: { $sum: '$total' }, count: { $sum: 1 } } },
+        ]),
+        Sale.aggregate([
+          { $match: { cashier: userId, voided: { $ne: true }, createdAt: { $gte: today, $lt: tomorrow } } },
+          { $group: { _id: null, revenue: { $sum: '$total' }, count: { $sum: 1 } } },
+        ]),
+        Part.countDocuments({ $expr: { $lte: ['$quantity', '$lowStockThreshold'] } }),
+      ]);
+      stats.mySalesCount        = salesAgg[0]?.count        || 0;
+      stats.mySalesRevenue      = salesAgg[0]?.revenue      || 0;
+      stats.myTodaySalesCount   = todaySalesAgg[0]?.count   || 0;
+      stats.myTodaySalesRevenue = todaySalesAgg[0]?.revenue || 0;
+      stats.lowStockCount       = lowStockCount;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        scope: isTech ? 'technician' : 'staff',
+        stats,
+        jobsByStatus,
+        recentJobs,
+      },
+    });
+  } catch (err) { next(err); }
+};
+
+// ─── PART-ORDERS MANAGEMENT (staff) ──────────────────────────────────────────
+// Customer part-payments tied to repair jobs (created on the public /track page,
+// normally auto-paid by the Paystack webhook). Staff can review them here and
+// adjust status — e.g. mark a cash-settled order paid, or cancel a stale one.
+const getPartOrders = async (req, res, next) => {
+  try {
+    const { status } = req.query;
+    const query = {};
+    if (['pending', 'paid', 'cancelled'].includes(status)) query.status = status;
+    const orders = await PartOrder.find(query)
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .populate('job', 'jobNumber deviceBrand deviceModel')
+      .lean();
+    res.json({ success: true, data: orders });
+  } catch (err) { next(err); }
+};
+
+const updatePartOrder = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    if (!['pending', 'paid', 'cancelled'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Status must be pending, paid, or cancelled.' });
+    }
+    const partOrder = await PartOrder.findById(req.params.id);
+    if (!partOrder) return res.status(404).json({ success: false, error: 'Part order not found.' });
+    partOrder.status = status;
+    if (status === 'paid' && !partOrder.paidAt) partOrder.paidAt = new Date();
+    await partOrder.save();
+    res.json({ success: true, data: partOrder });
+  } catch (err) { next(err); }
+};
+
+// ─── CUSTOMER: my repairs ────────────────────────────────────────────────────
+// A logged-in customer's repair jobs, matched to their account by phone (repairs
+// link to a PosCustomer, keyed by a unique phone). Returns the tracking token so
+// the client can deep-link to the public /track/:token page.
+const getMyRepairs = async (req, res, next) => {
+  try {
+    if (!req.user.phone) return res.json({ success: true, data: [] });
+    const norm = String(req.user.phone).replace(/[^\d]/g, '').replace(/^233/, '0');
+    const variants = new Set([req.user.phone, norm]);
+    if (norm.startsWith('0')) {
+      variants.add(`233${norm.slice(1)}`);
+      variants.add(`+233${norm.slice(1)}`);
+    }
+    const customers = await PosCustomer.find({ phone: { $in: [...variants] } }).select('_id').lean();
+    if (!customers.length) return res.json({ success: true, data: [] });
+
+    const ids = customers.map((c) => c._id);
+    const jobs = await RepairJob.find({ customer: { $in: ids } })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .select('jobNumber deviceBrand deviceModel status createdAt estimatedCompletion trackingToken')
+      .lean();
+    res.json({ success: true, data: jobs });
   } catch (err) { next(err); }
 };
 
@@ -1329,14 +1463,15 @@ module.exports = {
   createJob, getJobs, getJob, updateJob,
   uploadJobPhoto, deleteJobPhoto,
   addPayment,
-  getJobByToken, createPartOrder,
+  getJobByToken, createPartOrder, getMyRepairs,
   getWarrantyJobs,
   getParts, createPart, updatePart, deletePart,
   scanLookup,
   createSale, getSales, getSale, voidSale,
   initiateMomoCharge, checkMomoCharge,
   getStaff, createStaff,
-  getOverview,
+  getOverview, getMyOverview,
+  getPartOrders, updatePartOrder,
   getExpenses, createExpense, updateExpense, deleteExpense,
   triggerReminders, getUncollectedJobs,
   getSuppliers, getSupplier, createSupplier, updateSupplier, deleteSupplier,

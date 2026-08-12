@@ -4,7 +4,7 @@ const { protect, restrictTo } = require('../middleware/auth');
 const { sendWelcomeEmail, sendPasswordResetEmail, sendVerificationPin, sendTwoFactorPin } = require('../utils/email');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, validatePassword } = require('../utils/sanitize');
 
-const ALLOWED_ROLES = ['user', 'admin', 'staff', 'cashier', 'technician', 'superadmin'];
+const ALLOWED_ROLES = ['user', 'admin', 'staff', 'technician', 'superadmin'];
 
 // Generate a 6-digit PIN
 const generatePin = () => String(Math.floor(100000 + Math.random() * 900000));

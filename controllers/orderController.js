@@ -201,6 +201,39 @@ const getOrderByReference = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/v1/orders/mine
+ * Shop orders for the logged-in customer. Orders are guest checkouts, so we
+ * match them to the account by the customer's email and/or phone (several
+ * common phone formats), never by a stored user id.
+ */
+const getMyOrders = async (req, res, next) => {
+  try {
+    const or = [];
+    if (req.user.email) {
+      or.push({ 'customer.email': String(req.user.email).toLowerCase() });
+    }
+    if (req.user.phone) {
+      const norm = normalizePhone(req.user.phone); // e.g. 0241234567
+      const variants = new Set([req.user.phone, norm]);
+      if (norm.startsWith('0')) {
+        variants.add(`233${norm.slice(1)}`);
+        variants.add(`+233${norm.slice(1)}`);
+      }
+      or.push({ 'customer.phone': { $in: [...variants] } });
+    }
+    if (!or.length) return res.status(200).json({ success: true, data: [] });
+
+    const orders = await Order.find({ $or: or })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+    res.status(200).json({ success: true, count: orders.length, data: orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const ORDER_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
 
 const getOrders = async (req, res, next) => {
@@ -260,6 +293,7 @@ const updateOrderStatus = async (req, res, next) => {
 
 module.exports = {
   createOrder,
+  getMyOrders,
   getOrderByReference,
   trackOrder,
   getOrders,

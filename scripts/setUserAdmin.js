@@ -2,7 +2,7 @@
  * One-off / ops: set any user's role by email.
  * Usage: node scripts/setUserAdmin.js user@example.com [role]
  * Role defaults to 'superadmin' if omitted.
- * Valid roles: superadmin, admin, staff, cashier, technician, user
+ * Valid roles: superadmin, admin, staff, technician, user
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -23,7 +23,7 @@ function resolveMongoUrl() {
   return mongoUrlRaw;
 }
 
-const VALID_ROLES = ['superadmin', 'admin', 'staff', 'cashier', 'technician', 'user'];
+const VALID_ROLES = ['superadmin', 'admin', 'staff', 'technician', 'user'];
 
 async function main() {
   const emailArg = (process.argv[2] || '').trim().toLowerCase();

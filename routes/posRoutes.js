@@ -9,7 +9,8 @@ const {
   createSale, getSales, getSale, voidSale,
   initiateMomoCharge, checkMomoCharge,
   getStaff, createStaff,
-  getOverview,
+  getOverview, getMyOverview,
+  getPartOrders, updatePartOrder,
   getExpenses, createExpense, updateExpense, deleteExpense,
   triggerReminders, getUncollectedJobs,
   getSuppliers, getSupplier, createSupplier, updateSupplier, deleteSupplier,
@@ -30,10 +31,18 @@ const router = express.Router();
 
 // All POS routes require authentication
 router.use(protect);
-router.use(restrictTo('superadmin', 'admin', 'staff', 'cashier', 'technician'));
+router.use(restrictTo('superadmin', 'admin', 'staff', 'technician'));
 
-// ── Overview / reports (superadmin + admin + staff) ──────────────────────────
-router.get('/overview', restrictTo('superadmin', 'admin', 'staff'), getOverview);
+// ── Overview / reports — shop-wide financials (superadmin + admin) ───────────
+router.get('/overview', restrictTo('superadmin', 'admin'), getOverview);
+
+// ── My dashboard — scoped to the logged-in user (all POS roles) ──────────────
+// Staff: jobs they created + their sales + low stock. Technician: their jobs only.
+router.get('/my-overview', getMyOverview);
+
+// ── Repair part-orders — review & update status (superadmin + admin + staff) ──
+router.get('/part-orders',       restrictTo('superadmin', 'admin', 'staff'), getPartOrders);
+router.patch('/part-orders/:id', restrictTo('superadmin', 'admin', 'staff'), updatePartOrder);
 
 // ── Scanner lookup (all POS roles) ───────────────────────────────────────────
 router.get('/scan/:code', scanLookup);
@@ -47,13 +56,13 @@ router.route('/jobs').get(getJobs).post(createJob);
 router.route('/jobs/:id').get(getJob).patch(updateJob);
 router.post('/jobs/:id/photos', upload.single('photo'), uploadJobPhoto);
 router.delete('/jobs/:id/photos/:photoId', restrictTo('superadmin', 'staff'), deleteJobPhoto);
-router.post('/jobs/:id/payments', restrictTo('superadmin', 'staff', 'cashier'), addPayment);
+router.post('/jobs/:id/payments', restrictTo('superadmin', 'staff'), addPayment);
 
-// Paystack MoMo charge — teller (staff/cashier) and superadmin only
-router.post('/jobs/:id/momo-charge',            restrictTo('superadmin', 'staff', 'cashier'), initiateMomoCharge);
-router.get( '/jobs/:id/momo-charge/:reference', restrictTo('superadmin', 'staff', 'cashier'), checkMomoCharge);
+// Paystack MoMo charge — teller (staff) and superadmin only
+router.post('/jobs/:id/momo-charge',            restrictTo('superadmin', 'staff'), initiateMomoCharge);
+router.get( '/jobs/:id/momo-charge/:reference', restrictTo('superadmin', 'staff'), checkMomoCharge);
 
-// ── Sales (cashier + superadmin + staff) ─────────────────────────────────────
+// ── Sales (all POS roles) ────────────────────────────────────────────────────
 router.route('/sales').get(getSales).post(createSale);
 router.route('/sales/:id').get(getSale);
 router.patch('/sales/:id/void', restrictTo('superadmin'), voidSale);
