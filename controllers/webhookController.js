@@ -6,10 +6,12 @@ const Product = require('../models/Product');
 const ServiceOrder = require('../models/ServiceOrder');
 const User = require('../models/User');
 const PartOrder = require('../models/PartOrder');
+const RepairOrder = require('../models/RepairOrder');
 const PosPayment = require('../models/PosPayment');
 const RepairJob = require('../models/RepairJob');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
+const { fulfilShopOrder } = require('../utils/fulfilShopOrder');
 const { notifyCustomer } = require('../services/notify');
 const namecheap = require('../services/namecheap');
 const whm = require('../services/whm');
@@ -238,44 +240,9 @@ const handlePaystackWebhook = async (req, res) => {
         return res.status(400).json({ error: 'Currency mismatch' });
       }
 
-      // Atomic pending→paid transition. If it returns null the order was
-      // already paid — idempotent, so do not re-decrement stock.
-      const paid = await Order.findOneAndUpdate(
-        { paystackReference: reference, status: 'pending' },
-        { $set: { status: 'paid', paidAt: new Date() } },
-        { new: true }
-      );
-
+      const paid = await fulfilShopOrder(reference);
       if (!paid) {
         return res.status(200).json({ received: true, idempotent: true });
-      }
-
-      // Decrement stock atomically per item. Never oversell: if the guard
-      // fails for an item, log it and continue.
-      for (const item of paid.items) {
-        if (item.part) {
-          // Part item: decrement Part.quantity.
-          const result = await Part.findOneAndUpdate(
-            { _id: item.part, quantity: { $gte: item.qty } },
-            { $inc: { quantity: -item.qty } }
-          );
-          if (!result) {
-            console.error(
-              `[webhook] Part stock decrement failed for order ${paid.orderNumber} item ${item.part} (qty ${item.qty})`
-            );
-          }
-          continue;
-        }
-
-        const result = await Product.findOneAndUpdate(
-          { _id: item.product, stock: { $gte: item.qty } },
-          { $inc: { stock: -item.qty } }
-        );
-        if (!result) {
-          console.error(
-            `[webhook] Stock decrement failed for order ${paid.orderNumber} item ${item.name} (qty ${item.qty})`
-          );
-        }
       }
 
       return res.status(200).json({ received: true });
@@ -303,6 +270,61 @@ const handlePaystackWebhook = async (req, res) => {
 
       fulfilPartOrder(paid).catch((err) =>
         console.error(`[webhook] Failed to fulfil part order ${paid._id}:`, err.message)
+      );
+      return res.status(200).json({ received: true });
+    }
+
+    // ── Repair order (prepaid parts + optional rider shipping) ───────────
+    const repairOrder = await RepairOrder.findOne({ paystackReference: reference });
+    if (repairOrder) {
+      if (amountMismatch(event.data, repairOrder.totalPesewas)) {
+        console.error(`[webhook] Amount mismatch for repair order ${repairOrder._id}`);
+        return res.status(400).json({ error: 'Amount mismatch' });
+      }
+
+      // Atomic pending→paid transition. Null means already paid — idempotent.
+      const paid = await RepairOrder.findOneAndUpdate(
+        { paystackReference: reference, status: 'pending' },
+        { $set: { status: 'paid', paidAt: new Date() } },
+        { new: true }
+      );
+
+      if (!paid) {
+        return res.status(200).json({ received: true, idempotent: true });
+      }
+
+      fulfilRepairOrder(paid).catch((err) =>
+        console.error(`[webhook] Failed to fulfil repair order ${paid._id}:`, err.message)
+      );
+      return res.status(200).json({ received: true });
+    }
+
+    // ── Job balance payment (customer pays outstanding invoice online) ────
+    const balanceJob = await RepairJob.findOne({
+      'balancePayments.reference': reference,
+    });
+    if (balanceJob) {
+      const charge = balanceJob.balancePayments.find((c) => c.reference === reference);
+      if (!charge || charge.status !== 'pending') {
+        return res.status(200).json({ received: true, idempotent: true });
+      }
+      if (amountMismatch(event.data, charge.amountPesewas)) {
+        console.error(`[webhook] Amount mismatch for balance payment ${reference}`);
+        return res.status(400).json({ error: 'Amount mismatch' });
+      }
+
+      const paid = await RepairJob.findOneAndUpdate(
+        { _id: balanceJob._id, 'balancePayments.reference': reference, 'balancePayments.status': 'pending' },
+        { $set: { 'balancePayments.$.status': 'paid', 'balancePayments.$.paidAt': new Date() } },
+        { new: true }
+      );
+
+      if (!paid) {
+        return res.status(200).json({ received: true, idempotent: true });
+      }
+
+      fulfilJobBalancePayment(paid, reference).catch((err) =>
+        console.error(`[webhook] Failed to fulfil balance payment ${reference}:`, err.message)
       );
       return res.status(200).json({ received: true });
     }
@@ -349,14 +371,28 @@ async function fulfilPartOrder(partOrder) {
   // Record revenue so POS reports capture online part payments.
   const alreadyRecorded = await PosPayment.exists({ reference: partOrder.paystackReference });
   if (!alreadyRecorded) {
-    await PosPayment.create({
-      job:        job._id,
-      amount:     partOrder.amountGhs,
-      method:     'card',
-      reference:  partOrder.paystackReference,
-      receivedBy: job.createdBy || partOrder.job,
-      notes:      `Online part order — ${partOrder.partName} ×${partOrder.quantity}`,
-    });
+    // Public self-serve jobs have no staff creator — attribute the revenue to
+    // the first available staff user instead of storing a job id in a User ref.
+    let receivedBy = job.createdBy;
+    if (!receivedBy) {
+      const fallback = await User.findOne({ role: { $in: ['superadmin', 'admin', 'staff'] } })
+        .sort({ createdAt: 1 })
+        .select('_id')
+        .lean();
+      receivedBy = fallback ? fallback._id : null;
+    }
+    // receivedBy only exists when a User can be attributed — skip revenue
+    // recording rather than corrupt the User ref with a job id.
+    if (receivedBy) {
+      await PosPayment.create({
+        job:        job._id,
+        amount:     partOrder.amountGhs,
+        method:     'card',
+        reference:  partOrder.paystackReference,
+        receivedBy,
+        notes:      `Online part order — ${partOrder.partName} ×${partOrder.quantity}`,
+      });
+    }
   }
 
   // Ensure the paid part is on the job (re-add if staff removed it meanwhile).
@@ -387,6 +423,108 @@ async function fulfilPartOrder(partOrder) {
 
   console.log(
     `[webhook] Part order ${partOrder._id} fulfilled — ${partOrder.partName} ×${partOrder.quantity} on job ${job.jobNumber}`
+  );
+}
+
+/**
+ * After a repair order is paid: record the revenue as a POS payment against the
+ * job, add each ordered part as a line on the job, and flag the job as
+ * waiting_for_parts. Idempotent via PosPayment.reference.
+ */
+async function fulfilRepairOrder(repairOrder) {
+  const job = await RepairJob.findById(repairOrder.job).populate('customer', 'name phone email');
+  if (!job) return;
+
+  // Record revenue so POS reports capture online part payments (incl. shipping).
+  const alreadyRecorded = await PosPayment.exists({ reference: repairOrder.paystackReference });
+  if (!alreadyRecorded) {
+    let receivedBy = job.createdBy;
+    if (!receivedBy) {
+      const fallback = await User.findOne({ role: { $in: ['superadmin', 'admin', 'staff'] } })
+        .sort({ createdAt: 1 })
+        .select('_id')
+        .lean();
+      receivedBy = fallback ? fallback._id : null;
+    }
+    if (receivedBy) {
+      const names = (repairOrder.items || []).map(i => `${i.partName} ×${i.quantity}`).join(', ');
+      await PosPayment.create({
+        job:        job._id,
+        amount:     repairOrder.totalPesewas / 100,
+        method:     'card',
+        reference:  repairOrder.paystackReference,
+        receivedBy,
+        notes:      `Online order — ${names}${repairOrder.shippingFeePesewas ? ' + shipping' : ''}`,
+      });
+    }
+  }
+
+  // Ensure each paid part is on the job (re-add if staff removed it meanwhile).
+  for (const item of repairOrder.items || []) {
+    const hasLine = job.parts.some(
+      (p) =>
+        (p.part && item.part && p.part.toString() === item.part.toString()) ||
+        p.name === item.partName
+    );
+    if (!hasLine) {
+      job.parts.push({
+        part:        item.part || undefined,
+        name:        item.partName,
+        quantity:    item.quantity,
+        priceAtTime: item.unitPriceGhs,
+        costAtTime:  item.unitPriceGhs,
+      });
+    }
+  }
+
+  const before = job.status;
+  if (['received', 'diagnosing'].includes(job.status)) {
+    job.status = 'waiting_for_parts';
+  }
+  await job.save({ validateBeforeSave: false });
+
+  if (before !== job.status) {
+    notifyCustomer(job, 'waiting_for_parts').catch(() => {});
+  }
+
+  console.log(
+    `[webhook] Repair order ${repairOrder._id} fulfilled — ${(repairOrder.items || []).length} item(s) on job ${job.jobNumber}`
+  );
+}
+
+/**
+ * After a job balance payment succeeds: record the revenue as a POS payment
+ * against the job so reports and the invoice reconcile. Idempotent via
+ * PosPayment.reference.
+ */
+async function fulfilJobBalancePayment(job, reference) {
+  const charge = (job.balancePayments || []).find((c) => c.reference === reference);
+  if (!charge) return;
+
+  const alreadyRecorded = await PosPayment.exists({ reference });
+  if (!alreadyRecorded) {
+    let receivedBy = job.createdBy;
+    if (!receivedBy) {
+      const fallback = await User.findOne({ role: { $in: ['superadmin', 'admin', 'staff'] } })
+        .sort({ createdAt: 1 })
+        .select('_id')
+        .lean();
+      receivedBy = fallback ? fallback._id : null;
+    }
+    if (receivedBy) {
+      await PosPayment.create({
+        job:        job._id,
+        amount:     charge.amountPesewas / 100,
+        method:     'card',
+        reference,
+        receivedBy,
+        notes:      'Online balance payment',
+      });
+    }
+  }
+
+  console.log(
+    `[webhook] Balance payment ${reference} fulfilled — GH₵${(charge.amountPesewas / 100).toFixed(2)} on job ${job.jobNumber}`
   );
 }
 

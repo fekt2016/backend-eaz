@@ -57,6 +57,7 @@ const orderSchema = new mongoose.Schema({
   customer: {
     name: { type: String, required: [true, 'Customer name is required'], trim: true },
     phone: { type: String, required: [true, 'Phone is required'], trim: true },
+    phoneDigits: { type: String, trim: true, default: '' },
     email: { type: String, trim: true, lowercase: true, default: '' },
     address: { type: String, trim: true, default: '' }
   },
@@ -72,12 +73,45 @@ const orderSchema = new mongoose.Schema({
   paidAt: {
     type: Date,
     default: null
-  }
+  },
+  trackingNumber: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+    uppercase: true
+  },
+  trackingHistory: [{
+    status: {
+      type: String,
+      enum: ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'],
+      default: 'pending'
+    },
+    note: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    location: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    updatedBy: {
+      name: { type: String, trim: true, default: '' },
+      role: { type: String, trim: true, default: '' }
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }]
 }, {
   timestamps: true
 });
 
 orderSchema.index({ paystackReference: 1 }, { sparse: true });
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ trackingNumber: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Order', orderSchema);

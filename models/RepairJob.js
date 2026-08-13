@@ -19,6 +19,11 @@ const repairJobSchema = new mongoose.Schema(
     diagnosis:         { type: String, trim: true, maxlength: 1000 },
     repairWork:        { type: String, trim: true, maxlength: 1000 }, // what was / will be done
 
+    // How the device gets to the shop — walked in by the customer ('bring')
+    // or collected by a rider ('rider'). Set on the public self-serve intake.
+    dropoff:       { type: String, enum: ['bring', 'rider'], default: 'bring' },
+    pickupAddress: { type: String, trim: true, maxlength: 300 },
+
     parts: [
       {
         part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' }, // optional inventory link
@@ -40,7 +45,10 @@ const repairJobSchema = new mongoose.Schema(
 
     priority:   { type: String, enum: ['normal', 'urgent'], default: 'normal' },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+
+    // The staff member who created the job in-store. Online self-serve requests
+    // (public repair form) have no staff creator, so this is optional.
+    createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
     notes:               { type: String, trim: true, maxlength: 1000 },
     estimatedCompletion: { type: Date },
@@ -66,6 +74,19 @@ const repairJobSchema = new mongoose.Schema(
         publicId:  { type: String },
         caption:   { type: String, trim: true, maxlength: 100 },
         uploadedAt:{ type: Date, default: Date.now },
+      },
+    ],
+
+    // ── Online balance payments (customer track page) ─────
+    // Each entry is a Paystack charge initiated against the job's outstanding
+    // balance (diagnosis + parts + labour). Webhook marks it paid and records
+    // a PosPayment. The unique reference keeps webhook fulfilment idempotent.
+    balancePayments: [
+      {
+        reference:     { type: String, trim: true, unique: true, sparse: true },
+        amountPesewas: { type: Number, required: true, min: 0 },
+        status:        { type: String, enum: ['pending', 'paid'], default: 'pending' },
+        paidAt:        { type: Date },
       },
     ],
   },
@@ -95,11 +116,11 @@ repairJobSchema.virtual('warrantyStatus').get(function () {
 });
 
 repairJobSchema.virtual('totalPartsAmount').get(function () {
-  return this.parts.reduce((sum, p) => sum + (p.priceAtTime || 0) * (p.quantity || 1), 0);
+  return (this.parts || []).reduce((sum, p) => sum + (p.priceAtTime || 0) * (p.quantity || 1), 0);
 });
 
 repairJobSchema.virtual('totalPartsCost').get(function () {
-  return this.parts.reduce((sum, p) => sum + (p.costAtTime || 0) * (p.quantity || 1), 0);
+  return (this.parts || []).reduce((sum, p) => sum + (p.costAtTime || 0) * (p.quantity || 1), 0);
 });
 
 repairJobSchema.virtual('totalAmount').get(function () {

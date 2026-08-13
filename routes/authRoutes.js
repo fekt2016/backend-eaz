@@ -19,6 +19,9 @@ const {
   confirmTwoFactor,
   disableTwoFactor,
   verifyTwoFactor,
+  getMyAddresses,
+  saveAddress,
+  deleteAddress,
 } = require('../controllers/authController');
 const { protect, restrictTo } = require('../middleware/auth');
 const { createUserSchema } = require('../validation/authSchema');
@@ -34,6 +37,9 @@ router.post('/forgot-password', forgotPassword);
 router.patch('/reset-password/:token', resetPassword);
 router.get('/me', protect, getMe);
 router.patch('/me', protect, updateProfile);
+router.get('/me/addresses', protect, getMyAddresses);
+router.post('/me/addresses', protect, saveAddress);
+router.delete('/me/addresses/:addressId', protect, deleteAddress);
 router.patch('/change-password', protect, changePassword);
 router.post('/2fa/enable', protect, enableTwoFactor);
 router.post('/2fa/confirm', protect, confirmTwoFactor);

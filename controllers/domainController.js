@@ -304,7 +304,7 @@ const createDomainPayment = async (req, res, next) => {
           registrantInfo: JSON.stringify(registrantInfo),
         }),
       },
-      callback_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:3000"}/payment-success?type=domain`,
+      callback_url: `${require("../utils/frontendUrl")()}/payment-success?type=domain`,
     });
 
     if (!transaction.status) {

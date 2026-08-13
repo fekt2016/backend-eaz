@@ -20,7 +20,7 @@ if (paystackSecret && paystackSecret.startsWith('sk_')) {
   console.warn('⚠️  Paystack secret key not configured. Set PAYSTACK_SECRET or PAYSTACK_KEY (sk_...) for Card/Mobile Money.');
 }
 
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+const FRONTEND_URL = require("../utils/frontendUrl")();
 
 function computeAddonsTotal(addons) {
   if (!Array.isArray(addons)) return 0;

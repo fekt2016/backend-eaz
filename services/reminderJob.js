@@ -18,7 +18,7 @@ const REMIND_INTERVAL_DAYS = parseInt(process.env.REMINDER_INTERVAL_DAYS || '3',
 const REMINDER_MAX         = parseInt(process.env.REMINDER_MAX           || '3',  10);
 const SHOP_NAME  = process.env.SHOP_NAME  || 'EazWorld Repair';
 const SHOP_PHONE = process.env.SHOP_PHONE || '0244388190';
-const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://www.eazworld.co').replace(/\/$/, '');
+const FRONTEND_URL = require('../utils/frontendUrl')();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

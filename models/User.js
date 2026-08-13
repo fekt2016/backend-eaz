@@ -73,6 +73,40 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    // ── Saved shipping addresses ──────────────────────────────────────
+    shippingAddresses: [
+      {
+        label: {
+          type: String,
+          trim: true,
+          maxlength: 60,
+          default: "",
+        },
+        street: {
+          type: String,
+          trim: true,
+          maxlength: 200,
+        },
+        neighborhood: {
+          type: String,
+          trim: true,
+          maxlength: 120,
+        },
+        city: {
+          type: String,
+          trim: true,
+          maxlength: 120,
+        },
+        isDefault: {
+          type: Boolean,
+          default: false,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     // ── Registered domains ───────────────────────────────────────────
     domains: [
       {

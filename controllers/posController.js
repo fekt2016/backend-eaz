@@ -6,6 +6,8 @@ const RepairJob   = require('../models/RepairJob');
 const Part        = require('../models/Part');
 const PosPayment  = require('../models/PosPayment');
 const PartOrder   = require('../models/PartOrder');
+const RepairOrder = require('../models/RepairOrder');
+const DeliveryZone = require('../models/DeliveryZone');
 const Sale        = require('../models/Sale');
 const User        = require('../models/User');
 const Expense     = require('../models/Expense');
@@ -13,14 +15,15 @@ const Supplier    = require('../models/Supplier');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText } = require('../utils/sanitize');
 const { cloudinary } = require('../config/cloudinary');
 const streamifier    = require('streamifier');
-const { notifyCustomer } = require('../services/notify');
+const { notifyCustomer, sendCredentialsSms } = require('../services/notify');
+const { sendAccountCreatedEmail } = require('../utils/email');
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 const paystack = (paystackSecret && paystackSecret.startsWith('sk_'))
   ? new Paystack(paystackSecret)
   : null;
 
-const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000').replace(/\/$/, '');
+const FRONTEND_URL = require('../utils/frontendUrl')();
 
 function normalizePhone(value) {
   let digits = String(value || '').replace(/\D/g, '');
@@ -28,7 +31,44 @@ function normalizePhone(value) {
   return digits;
 }
 
+/**
+ * Outstanding balance for a job in pesewas, mirroring the staff POS invoice:
+ *   total  = (requiresDiagnosis ? diagnosisFee : 0) + Σ(parts.priceAtTime × qty) + laborCost
+ *   paid   = Σ(PosPayment.amount)
+ * All monetary fields are major GHS units; we convert to pesewas at the end.
+ */
+function computeJobBalancePesewas(job, payments = []) {
+  const partsTotal = (job.parts || []).reduce(
+    (s, p) => s + (p.priceAtTime || 0) * (p.quantity || 1),
+    0
+  );
+  const totalGhs =
+    (job.requiresDiagnosis ? Number(job.diagnosisFee) || 0 : 0) +
+    partsTotal +
+    (Number(job.laborCost) || 0);
+  const paidGhs = payments.reduce((s, p) => s + (p.amount || 0), 0);
+  return Math.max(0, Math.round((totalGhs - paidGhs) * 100));
+}
+
 // ─── CUSTOMERS ───────────────────────────────────────────────────────────────
+
+/** Generate a cryptographically-strong password meeting validatePassword rules. */
+function generatePassword(length = 12) {
+  const upper   = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower   = 'abcdefghijkmnopqrstuvwxyz';
+  const digits  = '23456789';
+  const symbols = '@#$!%&*';
+  const all     = upper + lower + digits + symbols;
+  const pick    = (chars) => chars[crypto.randomInt(chars.length)];
+  const chars   = [pick(upper), pick(lower), pick(digits), pick(symbols)];
+  for (let i = chars.length; i < length; i++) chars.push(pick(all));
+  // Fisher–Yates shuffle so the required character classes aren't at fixed positions
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
 
 const createCustomer = async (req, res, next) => {
   try {
@@ -37,6 +77,12 @@ const createCustomer = async (req, res, next) => {
     const email   = req.body.email ? sanitizeEmail(req.body.email) : undefined;
     const address = req.body.address ? sanitizeText(req.body.address, 200) : undefined;
     const notes   = req.body.notes   ? sanitizeText(req.body.notes, 500)   : undefined;
+
+    // accountVia: 'email' (default when email present) | 'phone' | 'none'
+    const accountVia = req.body.accountVia || (email ? 'email' : 'none');
+    if (!['email', 'phone', 'none'].includes(accountVia)) {
+      return res.status(400).json({ success: false, error: "accountVia must be 'email', 'phone', or 'none'." });
+    }
 
     if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required.' });
 
@@ -47,7 +93,47 @@ const createCustomer = async (req, res, next) => {
     }
 
     const customer = await PosCustomer.create({ phone, name, email, address, notes });
-    res.status(201).json({ success: true, data: customer });
+
+    // Auto-create a login account when the staff asked for one (email or phone).
+    let account = { created: false, reason: 'not-requested' };
+    if (accountVia !== 'none') {
+      try {
+        if (accountVia === 'email' && !email) {
+          account = { created: false, reason: 'email-required' };
+        } else {
+          const password = generatePassword();
+          const userEmail = accountVia === 'email'
+            ? email
+            : `${phone.replace(/\D/g, '')}@eazworld.local`; // synthetic email for phone accounts
+
+          const existingUser = await User.findOne({ email: userEmail });
+          if (existingUser) {
+            account = { created: false, reason: 'email-already-registered' };
+          } else {
+            const user = await User.create({
+              name:       name || `Customer ${phone}`,
+              email: userEmail,
+              phone,
+              password,
+              role: 'user',
+              isVerified: true, // staff confirmed the customer in person
+            });
+            if (accountVia === 'email') {
+              sendAccountCreatedEmail(user, password).catch(() => {});
+            } else {
+              sendCredentialsSms(phone, name, password).catch(() => {});
+            }
+            account = { created: true, via: accountVia, email: user.email };
+          }
+        }
+      } catch (err) {
+        // Account creation is best-effort — never fail the customer creation because of it
+        console.error('[createCustomer] auto-account failed:', err.message);
+        account = { created: false, reason: 'error' };
+      }
+    }
+
+    res.status(201).json({ success: true, data: customer, account });
   } catch (err) { next(err); }
 };
 
@@ -97,20 +183,80 @@ const updateCustomer = async (req, res, next) => {
 
 // ─── REPAIR JOBS ─────────────────────────────────────────────────────────────
 
+const ACTIVE_JOB_STATUSES = ['received', 'diagnosing', 'waiting_for_parts', 'repairing', 'ready'];
+
+/** Assign the least-loaded technician from the User collection to a job. */
+async function findTechnicianToAssign() {
+  const technicians = await User.find({ role: 'technician' }).select('_id name').lean();
+  if (!technicians.length) return null;
+
+  const activeCounts = await RepairJob.aggregate([
+    { $match: { assignedTo: { $in: technicians.map(t => t._id) }, status: { $in: ACTIVE_JOB_STATUSES } } },
+    { $group: { _id: '$assignedTo', count: { $sum: 1 } } },
+  ]);
+  const counts = Object.fromEntries(activeCounts.map(c => [c._id.toString(), c.count]));
+
+  technicians.sort((a, b) => (counts[a._id.toString()] || 0) - (counts[b._id.toString()] || 0));
+  return technicians[0]._id;
+}
+
 const createJob = async (req, res, next) => {
   try {
     const {
       customerId, deviceType, deviceBrand, deviceModel,
       imei, color, faultDescription, priority, assignedTo, notes, depositPaid,
-      requiresDiagnosis, diagnosisFee,
+      requiresDiagnosis, diagnosisFee, dropoff, pickupAddress,
+      parts, paymentAmount, paymentMethod, paymentReference,
     } = req.body;
 
     if (!customerId) return res.status(400).json({ success: false, error: 'Customer is required.' });
     const fault = sanitizeText(faultDescription, 1000);
     if (!fault) return res.status(400).json({ success: false, error: 'Fault description is required.' });
 
+    // How the device reaches the shop — walk-in by default, or rider pickup
+    const cleanDropoff = dropoff === 'rider' ? 'rider' : 'bring';
+    const cleanPickup  = pickupAddress !== undefined ? sanitizeText(pickupAddress, 300) : undefined;
+    if (cleanDropoff === 'rider' && !cleanPickup) {
+      return res.status(400).json({ success: false, error: 'Pickup address is required when the device is sent by rider.' });
+    }
+
     const customer = await PosCustomer.findById(customerId);
     if (!customer) return res.status(404).json({ success: false, error: 'Customer not found.' });
+
+    // Resolve inventory-linked parts → snapshot name + prices at time of job
+    let partsList = [];
+    if (Array.isArray(parts) && parts.length) {
+      const partIds = parts.map(p => p.partId).filter(Boolean);
+      const inventory = partIds.length
+        ? await Part.find({ _id: { $in: partIds } }).select('_id name sellingPrice costPrice')
+        : [];
+      const partMap = Object.fromEntries(inventory.map(p => [p._id.toString(), p]));
+      partsList = parts
+        .filter(p => p.partId && partMap[p.partId])
+        .map(p => {
+          const part = partMap[p.partId];
+          return {
+            part:        part._id,
+            name:        part.name,
+            quantity:    Math.max(1, Number(p.quantity) || 1),
+            priceAtTime: Number(part.sellingPrice) || 0,
+            costAtTime:  Number(part.costPrice) || 0,
+          };
+        });
+    }
+
+    // Assign a technician — if none (or an invalid one) was supplied, pick the
+    // least-loaded technician from the User collection so every job is assigned.
+    let assignedTech = assignedTo;
+    if (assignedTech && !mongoose.Types.ObjectId.isValid(assignedTech)) assignedTech = undefined;
+    if (assignedTech) {
+      const tech = await User.findOne({ _id: assignedTech, role: 'technician' }).select('_id');
+      if (!tech) assignedTech = undefined;
+    }
+    if (!assignedTech) assignedTech = await findTechnicianToAssign();
+    if (!assignedTech) {
+      return res.status(400).json({ success: false, error: 'No technician available. Create a technician (Users → Add Staff) and try again.' });
+    }
 
     const job = await RepairJob.create({
       customer:         customerId,
@@ -121,11 +267,12 @@ const createJob = async (req, res, next) => {
       color:            sanitizeText(color, 40)        || undefined,
       faultDescription:  fault,
       priority:          priority === 'urgent' ? 'urgent' : 'normal',
-      assignedTo:        assignedTo || undefined,
+      assignedTo:        assignedTech || undefined,
       notes:             sanitizeText(notes, 1000) || undefined,
       depositPaid:       Number(depositPaid) || 0,
       requiresDiagnosis: !!requiresDiagnosis,
       diagnosisFee:      requiresDiagnosis ? (Number(diagnosisFee) || 0) : 0,
+      parts:             partsList,
       createdBy:         req.user._id,
     });
 
@@ -133,12 +280,122 @@ const createJob = async (req, res, next) => {
       { path: 'customer', select: 'name phone email' },
       { path: 'assignedTo', select: 'name' },
       { path: 'createdBy', select: 'name' },
+      { path: 'parts.part', select: 'name sku' },
     ]);
 
     // Notify customer — job received
     notifyCustomer(populated, 'received').catch(() => {});
 
+    // Record an upfront payment (parts / deposit) with the job from the start.
+    const paid = Number(paymentAmount) || 0;
+    if (paid > 0) {
+      const method = ['cash', 'momo', 'card'].includes(paymentMethod) ? paymentMethod : 'cash';
+      await PosPayment.create({
+        job:        job._id,
+        amount:     paid,
+        method,
+        reference:  paymentReference ? sanitizeText(paymentReference, 100) : undefined,
+        receivedBy: req.user._id,
+      });
+
+      // Deduct inventory stock once — mirror addPayment
+      if (partsList.some(p => p.part) && !job.stockDeducted) {
+        for (const p of partsList) {
+          if (p.part) await Part.findByIdAndUpdate(p.part, { $inc: { quantity: -(p.quantity || 1) } });
+        }
+        job.stockDeducted = true;
+        await job.save();
+      }
+    }
+
     res.status(201).json({ success: true, data: populated });
+  } catch (err) { next(err); }
+};
+
+// ─── PUBLIC JOB REQUEST (self-serve online intake) ───────────────────────────
+
+/**
+ * POST /track/repair-requests
+ * Public — a customer books a repair online with no account.
+ * They choose how the device reaches the shop: 'bring' (walk-in) or 'rider'
+ * (they send a rider / we arrange pickup). Auto-assigns the least-loaded
+ * technician and texts/emails the tracking link.
+ */
+const createPublicJob = async (req, res, next) => {
+  try {
+    const {
+      name, email, phone,
+      deviceType, deviceBrand, deviceModel, imei, color,
+      faultDescription, dropoff, pickupAddress,
+    } = req.body;
+
+    const cleanPhone = sanitizePhone(phone);
+    if (!cleanPhone) {
+      return res.status(400).json({ success: false, error: 'A valid phone number is required.' });
+    }
+
+    const fault = sanitizeText(faultDescription, 1000);
+    if (!fault) {
+      return res.status(400).json({ success: false, error: 'Please tell us what seems wrong with the device.' });
+    }
+
+    const cleanDropoff = dropoff === 'rider' ? 'rider' : 'bring';
+    const cleanPickup  = sanitizeText(pickupAddress, 300);
+    if (cleanDropoff === 'rider' && !cleanPickup) {
+      return res.status(400).json({ success: false, error: 'Please add the pickup address for the rider.' });
+    }
+
+    const allowedTypes = ['Phone', 'Tablet', 'Laptop', 'Smartwatch', 'Other'];
+    const cleanType    = allowedTypes.includes(deviceType) ? deviceType : 'Phone';
+
+    // Reuse the customer by phone — never duplicate.
+    let customer = await PosCustomer.findOne({ phone: cleanPhone });
+    if (!customer) {
+      customer = await PosCustomer.create({
+        phone: cleanPhone,
+        name:  sanitizeName(name, 100) || undefined,
+        email: sanitizeEmail(email) || undefined,
+      });
+    }
+
+    const assignedTech = await findTechnicianToAssign();
+
+    const job = await RepairJob.create({
+      customer:         customer._id,
+      deviceType:       cleanType,
+      deviceBrand:      sanitizeText(deviceBrand, 60)   || undefined,
+      deviceModel:      sanitizeText(deviceModel, 100)  || undefined,
+      imei:             sanitizeText(imei, 20)          || undefined,
+      color:            sanitizeText(color, 40)         || undefined,
+      faultDescription: fault,
+      dropoff:          cleanDropoff,
+      pickupAddress:    cleanDropoff === 'rider' ? cleanPickup : undefined,
+      assignedTo:       assignedTech || undefined,
+      // No staff creator — this came in through the website
+      createdBy:        undefined,
+    });
+
+    const populated = await job.populate([
+      { path: 'customer', select: 'name phone email' },
+      { path: 'assignedTo', select: 'name' },
+    ]);
+
+    // Tell the customer immediately — SMS/email with the tracking link
+    notifyCustomer(populated, 'received').catch(() => {});
+
+    res.status(201).json({
+      success: true,
+      data: {
+        jobNumber:     populated.jobNumber,
+        trackingToken: populated.trackingToken,
+        trackingUrl:   `${FRONTEND_URL}/track/${populated.trackingToken}`,
+        dropoff:       populated.dropoff,
+        pickupAddress: populated.pickupAddress || null,
+        customer: populated.customer
+          ? { name: populated.customer.name, phone: populated.customer.phone }
+          : null,
+      },
+    });
   } catch (err) { next(err); }
 };
 
@@ -225,7 +482,9 @@ const updateJob = async (req, res, next) => {
     const prevStatus = job.status; // capture before change
     if (status)      job.status      = status;
     if (priority)    job.priority    = priority;
-    if (assignedTo !== undefined) job.assignedTo = assignedTo || undefined;
+    // Technicians re-route jobs; an empty value keeps the current assignee so a
+    // job is never left unassigned.
+    if (assignedTo !== undefined && assignedTo) job.assignedTo = assignedTo;
     if (diagnosis            !== undefined) job.diagnosis            = sanitizeText(diagnosis,   1000);
     if (repairWork           !== undefined) job.repairWork           = sanitizeText(repairWork,  1000);
     if (notes                !== undefined) job.notes                = sanitizeText(notes,       1000);
@@ -352,13 +611,22 @@ const getJobByToken = async (req, res, next) => {
   try {
     const job = await RepairJob.findOne({ trackingToken: req.params.token })
       .populate('customer', 'name')
-      .select('jobNumber deviceBrand deviceModel deviceType status faultDescription repairWork estimatedCompletion completedAt warrantyDays warrantyExpires warrantyNotes createdAt trackingToken parts photos');
+      .select('jobNumber deviceBrand deviceModel deviceType status faultDescription repairWork estimatedCompletion completedAt warrantyDays warrantyExpires warrantyNotes createdAt trackingToken parts photos dropoff pickupAddress requiresDiagnosis diagnosisFee laborCost depositPaid');
 
     if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
 
-    const partOrders = await PartOrder.find({ job: job._id })
-      .select('partName quantity unitPriceGhs amountGhs status createdAt paystackReference')
-      .sort({ createdAt: -1 });
+    const [partOrders, repairOrders, payments] = await Promise.all([
+      PartOrder.find({ job: job._id })
+        .select('partName quantity unitPriceGhs amountGhs status createdAt paystackReference')
+        .sort({ createdAt: -1 }),
+      RepairOrder.find({ job: job._id })
+        .select('items shippingFeePesewas subtotalPesewas totalPesewas status createdAt paystackReference deliveryZone')
+        .sort({ createdAt: -1 }),
+      PosPayment.find({ job: job._id }).select('amount').lean(),
+    ]);
+
+    const balancePesewas = computeJobBalancePesewas(job, payments);
+    const payable = ['received', 'diagnosing', 'waiting_for_parts', 'repairing', 'ready'].includes(job.status);
 
     // Only expose what the customer needs — no internal notes, payments, or staff info
     res.json({
@@ -377,6 +645,10 @@ const getJobByToken = async (req, res, next) => {
         warrantyNotes:       job.warrantyNotes || null,
         warrantyStatus:      job.warrantyStatus,
         createdAt:           job.createdAt,
+        dropoff:             job.dropoff || 'bring',
+        pickupAddress:       job.pickupAddress || null,
+        balanceDuePesewas:   balancePesewas,
+        canPayBalance:       payable && balancePesewas > 0,
         photos:              (job.photos || []).map(p => ({ url: p.url, caption: p.caption || null })),
         parts:               (job.parts || []).map(p => ({
           id:        p._id,
@@ -390,6 +662,20 @@ const getJobByToken = async (req, res, next) => {
           partName:       o.partName,
           quantity:       o.quantity,
           amountGhs:      o.amountGhs,
+          status:         o.status,
+          reference:      o.paystackReference || null,
+          createdAt:      o.createdAt,
+        })),
+        repairOrders: repairOrders.map(o => ({
+          id:              o._id,
+          items:           (o.items || []).map(i => ({
+            partName:    i.partName,
+            quantity:    i.quantity,
+            unitPriceGhs: i.unitPriceGhs,
+          })),
+          shippingFeePesewas: o.shippingFeePesewas,
+          subtotalPesewas:    o.subtotalPesewas,
+          totalPesewas:       o.totalPesewas,
           status:         o.status,
           reference:      o.paystackReference || null,
           createdAt:      o.createdAt,
@@ -478,6 +764,220 @@ const createPartOrder = async (req, res, next) => {
         authorizationUrl: transaction.data.authorization_url,
         reference:        transaction.data.reference,
         partOrderId:      partOrder._id,
+      },
+    });
+  } catch (err) { next(err); }
+};
+
+/**
+ * GET /track/parts
+ * Public — the parts catalogue customers can order for their repair. Only
+ * sellable, in-stock parts with a price are shown; cost/supplier stays hidden.
+ */
+const getPublicParts = async (req, res, next) => {
+  try {
+    const { q, category } = req.query;
+    const query = { sellingPrice: { $gt: 0 } };
+    if (category && category !== 'all') query.category = category;
+    if (q) {
+      query.$or = [
+        { name: { $regex: q, $options: 'i' } },
+        { sku:  { $regex: q, $options: 'i' } },
+      ];
+    }
+    const parts = await Part.find(query)
+      .select('name sku category sellingPrice quantity')
+      .sort({ name: 1 })
+      .limit(100)
+      .lean();
+    res.json({ success: true, data: parts });
+  } catch (err) { next(err); }
+};
+
+/**
+ * POST /track/:token/orders
+ * Public — the customer prepays for one or more parts selected from the
+ * catalogue (plus an optional rider shipping fee) in a single Paystack
+ * transaction. Prices are always read server-side from the Part and
+ * DeliveryZone; never from the client.
+ */
+const createRepairOrder = async (req, res, next) => {
+  try {
+    if (!paystack) return res.status(503).json({ success: false, error: 'Paystack not configured.' });
+
+    const { token } = req.params;
+    const { items, shippingZoneId, name, phone, email: rawEmail } = req.body;
+
+    const job = await RepairJob.findOne({ trackingToken: token }).populate('customer', 'name phone email');
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
+
+    const cleanPhone = sanitizePhone(phone);
+    if (!cleanPhone) return res.status(400).json({ success: false, error: 'Phone number is required.' });
+    if (!job.customer?.phone || normalizePhone(cleanPhone) !== normalizePhone(job.customer.phone)) {
+      return res.status(403).json({ success: false, error: 'Phone number does not match this repair job.' });
+    }
+
+    // Capture the customer's email so future repair updates go by email (primary channel).
+    const cleanEmail = sanitizeEmail(rawEmail);
+    if (cleanEmail && (!job.customer?.email || job.customer.email !== cleanEmail)) {
+      await PosCustomer.findByIdAndUpdate(job.customer._id, { email: cleanEmail });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'Select at least one part to order.' });
+    }
+    if (items.length > 10) {
+      return res.status(400).json({ success: false, error: 'Too many parts in one order.' });
+    }
+
+    const lineItems = [];
+    let subtotalPesewas = 0;
+
+    for (const it of items) {
+      const partId = it?.partId;
+      const qty    = Math.max(1, Math.min(10, Math.floor(Number(it?.quantity) || 1)));
+      if (!mongoose.Types.ObjectId.isValid(partId)) {
+        return res.status(400).json({ success: false, error: 'Invalid part selected.' });
+      }
+      const part = await Part.findById(partId).lean();
+      if (!part || !Number(part.sellingPrice) || part.sellingPrice <= 0) {
+        return res.status(400).json({ success: false, error: 'That part is not available for ordering.' });
+      }
+      if (part.quantity < qty) {
+        return res.status(400).json({ success: false, error: `Only ${part.quantity} in stock for ${part.name}.` });
+      }
+      const subtotal = Number(part.sellingPrice) * qty * 100;
+      lineItems.push({
+        part:           part._id,
+        partName:       part.name,
+        quantity:       qty,
+        unitPriceGhs:   Number(part.sellingPrice),
+        subtotalPesewas: subtotal,
+      });
+      subtotalPesewas += subtotal;
+    }
+
+    // Rider shipping — only meaningful when the device comes by rider.
+    let shippingFeePesewas = 0;
+    let deliveryZone = undefined;
+    if (job.dropoff === 'rider' && shippingZoneId) {
+      if (!mongoose.Types.ObjectId.isValid(shippingZoneId)) {
+        return res.status(400).json({ success: false, error: 'Invalid shipping zone.' });
+      }
+      const zone = await DeliveryZone.findOne({ _id: shippingZoneId, isActive: true }).lean();
+      if (!zone) return res.status(400).json({ success: false, error: 'Shipping zone not found.' });
+      deliveryZone      = zone._id;
+      shippingFeePesewas = Number(zone.fee) || 0;
+    }
+
+    const totalPesewas = subtotalPesewas + shippingFeePesewas;
+    const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
+    const reference = `RPO_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
+
+    const transaction = await paystack.transaction.initialize({
+      email,
+      amount:   totalPesewas,
+      currency: 'GHS',
+      reference,
+      channels: ['card', 'mobile_money'],
+      metadata: { type: 'repair_order', jobId: job._id.toString(), jobNumber: job.jobNumber },
+      callback_url: `${FRONTEND_URL}/track/${token}`,
+    });
+
+    if (!transaction.status) {
+      return res.status(500).json({ success: false, error: 'Failed to initialize payment.' });
+    }
+
+    const repairOrder = await RepairOrder.create({
+      job:             job._id,
+      items:           lineItems,
+      deliveryZone:    deliveryZone || undefined,
+      shippingFeePesewas,
+      subtotalPesewas,
+      totalPesewas,
+      customerName:    sanitizeName(name, 100),
+      customerPhone:   cleanPhone,
+      status:          'pending',
+      paystackReference: transaction.data.reference,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        authorizationUrl: transaction.data.authorization_url,
+        reference:        transaction.data.reference,
+        repairOrderId:    repairOrder._id,
+      },
+    });
+  } catch (err) { next(err); }
+};
+
+/**
+ * POST /track/:token/balance-payment
+ * Public — the customer pays the outstanding invoice balance (diagnosis +
+ * parts + labour) in one Paystack transaction. The amount is always computed
+ * server-side from the job and its recorded payments, never trusted from the
+ * client. The phone must match the one on the repair receipt.
+ */
+const createBalancePayment = async (req, res, next) => {
+  try {
+    if (!paystack) return res.status(503).json({ success: false, error: 'Paystack not configured.' });
+
+    const { token } = req.params;
+    const { phone } = req.body;
+
+    const job = await RepairJob.findOne({ trackingToken: token }).populate('customer', 'name phone email');
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
+
+    const cleanPhone = sanitizePhone(phone);
+    if (!cleanPhone) return res.status(400).json({ success: false, error: 'Phone number is required.' });
+    if (!job.customer?.phone || normalizePhone(cleanPhone) !== normalizePhone(job.customer.phone)) {
+      return res.status(403).json({ success: false, error: 'Phone number does not match this repair job.' });
+    }
+
+    const payments = await PosPayment.find({ job: job._id }).select('amount').lean();
+    const balancePesewas = computeJobBalancePesewas(job, payments);
+
+    if (balancePesewas <= 0) {
+      return res.status(400).json({ success: false, error: 'Nothing is outstanding on this repair.' });
+    }
+
+    const email     = job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
+    const reference = `JBAL_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
+
+    const transaction = await paystack.transaction.initialize({
+      email,
+      amount:   balancePesewas,
+      currency: 'GHS',
+      reference,
+      channels: ['card', 'mobile_money'],
+      metadata: { type: 'job_balance', jobId: job._id.toString(), jobNumber: job.jobNumber },
+      callback_url: `${FRONTEND_URL}/track/${token}`,
+    });
+
+    if (!transaction.status) {
+      return res.status(500).json({ success: false, error: 'Failed to initialize payment.' });
+    }
+
+    await RepairJob.updateOne(
+      { _id: job._id },
+      {
+        $push: {
+          balancePayments: {
+            reference,
+            amountPesewas: balancePesewas,
+            status:        'pending',
+          },
+        },
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        authorizationUrl: transaction.data.authorization_url,
+        reference:        transaction.data.reference,
+        amountPesewas:    balancePesewas,
       },
     });
   } catch (err) { next(err); }
@@ -650,6 +1150,16 @@ const deletePart = async (req, res, next) => {
 };
 
 // ─── STAFF ───────────────────────────────────────────────────────────────────
+
+/** Technicians list — any POS role can read it so staff can assign jobs. */
+const getTechnicians = async (req, res, next) => {
+  try {
+    const technicians = await User.find({ role: 'technician' })
+      .select('name phone role')
+      .sort({ name: 1 });
+    res.json({ success: true, data: technicians });
+  } catch (err) { next(err); }
+};
 
 const getStaff = async (req, res, next) => {
   try {
@@ -892,7 +1402,7 @@ const getMyOverview = async (req, res, next) => {
         .limit(10)
         .populate('customer', 'name phone')
         .populate('assignedTo', 'name')
-        .select('jobNumber status priority deviceBrand deviceModel createdAt'),
+        .select('jobNumber status priority deviceBrand deviceModel createdAt parts diagnosisFee laborCost depositPaid'),
     ]);
 
     const stats = { myTotalJobs, myTodayJobs, myPendingJobs, myReadyJobs, myCompletedJobs };
@@ -938,11 +1448,23 @@ const getPartOrders = async (req, res, next) => {
     const { status } = req.query;
     const query = {};
     if (['pending', 'paid', 'cancelled'].includes(status)) query.status = status;
-    const orders = await PartOrder.find(query)
-      .sort({ createdAt: -1 })
-      .limit(200)
-      .populate('job', 'jobNumber deviceBrand deviceModel')
-      .lean();
+    const [partOrders, repairOrders] = await Promise.all([
+      PartOrder.find(query)
+        .sort({ createdAt: -1 })
+        .limit(200)
+        .populate('job', 'jobNumber deviceBrand deviceModel')
+        .lean(),
+      RepairOrder.find(query)
+        .sort({ createdAt: -1 })
+        .limit(200)
+        .populate('job', 'jobNumber deviceBrand deviceModel')
+        .lean(),
+    ]);
+    // Merge both kinds, newest first, tagged by type so the UI can render each.
+    const orders = [
+      ...partOrders.map(o => ({ ...o, orderType: 'part' })),
+      ...repairOrders.map(o => ({ ...o, orderType: 'repair' })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     res.json({ success: true, data: orders });
   } catch (err) { next(err); }
 };
@@ -962,20 +1484,57 @@ const updatePartOrder = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const updateRepairOrder = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    if (!['pending', 'paid', 'cancelled'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Status must be pending, paid, or cancelled.' });
+    }
+    const repairOrder = await RepairOrder.findById(req.params.id);
+    if (!repairOrder) return res.status(404).json({ success: false, error: 'Repair order not found.' });
+    repairOrder.status = status;
+    if (status === 'paid' && !repairOrder.paidAt) repairOrder.paidAt = new Date();
+    await repairOrder.save();
+    res.json({ success: true, data: repairOrder });
+  } catch (err) { next(err); }
+};
+
 // ─── CUSTOMER: my repairs ────────────────────────────────────────────────────
 // A logged-in customer's repair jobs, matched to their account by phone (repairs
 // link to a PosCustomer, keyed by a unique phone). Returns the tracking token so
 // the client can deep-link to the public /track/:token page.
 const getMyRepairs = async (req, res, next) => {
   try {
-    if (!req.user.phone) return res.json({ success: true, data: [] });
-    const norm = String(req.user.phone).replace(/[^\d]/g, '').replace(/^233/, '0');
-    const variants = new Set([req.user.phone, norm]);
-    if (norm.startsWith('0')) {
-      variants.add(`233${norm.slice(1)}`);
-      variants.add(`+233${norm.slice(1)}`);
+    // Staff-side roles see every repair job; customers only see their own,
+    // matched by the phone (and/or email) linked to their login account.
+    if (['superadmin', 'admin', 'staff', 'technician'].includes(req.user.role)) {
+      const jobs = await RepairJob.find({})
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .select('jobNumber deviceBrand deviceModel status createdAt estimatedCompletion trackingToken')
+        .lean();
+      return res.json({ success: true, data: jobs });
     }
-    const customers = await PosCustomer.find({ phone: { $in: [...variants] } }).select('_id').lean();
+
+    const or = [];
+    if (req.user.email) {
+      or.push({ email: String(req.user.email).toLowerCase() });
+    }
+    if (req.user.phone) {
+      const digits = normalizePhone(req.user.phone);
+      const variants = new Set([req.user.phone, digits]);
+      if (digits.startsWith('0')) {
+        variants.add(`233${digits.slice(1)}`);
+        variants.add(`+233${digits.slice(1)}`);
+      }
+      if (!/^0/.test(digits) && digits.startsWith('233')) {
+        variants.add(`0${digits.slice(3)}`);
+      }
+      or.push({ phone: { $in: [...variants] } });
+    }
+    if (!or.length) return res.json({ success: true, data: [] });
+
+    const customers = await PosCustomer.find({ $or: or }).select('_id').lean();
     if (!customers.length) return res.json({ success: true, data: [] });
 
     const ids = customers.map((c) => c._id);
@@ -1399,7 +1958,62 @@ const initiateMomoCharge = async (req, res, next) => {
 };
 
 /**
- * GET /pos/jobs/:id/momo-charge/:reference
+ * POST /pos/jobs/:id/card-charge
+ * Staff initiates a Paystack card charge for an in-store customer.
+ * Returns a checkout link staff can open on their own screen or send to the
+ * customer's phone. Webhook + polling confirm it.
+ */
+const initiateCardCharge = async (req, res, next) => {
+  try {
+    if (!paystack) return res.status(503).json({ success: false, error: 'Paystack not configured.' });
+
+    const job = await RepairJob.findById(req.params.id).populate('customer', 'name phone email');
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
+
+    const { amount, email } = req.body;
+    if (!amount || Number(amount) <= 0) return res.status(400).json({ success: false, error: 'Amount is required.' });
+
+    const amountInPesewas = Math.round(Number(amount) * 100);
+
+    // Use customer email or generate a placeholder
+    const chargeEmail = email
+      || job.customer?.email
+      || `${sanitizePhone(job.customer?.phone) || 'customer'}@pos.eazworld.co`;
+
+    const reference = `poscard_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
+
+    const transaction = await paystack.transaction.initialize({
+      amount:       amountInPesewas,
+      email:        chargeEmail,
+      currency:     'GHS',
+      reference,
+      channels:     ['card'],
+      metadata: {
+        jobId:      job._id.toString(),
+        jobNumber:  job.jobNumber,
+        type:       'pos_repair_payment',
+        initiatedBy: req.user._id.toString(),
+      },
+      callback_url: `${FRONTEND_URL}/dashboard/pos/jobs/${job._id}`,
+    });
+
+    if (!transaction.status) {
+      const reason = transaction.message || 'Paystack declined the card charge request.';
+      console.error('[Card] Paystack declined:', reason);
+      return res.status(400).json({ success: false, error: reason });
+    }
+
+    res.json({
+      success:         true,
+      reference,
+      authorizationUrl: transaction.data.authorization_url,
+      message:         transaction.message || 'Card payment link ready. Open it for the customer.',
+    });
+  } catch (err) { next(err); }
+};
+
+/**
+ * GET /pos/jobs/:id/momo-charge/:reference | /card-charge/:reference
  * Poll until the charge is confirmed. Frontend calls this every 3s.
  * On success, records the payment automatically.
  */
@@ -1417,6 +2031,8 @@ const checkMomoCharge = async (req, res, next) => {
 
     const txData = verify.data;
     const txStatus = txData?.status; // 'success' | 'failed' | 'abandoned' | 'pending'
+    const channel = txData?.channel || ''; // 'card' | 'mobile_money' | 'ussd' | ...
+    const method  = channel === 'card' ? 'card' : 'momo';
 
     // Auto-record payment when Paystack confirms success
     if (txStatus === 'success') {
@@ -1426,10 +2042,10 @@ const checkMomoCharge = async (req, res, next) => {
         await PosPayment.create({
           job:        id,
           amount:     txData.amount / 100,
-          method:     'momo',
+          method,
           reference,
           receivedBy: req.user._id,
-          notes:      `MoMo via Paystack · ${txData.channel || 'mobile_money'}`,
+          notes:      `${method === 'card' ? 'Card' : 'MoMo'} via Paystack · ${channel || 'card'}`,
         });
 
         // Deduct inventory stock once per job
@@ -1463,15 +2079,16 @@ module.exports = {
   createJob, getJobs, getJob, updateJob,
   uploadJobPhoto, deleteJobPhoto,
   addPayment,
-  getJobByToken, createPartOrder, getMyRepairs,
+  getJobByToken, createPartOrder, getMyRepairs, createPublicJob,
+  getPublicParts, createRepairOrder, createBalancePayment,
   getWarrantyJobs,
   getParts, createPart, updatePart, deletePart,
   scanLookup,
   createSale, getSales, getSale, voidSale,
-  initiateMomoCharge, checkMomoCharge,
-  getStaff, createStaff,
+  initiateMomoCharge, checkMomoCharge, initiateCardCharge,
+  getTechnicians, getStaff, createStaff,
   getOverview, getMyOverview,
-  getPartOrders, updatePartOrder,
+  getPartOrders, updatePartOrder, updateRepairOrder,
   getExpenses, createExpense, updateExpense, deleteExpense,
   triggerReminders, getUncollectedJobs,
   getSuppliers, getSupplier, createSupplier, updateSupplier, deleteSupplier,

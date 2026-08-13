@@ -2,7 +2,9 @@ const crypto = require("crypto");
 const Paystack = require("@paystack/paystack-sdk");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const Part = require("../models/Part");
 const DeliveryZone = require("../models/DeliveryZone");
+const { fulfilShopOrder } = require("../utils/fulfilShopOrder");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -14,13 +16,18 @@ if (paystackSecret && paystackSecret.startsWith("sk_")) {
   );
 }
 
-const FRONTEND_URL =
-  process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:3000";
+const FRONTEND_URL = require("../utils/frontendUrl")();
 
 function generateOrderNumber() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = crypto.randomBytes(2).toString("hex").toUpperCase();
   return `EZW-${ts}${rand}`;
+}
+
+function generateTrackingNumber() {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = crypto.randomBytes(3).toString("hex").toUpperCase();
+  return `EZWTRK-${ts}${rand}`;
 }
 
 /**
@@ -109,6 +116,7 @@ const createOrder = async (req, res, next) => {
 
     const order = await Order.create({
       orderNumber: generateOrderNumber(),
+      trackingNumber: generateTrackingNumber(),
       items: productItems,
       ...(partItems.length > 0 ? { items: [...productItems, ...partItems] } : {}),
       subtotal,
@@ -118,11 +126,17 @@ const createOrder = async (req, res, next) => {
       customer: {
         name: customer.name.trim(),
         phone: customer.phone.trim(),
+        phoneDigits: normalizePhone(customer.phone),
         email: (customer.email || "").trim().toLowerCase(),
         address: (customer.address || "").trim(),
       },
       status: "pending",
       paystackReference: reference,
+      trackingHistory: [{
+        status: "pending",
+        note: "Order placed — awaiting payment confirmation.",
+        timestamp: new Date(),
+      }],
     });
 
     return res.status(200).json({
@@ -144,7 +158,7 @@ function orderCustomerEmail(customer) {
   const email = (customer.email || '').trim().toLowerCase();
   if (email) return email;
   const phone = (customer.phone || '').trim().replace(/\s+/g, '');
-  return `${phone || 'guest'}@eazworld.local`;
+  return `${phone || 'guest'}@eazworld.com`;
 }
 
 function normalizePhone(value) {
@@ -195,6 +209,31 @@ const getOrderByReference = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
+
+    // Actively verify the payment with Paystack when the order is still
+    // pending — the confirmation page should not depend on the webhook alone.
+    if (order.status === 'pending' && paystack) {
+      try {
+        const verify = await paystack.transaction.verify({ reference: order.paystackReference });
+        const tx = verify?.data || {};
+        if (verify?.status && tx.status === 'success') {
+          if (Number(tx.amount) === order.total && (!tx.currency || tx.currency === 'GHS')) {
+            // Idempotent: no-op if a webhook already fulfilled it.
+            const paid = await fulfilShopOrder(order.paystackReference);
+            if (paid) order.status = 'paid';
+          } else {
+            console.error(
+              `[verify] Amount/currency mismatch for order ${order.orderNumber}: ` +
+              `expected ${order.total} GHS, Paystack reports ${tx.amount} ${tx.currency}`
+            );
+          }
+        }
+      } catch (e) {
+        // Verification is best-effort here; the webhook remains authoritative.
+        console.error(`[verify] Could not verify order ${order.orderNumber}:`, e.message);
+      }
+    }
+
     res.status(200).json({ success: true, data: order });
   } catch (error) {
     next(error);
@@ -210,19 +249,27 @@ const getOrderByReference = async (req, res, next) => {
 const getMyOrders = async (req, res, next) => {
   try {
     const or = [];
-    if (req.user.email) {
+    if (req.user?.email) {
       or.push({ 'customer.email': String(req.user.email).toLowerCase() });
     }
-    if (req.user.phone) {
-      const norm = normalizePhone(req.user.phone); // e.g. 0241234567
-      const variants = new Set([req.user.phone, norm]);
-      if (norm.startsWith('0')) {
-        variants.add(`233${norm.slice(1)}`);
-        variants.add(`+233${norm.slice(1)}`);
+    if (req.user?.phone) {
+      const digits = normalizePhone(req.user.phone);
+      if (digits) {
+        // New orders carry a normalized phoneDigits — the authoritative key.
+        or.push({ 'customer.phoneDigits': digits });
+        // Legacy orders only have the raw phone string; try common formats.
+        const variants = new Set([req.user.phone, digits]);
+        if (digits.startsWith('0')) {
+          variants.add(`233${digits.slice(1)}`);
+          variants.add(`+233${digits.slice(1)}`);
+        }
+        if (!/^0/.test(digits) && digits.startsWith('233')) {
+          variants.add(`0${digits.slice(3)}`);
+        }
+        or.push({ 'customer.phone': { $in: [...variants] } });
       }
-      or.push({ 'customer.phone': { $in: [...variants] } });
     }
-    if (!or.length) return res.status(200).json({ success: true, data: [] });
+    if (!or.length) return res.status(200).json({ success: true, count: 0, data: [] });
 
     const orders = await Order.find({ $or: or })
       .sort({ createdAt: -1 })
@@ -264,6 +311,39 @@ const getOrder = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/v1/orders/mine/:id
+ * A logged-in customer's own order detail. Ownership is verified the same way
+ * as getMyOrders — email and/or normalized phone must match — so a customer
+ * can never view another account's order by id.
+ */
+const getMyOrderById = async (req, res, next) => {
+  try {
+    const or = [];
+    if (req.user?.email) {
+      or.push({ 'customer.email': String(req.user.email).toLowerCase() });
+    }
+    if (req.user?.phone) {
+      const digits = normalizePhone(req.user.phone);
+      if (digits) {
+        or.push({ 'customer.phoneDigits': digits });
+        or.push({ 'customer.phone': { $in: [req.user.phone, digits] } });
+      }
+    }
+    if (!or.length) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    const order = await Order.findOne({ _id: req.params.id, $or: or }).populate('deliveryZone');
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    res.status(200).json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const updateOrderStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
@@ -283,6 +363,59 @@ const updateOrderStatus = async (req, res, next) => {
     if (status === 'paid' && !order.paidAt) {
       order.paidAt = new Date();
     }
+    order.trackingHistory.push({
+      status,
+      note: `Status updated to ${status}.`,
+      updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
+      timestamp: new Date(),
+    });
+    await order.save();
+
+    res.status(200).json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/orders/:id/tracking  (staff/admin)
+ * Append a tracking event — status change and/or a staff note with an
+ * optional location. When `status` is supplied and valid it also advances
+ * the order status, so the order and its history never drift apart.
+ */
+const addTrackingEvent = async (req, res, next) => {
+  try {
+    const { status, note, location } = req.body;
+
+    if (status && !ORDER_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Valid status required: ${ORDER_STATUSES.join(', ')}`
+      });
+    }
+    if (!status && !note) {
+      return res.status(400).json({ success: false, error: 'A status or note is required' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    if (status) {
+      order.status = status;
+      if (status === 'paid' && !order.paidAt) {
+        order.paidAt = new Date();
+      }
+    }
+
+    order.trackingHistory.push({
+      status: status || order.status,
+      note: note ? String(note).trim() : `Status updated to ${status}.`,
+      location: location ? String(location).trim() : '',
+      updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
+      timestamp: new Date(),
+    });
     await order.save();
 
     res.status(200).json({ success: true, data: order });
@@ -294,9 +427,11 @@ const updateOrderStatus = async (req, res, next) => {
 module.exports = {
   createOrder,
   getMyOrders,
+  getMyOrderById,
   getOrderByReference,
   trackOrder,
   getOrders,
   getOrder,
-  updateOrderStatus
+  updateOrderStatus,
+  addTrackingEvent
 };

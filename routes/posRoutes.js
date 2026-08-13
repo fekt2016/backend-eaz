@@ -7,10 +7,11 @@ const {
   getParts, createPart, updatePart, deletePart,
   scanLookup,
   createSale, getSales, getSale, voidSale,
-  initiateMomoCharge, checkMomoCharge,
+  initiateMomoCharge, checkMomoCharge, initiateCardCharge,
   getStaff, createStaff,
+  getTechnicians,
   getOverview, getMyOverview,
-  getPartOrders, updatePartOrder,
+  getPartOrders, updatePartOrder, updateRepairOrder,
   getExpenses, createExpense, updateExpense, deleteExpense,
   triggerReminders, getUncollectedJobs,
   getSuppliers, getSupplier, createSupplier, updateSupplier, deleteSupplier,
@@ -43,6 +44,7 @@ router.get('/my-overview', getMyOverview);
 // ── Repair part-orders — review & update status (superadmin + admin + staff) ──
 router.get('/part-orders',       restrictTo('superadmin', 'admin', 'staff'), getPartOrders);
 router.patch('/part-orders/:id', restrictTo('superadmin', 'admin', 'staff'), updatePartOrder);
+router.patch('/repair-orders/:id', restrictTo('superadmin', 'admin', 'staff'), updateRepairOrder);
 
 // ── Scanner lookup (all POS roles) ───────────────────────────────────────────
 router.get('/scan/:code', scanLookup);
@@ -56,11 +58,15 @@ router.route('/jobs').get(getJobs).post(createJob);
 router.route('/jobs/:id').get(getJob).patch(updateJob);
 router.post('/jobs/:id/photos', upload.single('photo'), uploadJobPhoto);
 router.delete('/jobs/:id/photos/:photoId', restrictTo('superadmin', 'staff'), deleteJobPhoto);
-router.post('/jobs/:id/payments', restrictTo('superadmin', 'staff'), addPayment);
+router.post('/jobs/:id/payments', restrictTo('superadmin', 'staff', 'admin'), addPayment);
 
-// Paystack MoMo charge — teller (staff) and superadmin only
-router.post('/jobs/:id/momo-charge',            restrictTo('superadmin', 'staff'), initiateMomoCharge);
-router.get( '/jobs/:id/momo-charge/:reference', restrictTo('superadmin', 'staff'), checkMomoCharge);
+// Paystack MoMo charge — teller (staff), admin and superadmin only
+router.post('/jobs/:id/momo-charge',            restrictTo('superadmin', 'staff', 'admin'), initiateMomoCharge);
+router.get( '/jobs/:id/momo-charge/:reference', restrictTo('superadmin', 'staff', 'admin'), checkMomoCharge);
+
+// Paystack card charge (in-store, staff-initiated) — teller, admin and superadmin only
+router.post('/jobs/:id/card-charge',            restrictTo('superadmin', 'staff', 'admin'), initiateCardCharge);
+router.get( '/jobs/:id/card-charge/:reference', restrictTo('superadmin', 'staff', 'admin'), checkMomoCharge);
 
 // ── Sales (all POS roles) ────────────────────────────────────────────────────
 router.route('/sales').get(getSales).post(createSale);
@@ -96,5 +102,8 @@ router.get('/warranty', restrictTo('superadmin', 'staff'), getWarrantyJobs);
 // ── Staff management (superadmin only) ──────────────────────────────────────
 router.get('/staff',  restrictTo('superadmin'), getStaff);
 router.post('/staff', restrictTo('superadmin'), createStaff);
+
+// ── Technicians list (all POS roles) — for assigning jobs ────────────────────
+router.get('/technicians', getTechnicians);
 
 module.exports = router;

@@ -16,7 +16,7 @@
 
 const SHOP_NAME    = process.env.SHOP_NAME    || 'EazWorld Repair';
 const SHOP_PHONE   = process.env.SHOP_PHONE   || '0244388190';
-const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://www.eazworld.co').replace(/\/$/, '');
+const FRONTEND_URL = require('../utils/frontendUrl')();
 
 // ── Status messages — keep under 160 chars for a single SMS segment ──────────
 const STATUS_MESSAGES = {
@@ -220,6 +220,41 @@ async function _sendHubtelSms(to, content) {
   return true;
 }
 
+/**
+ * Deliver a freshly-created account's credentials by SMS (Hubtel).
+ * Used when a staff-created customer account has no email — the password
+ * is texted to the phone. Never crashes the caller.
+ * @param {string} phone    — customer phone in local 0XXXXXXXXX format
+ * @param {string} name     — customer display name (optional)
+ * @param {string} password — generated password
+ * @returns {Promise<boolean>} true when the SMS was handed to Hubtel
+ */
+async function sendCredentialsSms(phone, name, password) {
+  const to = _toHubtelNumber(phone);
+  if (!to) {
+    console.warn(`[notify] Could not normalise phone for credentials SMS: ${phone}`);
+    return false;
+  }
+
+  const content = `Hi${name ? ` ${name}` : ''}! Your EazWorld login has been created.\nPhone: ${to.replace(/^233/, '0')}\nPassword: ${password}\nLog in: ${FRONTEND_URL}/auth/login`;
+
+  if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[notify] (Hubtel not configured) Would SMS ${to}: ${content}`);
+    }
+    return false;
+  }
+
+  try {
+    await _sendHubtelSms(to, content);
+    console.log(`[notify] Credentials SMS sent to ${to}`);
+    return true;
+  } catch (err) {
+    console.error(`[notify] Failed to send credentials SMS to ${to}:`, err.message);
+    return false;
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -276,4 +311,4 @@ async function notifyCustomer(job, newStatus) {
   }
 }
 
-module.exports = { notifyCustomer, notifyReminder };
+module.exports = { notifyCustomer, notifyReminder, sendCredentialsSms };

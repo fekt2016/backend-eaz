@@ -3,11 +3,13 @@ const { protect, restrictTo } = require('../middleware/auth');
 const {
   createOrder,
   getMyOrders,
+  getMyOrderById,
   getOrderByReference,
   trackOrder,
   getOrders,
   getOrder,
-  updateOrderStatus
+  updateOrderStatus,
+  addTrackingEvent
 } = require('../controllers/orderController');
 
 const router = express.Router();
@@ -15,8 +17,10 @@ const router = express.Router();
 router.post('/', createOrder);
 router.post('/track', trackOrder);
 router.get('/mine', protect, getMyOrders); // logged-in customer's own shop orders
+router.get('/mine/:id', protect, getMyOrderById); // a customer's own order detail
 router.get('/', protect, restrictTo('admin', 'staff'), getOrders);
 router.get('/by-reference/:reference', getOrderByReference);
+router.post('/:id/tracking', protect, restrictTo('admin', 'staff'), addTrackingEvent);
 router.patch('/:id', protect, restrictTo('admin', 'staff'), updateOrderStatus);
 router.get('/:id', protect, restrictTo('admin', 'staff'), getOrder);
 

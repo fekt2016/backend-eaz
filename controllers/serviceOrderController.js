@@ -93,7 +93,7 @@ const createServicePayment = async (req, res, next) => {
         service:      'Web Design',
         type:         'service_deposit',
       },
-      callback_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000'}/payment-success?type=service`,
+      callback_url: `${require("../utils/frontendUrl")()}/payment-success?type=service`,
     });
 
     if (!transaction.status) {
