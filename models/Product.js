@@ -64,5 +64,8 @@ const productSchema = new mongoose.Schema(
 
 productSchema.index({ category: 1, isActive: 1 });
 productSchema.index({ isActive: 1 });
+// Unique SKU — but only for non-empty SKUs (sku defaults to "" and is optional).
+// Run `npm run check:duplicate-skus` before deploying so this index can build.
+productSchema.index({ sku: 1 }, { unique: true, partialFilterExpression: { sku: { $gt: "" } } });
 
 module.exports = mongoose.model("Product", productSchema);

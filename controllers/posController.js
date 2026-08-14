@@ -13,6 +13,7 @@ const User        = require('../models/User');
 const Expense     = require('../models/Expense');
 const Supplier    = require('../models/Supplier');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText } = require('../utils/sanitize');
+const { deductPartStock } = require('../utils/deductPartStock');
 const { cloudinary } = require('../config/cloudinary');
 const streamifier    = require('streamifier');
 const { notifyCustomer, sendCredentialsSms } = require('../services/notify');
@@ -35,19 +36,37 @@ function normalizePhone(value) {
  * Outstanding balance for a job in pesewas, mirroring the staff POS invoice:
  *   total  = (requiresDiagnosis ? diagnosisFee : 0) + Σ(parts.priceAtTime × qty) + laborCost
  *   paid   = Σ(PosPayment.amount)
- * All monetary fields are major GHS units; we convert to pesewas at the end.
+ * All monetary fields are already integer pesewas, so no conversion is needed.
  */
 function computeJobBalancePesewas(job, payments = []) {
   const partsTotal = (job.parts || []).reduce(
     (s, p) => s + (p.priceAtTime || 0) * (p.quantity || 1),
     0
   );
-  const totalGhs =
+  const total =
     (job.requiresDiagnosis ? Number(job.diagnosisFee) || 0 : 0) +
     partsTotal +
     (Number(job.laborCost) || 0);
-  const paidGhs = payments.reduce((s, p) => s + (p.amount || 0), 0);
-  return Math.max(0, Math.round((totalGhs - paidGhs) * 100));
+  const paid = payments.reduce((s, p) => s + (p.amount || 0), 0);
+  return Math.max(0, Math.round(total - paid));
+}
+
+/**
+ * Deduct inventory for every inventory-linked job part that hasn't been deducted
+ * yet, flagging each line so it's never double-counted. Guarded via
+ * deductPartStock — stock never goes negative unless the Part opts in. Mutates
+ * `job.parts[].stockDeducted`; the caller is responsible for saving the job.
+ */
+async function deductJobPartsOnce(job) {
+  for (const p of job.parts) {
+    if (p.part && !p.stockDeducted) {
+      const res = await deductPartStock(p.part, p.quantity || 1);
+      if (!res.ok) {
+        console.error(`[stock] decrement skipped for part ${p.part} on job ${job.jobNumber} — insufficient stock.`);
+      }
+      p.stockDeducted = true;
+    }
+  }
 }
 
 // ─── CUSTOMERS ───────────────────────────────────────────────────────────────
@@ -142,9 +161,9 @@ const getCustomers = async (req, res, next) => {
     const { q, page = 1, limit = 30 } = req.query;
     const query = q
       ? { $or: [
-          { name:  { $regex: q, $options: 'i' } },
-          { phone: { $regex: q, $options: 'i' } },
-          { email: { $regex: q, $options: 'i' } },
+          { name:  { $regex: escapeRegex(q), $options: 'i' } },
+          { phone: { $regex: escapeRegex(q), $options: 'i' } },
+          { email: { $regex: escapeRegex(q), $options: 'i' } },
         ]}
       : {};
     const [customers, total] = await Promise.all([
@@ -239,8 +258,9 @@ const createJob = async (req, res, next) => {
             part:        part._id,
             name:        part.name,
             quantity:    Math.max(1, Number(p.quantity) || 1),
-            priceAtTime: Number(part.sellingPrice) || 0,
-            costAtTime:  Number(part.costPrice) || 0,
+            // Snapshots stored in integer pesewas — same unit as Part.
+            priceAtTime: Math.round(Number(part.sellingPrice)),
+            costAtTime:  Math.round(Number(part.costPrice)),
           };
         });
     }
@@ -298,11 +318,10 @@ const createJob = async (req, res, next) => {
         receivedBy: req.user._id,
       });
 
-      // Deduct inventory stock once — mirror addPayment
-      if (partsList.some(p => p.part) && !job.stockDeducted) {
-        for (const p of partsList) {
-          if (p.part) await Part.findByIdAndUpdate(p.part, { $inc: { quantity: -(p.quantity || 1) } });
-        }
+      // Deduct inventory once — guarded, and per-line flagged so online
+      // part-orders that already reserved stock aren't double-counted.
+      if (!job.stockDeducted) {
+        await deductJobPartsOnce(job);
         job.stockDeducted = true;
         await job.save();
       }
@@ -408,16 +427,17 @@ const getJobs = async (req, res, next) => {
     if (assignedTo === 'me') query.assignedTo = req.user._id;
 
     if (q) {
+      const safe = escapeRegex(q);
       const customers = await PosCustomer.find({
         $or: [
-          { name:  { $regex: q, $options: 'i' } },
-          { phone: { $regex: q, $options: 'i' } },
+          { name:  { $regex: safe, $options: 'i' } },
+          { phone: { $regex: safe, $options: 'i' } },
         ],
       }).select('_id');
       query.$or = [
-        { jobNumber:    { $regex: q, $options: 'i' } },
-        { deviceBrand:  { $regex: q, $options: 'i' } },
-        { deviceModel:  { $regex: q, $options: 'i' } },
+        { jobNumber:    { $regex: safe, $options: 'i' } },
+        { deviceBrand:  { $regex: safe, $options: 'i' } },
+        { deviceModel:  { $regex: safe, $options: 'i' } },
         { customer: { $in: customers.map(c => c._id) } },
       ];
     }
@@ -520,12 +540,14 @@ const updateJob = async (req, res, next) => {
           part:        p.partId || undefined,
           name:        sanitizeText(String(p.name), 100),
           quantity:    Math.max(1, Number(p.quantity) || 1),
+          // Snapshots stored in integer pesewas — same unit as Part. Custom
+          // (non-inventory) prices arrive from the client already in pesewas.
           priceAtTime: p.partId && priceMap[p.partId] != null
-            ? priceMap[p.partId].sell
-            : Math.max(0, Number(p.cost || p.priceAtTime) || 0),
+            ? Math.round(Number(priceMap[p.partId].sell))
+            : Math.max(0, Math.round(Number(p.cost || p.priceAtTime) || 0)),
           costAtTime: p.partId && priceMap[p.partId] != null
-            ? priceMap[p.partId].cost
-            : Math.max(0, Number(p.costAtTime) || 0),
+            ? Math.round(Number(priceMap[p.partId].cost))
+            : Math.max(0, Math.round(Number(p.costAtTime) || 0)),
         }));
     }
 
@@ -723,9 +745,11 @@ const createPartOrder = async (req, res, next) => {
     }
 
     const qty          = Math.max(1, Math.min(10, Math.floor(Number(quantity) || 1)));
-    const unitPriceGhs = Math.max(0, Number(partLine.priceAtTime));
+    // priceAtTime is already integer pesewas; the *Ghs field names are kept for
+    // compatibility but now carry pesewas (see PHASE7 money standardization).
+    const unitPriceGhs = Math.max(0, Math.round(Number(partLine.priceAtTime)));
     const amountGhs    = unitPriceGhs * qty;
-    const subtotalPesewas = amountGhs * 100;
+    const subtotalPesewas = amountGhs;
 
     const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
     const reference = `PRT_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
@@ -779,20 +803,27 @@ const getPublicParts = async (req, res, next) => {
     const { q, category } = req.query;
     const query = { sellingPrice: { $gt: 0 } };
     if (category && category !== 'all') query.category = category;
-    if (q) {
+    if (q && String(q).trim()) {
+      const term = String(q).trim();
       query.$or = [
-        { name: { $regex: q, $options: 'i' } },
-        { sku:  { $regex: q, $options: 'i' } },
+        { name:           { $regex: escapeRegex(term), $options: 'i' } },
+        { sku:            { $regex: escapeRegex(term), $options: 'i' } },
+        { barcode:        { $regex: escapeRegex(term), $options: 'i' } },
+        { compatibleWith: { $regex: escapeRegex(term), $options: 'i' } },
       ];
     }
     const parts = await Part.find(query)
-      .select('name sku category sellingPrice quantity')
+      .select('name sku category sellingPrice quantity lowStockThreshold compatibleWith description images')
       .sort({ name: 1 })
       .limit(100)
       .lean();
     res.json({ success: true, data: parts });
   } catch (err) { next(err); }
 };
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * POST /track/:token/orders
@@ -846,12 +877,13 @@ const createRepairOrder = async (req, res, next) => {
       if (part.quantity < qty) {
         return res.status(400).json({ success: false, error: `Only ${part.quantity} in stock for ${part.name}.` });
       }
-      const subtotal = Number(part.sellingPrice) * qty * 100;
+      const subtotal = Number(part.sellingPrice) * qty;
       lineItems.push({
         part:           part._id,
         partName:       part.name,
         quantity:       qty,
-        unitPriceGhs:   Number(part.sellingPrice),
+        // Stored in integer pesewas (field name kept for compatibility).
+        unitPriceGhs:   Math.round(Number(part.sellingPrice)),
         subtotalPesewas: subtotal,
       });
       subtotalPesewas += subtotal;
@@ -1040,14 +1072,11 @@ const addPayment = async (req, res, next) => {
       receivedBy: req.user._id,
     });
 
-    // Deduct inventory stock once per job (on first payment)
+    // Deduct inventory once per job (on first payment) — guarded, and per-line
+    // flagged so an online part-order that already reserved stock isn't
+    // double-counted here.
     if (!job.stockDeducted) {
-      const partsWithStock = job.parts.filter(p => p.part);
-      for (const p of partsWithStock) {
-        await Part.findByIdAndUpdate(p.part, {
-          $inc: { quantity: -(p.quantity || 1) },
-        });
-      }
+      await deductJobPartsOnce(job);
       job.stockDeducted = true;
       await job.save();
     }
@@ -1067,9 +1096,9 @@ const getParts = async (req, res, next) => {
     if (retail === 'true') query.isRetail = true;
     if (lowStock === 'true') query.$expr = { $lte: ['$quantity', '$lowStockThreshold'] };
     if (q) query.$or = [
-      { name:    { $regex: q, $options: 'i' } },
-      { sku:     { $regex: q, $options: 'i' } },
-      { barcode: { $regex: q, $options: 'i' } },
+      { name:    { $regex: escapeRegex(q), $options: 'i' } },
+      { sku:     { $regex: escapeRegex(q), $options: 'i' } },
+      { barcode: { $regex: escapeRegex(q), $options: 'i' } },
     ];
     const [parts, total] = await Promise.all([
       Part.find(query).sort({ name: 1 }).skip((page - 1) * limit).limit(Number(limit)).populate('supplier', 'name phone'),
@@ -1108,7 +1137,7 @@ const scanLookup = async (req, res, next) => {
 
 const createPart = async (req, res, next) => {
   try {
-    const { name, sku, category, quantity, lowStockThreshold, costPrice, sellingPrice, compatibleWith, notes, supplier } = req.body;
+    const { name, sku, category, quantity, lowStockThreshold, costPrice, sellingPrice, compatibleWith, description, images, notes, supplier } = req.body;
     if (!name || costPrice == null || sellingPrice == null) {
       return res.status(400).json({ success: false, error: 'Name, cost price, and selling price are required.' });
     }
@@ -1122,6 +1151,8 @@ const createPart = async (req, res, next) => {
       sellingPrice:      Number(sellingPrice),
       supplier:          supplier || undefined,
       compatibleWith:    Array.isArray(compatibleWith) ? compatibleWith.map(s => sanitizeText(s, 100)).filter(Boolean) : [],
+      description:       description ? sanitizeText(description, 1000) : '',
+      images:            Array.isArray(images) ? images.map(i => sanitizeText(i, 500)).filter(Boolean) : [],
       notes:             notes ? sanitizeText(notes, 500) : undefined,
     });
     res.status(201).json({ success: true, data: part });
@@ -1131,7 +1162,7 @@ const createPart = async (req, res, next) => {
 const updatePart = async (req, res, next) => {
   try {
     const update = {};
-    const fields = ['name', 'sku', 'category', 'quantity', 'lowStockThreshold', 'costPrice', 'sellingPrice', 'supplier', 'compatibleWith', 'notes'];
+    const fields = ['name', 'sku', 'category', 'quantity', 'lowStockThreshold', 'costPrice', 'sellingPrice', 'supplier', 'compatibleWith', 'description', 'images', 'notes'];
     for (const f of fields) {
       if (req.body[f] !== undefined) update[f] = req.body[f];
     }
@@ -1378,10 +1409,17 @@ const getMyOverview = async (req, res, next) => {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
 
-    // Which jobs "belong" to this user:
+    // Which jobs "belong" to this user (drives the personal stat counters):
     //  - technicians own the jobs assigned to them
     //  - everyone else owns the jobs they created
     const jobScope = isTech ? { assignedTo: userId } : { createdBy: userId };
+
+    // The recent-jobs list is intentionally broader than the stat scope: staff
+    // should see shop-wide activity (including online-booked jobs that have no
+    // creator, and jobs logged by colleagues) so the list is never empty just
+    // because they didn't personally create the jobs. Technicians still see
+    // only the jobs assigned to them.
+    const recentScope = isTech ? { assignedTo: userId } : {};
 
     const [
       myTotalJobs, myTodayJobs, myPendingJobs, myReadyJobs, myCompletedJobs,
@@ -1397,7 +1435,7 @@ const getMyOverview = async (req, res, next) => {
         { $group: { _id: '$status', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
-      RepairJob.find(jobScope)
+      RepairJob.find(recentScope)
         .sort({ createdAt: -1 })
         .limit(10)
         .populate('customer', 'name phone')
@@ -1792,7 +1830,16 @@ const createSale = async (req, res, next) => {
         { session }
       );
 
-      const line = { part: part._id, name: part.name, barcode: part.barcode, sku: part.sku, quantity: qty, unitPrice: part.sellingPrice, subtotal: part.sellingPrice * qty };
+      const line = {
+        part: part._id,
+        name: part.name,
+        barcode: part.barcode,
+        sku: part.sku,
+        quantity: qty,
+        // Sale stored in integer pesewas — same unit as Part.
+        unitPrice: Math.round(Number(part.sellingPrice)),
+        subtotal: Math.round(Number(part.sellingPrice)) * qty,
+      };
       saleItems.push(line);
       subtotal += line.subtotal;
     }
@@ -1914,7 +1961,7 @@ const initiateMomoCharge = async (req, res, next) => {
     if (!amount || Number(amount) <= 0) return res.status(400).json({ success: false, error: 'Amount is required.' });
 
     const providerKey = MOMO_PROVIDERS[provider?.toLowerCase()] || 'mtn';
-    const amountInPesewas = Math.round(Number(amount) * 100);
+    const amountInPesewas = Math.round(Number(amount)); // client sends pesewas
 
     // Paystack needs international format: +233XXXXXXXXX
     const intlPhone = cleanPhone.startsWith('0')
@@ -1973,7 +2020,7 @@ const initiateCardCharge = async (req, res, next) => {
     const { amount, email } = req.body;
     if (!amount || Number(amount) <= 0) return res.status(400).json({ success: false, error: 'Amount is required.' });
 
-    const amountInPesewas = Math.round(Number(amount) * 100);
+    const amountInPesewas = Math.round(Number(amount)); // client sends pesewas
 
     // Use customer email or generate a placeholder
     const chargeEmail = email
@@ -2041,22 +2088,17 @@ const checkMomoCharge = async (req, res, next) => {
       if (!alreadyRecorded) {
         await PosPayment.create({
           job:        id,
-          amount:     txData.amount / 100,
+          amount:     txData.amount, // Paystack reports pesewas
           method,
           reference,
           receivedBy: req.user._id,
           notes:      `${method === 'card' ? 'Card' : 'MoMo'} via Paystack · ${channel || 'card'}`,
         });
 
-        // Deduct inventory stock once per job
+        // Deduct inventory once per job — guarded, per-line flagged.
         const job = await RepairJob.findById(id);
         if (job && !job.stockDeducted) {
-          const partsWithStock = job.parts.filter(p => p.part);
-          for (const p of partsWithStock) {
-            await Part.findByIdAndUpdate(p.part, {
-              $inc: { quantity: -(p.quantity || 1) },
-            });
-          }
+          await deductJobPartsOnce(job);
           job.stockDeducted = true;
           await job.save();
         }
@@ -2066,7 +2108,7 @@ const checkMomoCharge = async (req, res, next) => {
     res.json({
       success: true,
       status:  txStatus,
-      amount:  txData?.amount ? txData.amount / 100 : 0,
+      amount:  txData?.amount || 0, // pesewas
       message: txData?.gateway_response || txStatus,
     });
   } catch (err) { next(err); }

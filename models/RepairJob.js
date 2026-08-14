@@ -29,8 +29,12 @@ const repairJobSchema = new mongoose.Schema(
         part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' }, // optional inventory link
         name:        { type: String, required: true },
         quantity:    { type: Number, default: 1, min: 1 },
-        priceAtTime: { type: Number, default: 0, min: 0 }, // selling price
-        costAtTime:  { type: Number, default: 0, min: 0 }, // cost price at time of job
+        priceAtTime: { type: Number, default: 0, min: 0 }, // selling price (pesewas)
+        costAtTime:  { type: Number, default: 0, min: 0 }, // cost price at time of job (pesewas)
+        // Whether this specific line has already been removed from inventory.
+        // Lets online part-orders reserve stock on payment without the staff
+        // job-level deduction double-counting the same line.
+        stockDeducted: { type: Boolean, default: false },
       },
     ],
 

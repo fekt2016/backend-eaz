@@ -112,6 +112,7 @@ const orderSchema = new mongoose.Schema({
 
 orderSchema.index({ paystackReference: 1 }, { sparse: true });
 orderSchema.index({ createdAt: -1 });
-orderSchema.index({ trackingNumber: 1 }, { sparse: true });
+// trackingNumber already gets a unique sparse index from `unique: true` on the
+// field definition — no separate index() call (avoids a duplicate-index warning).
 
 module.exports = mongoose.model('Order', orderSchema);

@@ -6,6 +6,7 @@ const {
   getMyOrderById,
   getOrderByReference,
   trackOrder,
+  getOrderTracking,
   getOrders,
   getOrder,
   updateOrderStatus,
@@ -16,6 +17,7 @@ const router = express.Router();
 
 router.post('/', createOrder);
 router.post('/track', trackOrder);
+router.get('/track/:trackingNumber', getOrderTracking); // public — must stay before /:id
 router.get('/mine', protect, getMyOrders); // logged-in customer's own shop orders
 router.get('/mine/:id', protect, getMyOrderById); // a customer's own order detail
 router.get('/', protect, restrictTo('admin', 'staff'), getOrders);

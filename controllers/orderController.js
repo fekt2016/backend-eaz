@@ -46,8 +46,7 @@ const createOrder = async (req, res, next) => {
       return res.status(400).json({ success: false, error: "Name and phone are required" });
     }
 
-    const productItems = [];
-    const partItems = [];
+    const orderItems = [];
 
     for (const item of items) {
       const slug = typeof item === "string" ? item : item.slug;
@@ -59,10 +58,18 @@ const createOrder = async (req, res, next) => {
         if (!part) {
           return res.status(400).json({ success: false, error: `Part with id ${partId} not found.` });
         }
+        if (!Number(part.sellingPrice) || part.sellingPrice <= 0) {
+          return res.status(400).json({ success: false, error: `${part.name} is not available for ordering.` });
+        }
         if (part.quantity < qty) {
           return res.status(400).json({ success: false, error: `${part.name} only has ${part.quantity} in stock.` });
         }
-        partItems.push({ partId: part._id, partName: part.name, quantity: qty, unitPriceGhs: part.sellingPrice });
+        orderItems.push({
+          part: part._id,
+          name: part.name,
+          price: Math.round(Number(part.sellingPrice)),
+          qty,
+        });
         continue;
       }
 
@@ -75,11 +82,15 @@ const createOrder = async (req, res, next) => {
       if (product.stock < qty) {
         return res.status(400).json({ success: false, error: `${product.name} only has ${product.stock} in stock.` });
       }
-      productItems.push({ productId: product._id, name: product.name, price: product.price, qty, stock: product.stock });
+      orderItems.push({
+        product: product._id,
+        name: product.name,
+        price: product.price,
+        qty,
+      });
     }
 
-    const subtotal = productItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-    const partSubtotal = partItems.reduce((sum, i) => sum + i.unitPriceGhs * i.quantity, 0);
+    const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
 
     let deliveryFee = 0;
     let deliveryZone = null;
@@ -91,7 +102,7 @@ const createOrder = async (req, res, next) => {
       deliveryFee = deliveryZone.fee;
     }
 
-    const total = subtotal + partSubtotal + deliveryFee;
+    const total = subtotal + deliveryFee;
 
     if (!paystack) {
       return res.status(500).json({ success: false, error: "Paystack not configured." });
@@ -117,8 +128,7 @@ const createOrder = async (req, res, next) => {
     const order = await Order.create({
       orderNumber: generateOrderNumber(),
       trackingNumber: generateTrackingNumber(),
-      items: productItems,
-      ...(partItems.length > 0 ? { items: [...productItems, ...partItems] } : {}),
+      items: orderItems,
       subtotal,
       ...(deliveryZone && { deliveryZone: deliveryZone._id }),
       deliveryFee,
@@ -194,6 +204,53 @@ const trackOrder = async (req, res, next) => {
     }
 
     res.status(200).json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/orders/track/:trackingNumber
+ * Public — dedicated tracking detail for a shop order. Returns a minimal
+ * payload: status, timeline history and delivery destination only. No
+ * customer details, items, or money figures leak out, so this URL is safe
+ * to share in order-confirmation emails and on dashboards.
+ */
+const getOrderTracking = async (req, res, next) => {
+  try {
+    const trackingNumber = String(req.params.trackingNumber || '').trim().toUpperCase();
+    if (!trackingNumber) {
+      return res.status(400).json({ success: false, error: 'Tracking number is required' });
+    }
+
+    const order = await Order.findOne({ trackingNumber })
+      .populate('deliveryZone', 'name')
+      .lean();
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Tracking number not found' });
+    }
+
+    const history = (order.trackingHistory || [])
+      .map((e) => ({
+        status: e.status,
+        note: e.note || '',
+        location: e.location || '',
+        timestamp: e.timestamp,
+      }))
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        trackingNumber: order.trackingNumber,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        destination: order.deliveryZone?.name || '',
+        createdAt: order.createdAt,
+        history,
+        latestEvent: history.length ? history[history.length - 1] : null,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -283,6 +340,18 @@ const getMyOrders = async (req, res, next) => {
 
 const ORDER_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
 
+// Forward-only status flow. An order may move to any *later* stage (skips like
+// paid → delivered are allowed), or be cancelled while still live. Same-status
+// is a no-op. `delivered` and `cancelled` are terminal. This only blocks
+// backward moves and changes out of a terminal state.
+const STATUS_RANK = { pending: 0, paid: 1, processing: 2, shipped: 3, delivered: 4 };
+function canTransition(from, to) {
+  if (from === to) return true;                                   // no-op
+  if (from === 'delivered' || from === 'cancelled') return false; // terminal
+  if (to === 'cancelled') return true;                            // cancel any live order
+  return (STATUS_RANK[to] ?? -1) > (STATUS_RANK[from] ?? -1);     // forward only
+}
+
 const getOrders = async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -290,9 +359,12 @@ const getOrders = async (req, res, next) => {
     if (status && ORDER_STATUSES.includes(status)) {
       query.status = status;
     }
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
     const orders = await Order.find(query)
       .populate('deliveryZone')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
     res.status(200).json({ success: true, count: orders.length, data: orders });
   } catch (error) {
     next(error);
@@ -359,6 +431,13 @@ const updateOrderStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
 
+    if (!canTransition(order.status, status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot change order from "${order.status}" to "${status}".`,
+      });
+    }
+
     order.status = status;
     if (status === 'paid' && !order.paidAt) {
       order.paidAt = new Date();
@@ -402,6 +481,13 @@ const addTrackingEvent = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
 
+    if (status && !canTransition(order.status, status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot change order from "${order.status}" to "${status}".`,
+      });
+    }
+
     if (status) {
       order.status = status;
       if (status === 'paid' && !order.paidAt) {
@@ -430,6 +516,7 @@ module.exports = {
   getMyOrderById,
   getOrderByReference,
   trackOrder,
+  getOrderTracking,
   getOrders,
   getOrder,
   updateOrderStatus,

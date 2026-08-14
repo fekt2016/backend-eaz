@@ -13,8 +13,58 @@ const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const { fulfilShopOrder } = require('../utils/fulfilShopOrder');
 const { notifyCustomer } = require('../services/notify');
+const { deductPartStock } = require('../utils/deductPartStock');
+const Part = require('../models/Part');
 const namecheap = require('../services/namecheap');
 const whm = require('../services/whm');
+
+/**
+ * Ensure a paid part is on the job, snapshot its real cost, and reserve stock
+ * exactly once. `item` = { part, partName, quantity, unitPriceGhs } (pesewas).
+ *
+ * - New line: priceAtTime = the paid unit price; costAtTime = the live
+ *   Part.costPrice (not the sale price — fixes profit reporting).
+ * - Stock is decremented once (guarded, never negative) and the line is flagged
+ *   `stockDeducted` so the staff job-level deduction won't double-count it.
+ */
+async function applyPaidPartToJob(job, item) {
+  // Match an inventory item only to the same inventory-linked line (by part id),
+  // and a custom item only to a custom line (by name). This avoids attaching an
+  // inventory part's stock/flag to an unrelated same-named custom line.
+  let line = job.parts.find((p) =>
+    item.part
+      ? (p.part && p.part.toString() === item.part.toString())
+      : (!p.part && p.name === item.partName)
+  );
+
+  let costAtTime = 0;
+  if (item.part) {
+    const partDoc = await Part.findById(item.part).select('costPrice');
+    if (partDoc) costAtTime = Math.round(Number(partDoc.costPrice) || 0);
+  }
+
+  if (!line) {
+    job.parts.push({
+      part:        item.part || undefined,
+      name:        item.partName,
+      quantity:    item.quantity,
+      priceAtTime: item.unitPriceGhs,
+      costAtTime,
+      stockDeducted: false,
+    });
+    line = job.parts[job.parts.length - 1];
+  }
+
+  if (!line.stockDeducted) {
+    if (item.part) {
+      const res = await deductPartStock(item.part, item.quantity || 1);
+      if (!res.ok) {
+        console.error(`[webhook] Stock reserve skipped for paid part ${item.part} on job ${job.jobNumber} — insufficient stock.`);
+      }
+    }
+    line.stockDeducted = true;
+  }
+}
 
 /**
  * Reject a webhook whose charged amount/currency doesn't match the order.
@@ -395,21 +445,14 @@ async function fulfilPartOrder(partOrder) {
     }
   }
 
-  // Ensure the paid part is on the job (re-add if staff removed it meanwhile).
-  const hasLine = job.parts.some(
-    (p) =>
-      (p.part && partOrder.part && p.part.toString() === partOrder.part.toString()) ||
-      p.name === partOrder.partName
-  );
-  if (!hasLine) {
-    job.parts.push({
-      part:        partOrder.part || undefined,
-      name:        partOrder.partName,
-      quantity:    partOrder.quantity,
-      priceAtTime: partOrder.unitPriceGhs,
-      costAtTime:  partOrder.unitPriceGhs,
-    });
-  }
+  // Ensure the paid part is on the job (re-add if staff removed it meanwhile),
+  // snapshot real cost, and reserve stock once.
+  await applyPaidPartToJob(job, {
+    part:        partOrder.part,
+    partName:    partOrder.partName,
+    quantity:    partOrder.quantity,
+    unitPriceGhs: partOrder.unitPriceGhs,
+  });
 
   const before = job.status;
   if (['received', 'diagnosing'].includes(job.status)) {
@@ -450,7 +493,7 @@ async function fulfilRepairOrder(repairOrder) {
       const names = (repairOrder.items || []).map(i => `${i.partName} ×${i.quantity}`).join(', ');
       await PosPayment.create({
         job:        job._id,
-        amount:     repairOrder.totalPesewas / 100,
+        amount:     repairOrder.totalPesewas, // PosPayment.amount is pesewas
         method:     'card',
         reference:  repairOrder.paystackReference,
         receivedBy,
@@ -459,22 +502,14 @@ async function fulfilRepairOrder(repairOrder) {
     }
   }
 
-  // Ensure each paid part is on the job (re-add if staff removed it meanwhile).
+  // Ensure each paid part is on the job, snapshot real cost, and reserve stock once.
   for (const item of repairOrder.items || []) {
-    const hasLine = job.parts.some(
-      (p) =>
-        (p.part && item.part && p.part.toString() === item.part.toString()) ||
-        p.name === item.partName
-    );
-    if (!hasLine) {
-      job.parts.push({
-        part:        item.part || undefined,
-        name:        item.partName,
-        quantity:    item.quantity,
-        priceAtTime: item.unitPriceGhs,
-        costAtTime:  item.unitPriceGhs,
-      });
-    }
+    await applyPaidPartToJob(job, {
+      part:        item.part,
+      partName:    item.partName,
+      quantity:    item.quantity,
+      unitPriceGhs: item.unitPriceGhs,
+    });
   }
 
   const before = job.status;
@@ -514,7 +549,7 @@ async function fulfilJobBalancePayment(job, reference) {
     if (receivedBy) {
       await PosPayment.create({
         job:        job._id,
-        amount:     charge.amountPesewas / 100,
+        amount:     charge.amountPesewas, // PosPayment.amount is pesewas
         method:     'card',
         reference,
         receivedBy,
@@ -528,4 +563,4 @@ async function fulfilJobBalancePayment(job, reference) {
   );
 }
 
-module.exports = { handlePaystackWebhook, amountMismatch };
+module.exports = { handlePaystackWebhook, amountMismatch, applyPaidPartToJob };

@@ -12,10 +12,10 @@ const {
 const router = express.Router();
 
 router.get('/', getProducts);
-router.get('/all', protect, restrictTo('admin'), getAdminProducts);
-router.post('/', protect, restrictTo('admin'), createProduct);
-router.put('/:id', protect, restrictTo('admin'), updateProduct);
-router.delete('/:id', protect, restrictTo('admin'), deleteProduct);
+router.get('/all', protect, restrictTo('admin', 'staff'), getAdminProducts);
+router.post('/', protect, restrictTo('admin', 'staff'), createProduct);
+router.put('/:id', protect, restrictTo('admin', 'staff'), updateProduct);
+router.delete('/:id', protect, restrictTo('admin', 'staff'), deleteProduct);
 router.get('/:slug', getProductBySlug);
 
 module.exports = router;

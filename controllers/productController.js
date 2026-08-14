@@ -1,5 +1,29 @@
+const mongoose = require("mongoose");
 const Product = require("../models/Product");
 const Part = require("../models/Part");
+
+// Shape a retail Part like a shop product so it flows through the same
+// product-detail page, metadata, JSON-LD and cart/checkout. Mirrors the part
+// mapping in getProducts. Price stays in integer pesewas (Part.sellingPrice).
+function partAsProduct(p) {
+  return {
+    _id: p._id,
+    slug: `part-${p._id}`,
+    name: p.name,
+    description: p.description || p.notes || "",
+    price: p.sellingPrice,
+    category: p.category,
+    stock: p.quantity,
+    sku: p.sku,
+    variants: [],
+    isActive: true,
+    kind: "part",
+    partId: p._id,
+    images: p.images || [],
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
 
 function slugify(value) {
   return String(value || "")
@@ -42,67 +66,57 @@ const getProducts = async (req, res, next) => {
       ];
     }
 
-    let sortQuery = { createdAt: -1 };
-    if (sort === "price-asc") sortQuery = { price: 1 };
-    if (sort === "price-desc") sortQuery = { price: -1 };
-    if (sort === "name") sortQuery = { name: 1 };
-    if (sort === "newest") sortQuery = { createdAt: -1 };
+    let sortStage = { createdAt: -1 };
+    if (sort === "price-asc") sortStage = { price: 1 };
+    if (sort === "price-desc") sortStage = { price: -1 };
+    if (sort === "name") sortStage = { name: 1 };
+    if (sort === "newest") sortStage = { createdAt: -1 };
 
-    const [productData, productTotal] = await Promise.all([
-      Product.find(query).sort(sortQuery).skip(skip).limit(limit),
-      Product.countDocuments(query),
-    ]);
-
-    const [partData, partTotal] = await Promise.all([
-      Part.find({ isRetail: true, quantity: { $gt: 0 } }).sort({ createdAt: -1 }).skip(skip).limit(limit),
-      Part.countDocuments({ isRetail: true, quantity: { $gt: 0 } }),
-    ]);
-
-    const allProducts = [
-      ...productData.map((p) => ({
-        _id: p._id,
-        slug: p.slug,
-        name: p.name,
-        description: p.description,
-        price: p.price,
-        category: p.category,
-        stock: p.stock,
-        sku: p.sku,
-        variants: p.variants,
-        isActive: p.isActive,
-        kind: "product",
-        partId: null,
-        images: p.images,
-      })),
-      ...partData.map((p) => ({
-        _id: p._id,
-        slug: `part-${p._id}`,
-        name: p.name,
-        description: p.notes || "",
-        price: p.sellingPrice * 100,
-        category: p.category,
-        stock: p.quantity,
-        sku: p.sku,
-        variants: [],
-        isActive: true,
-        kind: "part",
-        partId: p._id,
-        images: [],
-      })),
+    // Merge shop products with sellable retail parts, then sort + paginate in
+    // the database (a single $unionWith aggregation) so we never load the whole
+    // catalogue into memory. Retail parts are matched independently of the
+    // product query — same behaviour as before.
+    const pipeline = [
+      { $match: query },
+      {
+        $project: {
+          _id: 1, slug: 1, name: 1, description: 1, price: 1, category: 1,
+          stock: 1, sku: 1, variants: 1, isActive: 1, images: 1,
+          createdAt: 1, updatedAt: 1,
+        },
+      },
+      { $addFields: { kind: "product", partId: null } },
+      {
+        $unionWith: {
+          coll: "parts",
+          pipeline: [
+            { $match: { isRetail: true, quantity: { $gt: 0 } } },
+            {
+              $project: {
+                _id: 1, name: 1, category: 1, sku: 1, createdAt: 1, updatedAt: 1,
+                slug: { $concat: ["part-", { $toString: "$_id" }] },
+                description: { $ifNull: ["$description", { $ifNull: ["$notes", ""] }] },
+                price: "$sellingPrice",
+                stock: "$quantity",
+                images: { $ifNull: ["$images", []] },
+              },
+            },
+            { $addFields: { variants: [], isActive: true, kind: "part", partId: "$_id" } },
+          ],
+        },
+      },
+      { $sort: sortStage },
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: "n" }],
+        },
+      },
     ];
 
-    const sortFn = (a, b) => {
-      if (sort === "price-asc") return a.price - b.price;
-      if (sort === "price-desc") return b.price - a.price;
-      if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "newest") return (a.createdAt || b.createdAt) - (b.createdAt || a.createdAt);
-      return 0;
-    };
-
-    allProducts.sort(sortFn);
-
-    const data = allProducts.slice(skip, skip + limit);
-    const total = allProducts.length;
+    const [result] = await Product.aggregate(pipeline).collation({ locale: "en", strength: 2 });
+    const data = result?.data || [];
+    const total = result?.totalCount?.[0]?.n || 0;
 
     res.status(200).json({
       success: true,
@@ -119,8 +133,25 @@ const getProducts = async (req, res, next) => {
 
 const getProductBySlug = async (req, res, next) => {
   try {
+    const slug = req.params.slug;
+
+    // Retail parts are listed in the catalogue with a synthetic `part-<id>`
+    // slug. Resolve those to the Part so the detail page no longer 404s.
+    if (typeof slug === "string" && slug.startsWith("part-")) {
+      const partId = slug.slice("part-".length);
+      if (!mongoose.Types.ObjectId.isValid(partId)) {
+        return res.status(404).json({ success: false, error: "Product not found" });
+      }
+      const part = await Part.findById(partId);
+      // Only expose parts that are actually sellable in the shop.
+      if (!part || !part.isRetail || !Number(part.sellingPrice) || part.sellingPrice <= 0) {
+        return res.status(404).json({ success: false, error: "Product not found" });
+      }
+      return res.status(200).json({ success: true, data: partAsProduct(part) });
+    }
+
     const product = await Product.findOne({
-      slug: req.params.slug,
+      slug,
       isActive: true,
     });
 
