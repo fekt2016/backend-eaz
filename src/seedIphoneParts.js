@@ -21,10 +21,36 @@ const db =
 const placeholder = (text) =>
   `https://placehold.co/800x600/1e1b4b/ffffff?text=${encodeURIComponent(text)}`;
 
+// Real part images — hotlinked from iFixit / REPART / parts retailers
+// (IMAGES_VARIANTS_TASK.md Decision #2: no re-hosting; onError fallback
+// handles any future breakage).
+const PART_IMG = {
+  "iPhone 11 LCD Screen": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/TVXATI3EILnB5WhC.jpg?v=1717686295",
+  "iPhone 12 OLED Screen": "https://irepart.com/cdn/shop/files/iphone-12-12-pro-soft-oled.webp?v=1693466749",
+  "iPhone 13 OLED Screen": "https://irepart.com/cdn/shop/files/RepartiPhone13SoftOled01.png?v=1715149428",
+  "iPhone 14 OLED Screen": "https://irepart.com/cdn/shop/files/RepartiPhone14SoftOled01.png?v=1715159175",
+  "iPhone 15 Pro Max OLED Screen": "https://irepart.com/cdn/shop/files/iphone-15-pro-max-hard-oled-01.jpg?v=1753090646",
+  "iPhone 11 Battery": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/ZKLgwXGWZgHKQDVb.jpg?v=1754435398",
+  "iPhone 12 Battery": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/1JXyXii4Opy6Kv4W_3c4fb8c9-6a9b-4b33-b2b8-867ff5f0620a.jpg?v=1752101236",
+  "iPhone 13 Battery": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/BAZEBaaGgQNq2HxJ.jpg?v=1726094579",
+  "iPhone 14 Battery": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/6tWVHsgO6fQYEubH.jpg?v=1736175194",
+  "iPhone 15 Battery": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/EmXPUEqDZKDlN3UO.jpg?v=1752604225",
+  "iPhone 11 Charging Port": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/B1PWZvuXnqm5Yn2g.jpg?v=1779884327",
+  "iPhone 13 Charging Port": "https://cdn.shopify.com/s/files/1/0045/4092/4007/products/BZ6I5sLfNTWlPLGH.jpg?v=1684262283",
+  "iPhone 14 Charging Port": "https://cdn.shopify.com/s/files/1/0045/4092/4007/products/YMcl3wmTU3GTpeiI.jpg?v=1675710273",
+  "iPhone 15 Charging Port": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/URUHI3r6ggmTZFiE.jpg?v=1720809256",
+  "iPhone 11 Camera": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/NHkPiNUAQNVYXBRi.jpg?v=1733346503",
+  "iPhone 12 Camera": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/nhIlE1BVWLsDOXVF.jpg?v=1733346572",
+  "iPhone 15 Pro Max Camera": "https://repairpartsusa.com/cdn/shop/files/iphone-15-pro-max-rear-camera.jpg?v=1746279310",
+  "iPhone 11 Speaker": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/ir51CLFCyRELPQgH.jpg?v=1733346499",
+  "iPhone 13 Speaker": "https://cdn.shopify.com/s/files/1/0045/4092/4007/products/GNjOZCQHEpGpUUN1_f43c2fec-56ef-45b8-afbd-a4841180ad6a.jpg?v=1684262403",
+  "iPhone 15 Speaker": "https://cdn.shopify.com/s/files/1/0045/4092/4007/files/EWYnlTstyEOaIgsG.jpg?v=1720809380",
+};
+
 // Selling prices are supplied in GHS major units (e.g. 450 = GH₵450) and
 // stored as integer minor units (pesewas) ×100, matching the shop's money
 // convention. Cost is ~65% of selling so the shop keeps a healthy margin.
-const PART = (name, sku, category, sellingPrice, compatibleWith, description, imgText) => ({
+const PART = (name, sku, category, sellingPrice, compatibleWith, description, imgKey) => ({
   name,
   sku,
   category,
@@ -36,7 +62,7 @@ const PART = (name, sku, category, sellingPrice, compatibleWith, description, im
   sellingPrice: sellingPrice * 100,
   compatibleWith,
   description,
-  images: [placeholder(imgText)],
+  images: [PART_IMG[imgKey] || placeholder(imgKey)],
   notes: "",
 });
 
@@ -49,7 +75,7 @@ const PARTS = [
     350,
     ["iPhone 11"],
     "High-quality replacement LCD screen for iPhone 11 with genuine touch sensitivity and full True Tone support. Each unit is inspected and tested before dispatch.",
-    "iPhone 11 Screen",
+    "iPhone 11 LCD Screen",
   ),
   PART(
     "iPhone 12 OLED Screen Replacement",
@@ -58,7 +84,7 @@ const PARTS = [
     500,
     ["iPhone 12", "iPhone 12 Pro"],
     "OLED replacement display for iPhone 12 / 12 Pro with vivid colours and deep blacks. Restores Face ID-compatible True Tone after install.",
-    "iPhone 12 OLED",
+    "iPhone 12 OLED Screen",
   ),
   PART(
     "iPhone 13 OLED Screen Replacement",
@@ -67,7 +93,7 @@ const PARTS = [
     550,
     ["iPhone 13"],
     "Replacement OLED display for iPhone 13 — crisp 6.1-inch Super Retina XDR panel with 60Hz refresh, factory colour calibration.",
-    "iPhone 13 OLED",
+    "iPhone 13 OLED Screen",
   ),
   PART(
     "iPhone 14 OLED Screen Replacement",
@@ -76,7 +102,7 @@ const PARTS = [
     650,
     ["iPhone 14"],
     "OEM-grade OLED replacement for iPhone 14 with ceramic-shield glass and true-to-life colour accuracy.",
-    "iPhone 14 OLED",
+    "iPhone 14 OLED Screen",
   ),
   PART(
     "iPhone 15 Pro Max OLED Screen Replacement",
@@ -85,7 +111,7 @@ const PARTS = [
     950,
     ["iPhone 15 Pro Max"],
     "Premium OLED replacement screen for iPhone 15 Pro Max with ProMotion 120Hz and Dynamic Island cutout. Fitted with new gaskets.",
-    "15 Pro Max Screen",
+    "iPhone 15 Pro Max OLED Screen",
   ),
 
   // ─── Batteries ───────────────────────────────────────────
@@ -143,7 +169,7 @@ const PARTS = [
     95,
     ["iPhone 11", "iPhone 11 Pro"],
     "Replacement Lightning charging-port flex for iPhone 11 / 11 Pro. Restores fast charging, data sync and audio output.",
-    "iPhone 11 Port",
+    "iPhone 11 Charging Port",
   ),
   PART(
     "iPhone 13 Lightning Charging Port Flex",
@@ -152,7 +178,7 @@ const PARTS = [
     105,
     ["iPhone 13"],
     "Genuine-style Lightning port flex for iPhone 13. Solder-free drop-in replacement with microphone assembly.",
-    "iPhone 13 Port",
+    "iPhone 13 Charging Port",
   ),
   PART(
     "iPhone 14 Lightning Charging Port Flex",
@@ -161,7 +187,7 @@ const PARTS = [
     110,
     ["iPhone 14"],
     "Replacement Lightning charging flex for iPhone 14, restoring charge, data and Face ID-related sensors.",
-    "iPhone 14 Port",
+    "iPhone 14 Charging Port",
   ),
   PART(
     "iPhone 15 USB-C Charging Port Flex",
@@ -170,7 +196,7 @@ const PARTS = [
     130,
     ["iPhone 15"],
     "USB-C charging-port flex for iPhone 15 with full 20W fast-charge and data-transfer support.",
-    "iPhone 15 USB-C",
+    "iPhone 15 Charging Port",
   ),
 
   // ─── Cameras ─────────────────────────────────────────────
@@ -199,7 +225,7 @@ const PARTS = [
     420,
     ["iPhone 15 Pro Max"],
     "OEM telephoto lens module for iPhone 15 Pro Max (5x optical zoom). Calibrated for focus and stabilisation.",
-    "15 Pro Max Camera",
+    "iPhone 15 Pro Max Camera",
   ),
 
   // ─── Speakers ────────────────────────────────────────────

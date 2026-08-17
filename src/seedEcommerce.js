@@ -18,30 +18,135 @@ const resolveDbUrl = () => {
     : mongoUrlRaw;
 };
 
-const IPHONE_IMG_1 =
-  "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?w=800&q=80";
-const IPHONE_IMG_2 =
-  "https://images.unsplash.com/photo-1573148195900-7845dcb9b127?w=800&q=80";
-const SAMSUNG_IMG =
-  "https://images.unsplash.com/photo-1601972599720-36938d4ecd31?w=800&q=80";
-const CASE_IMG_1 =
-  "https://images.unsplash.com/photo-1535157412991-2ef801c1748b?w=800&q=80";
-const CASE_IMG_2 =
-  "https://images.unsplash.com/photo-1547658718-f4311ad64746?w=800&q=80";
-const CHARGER_IMG_1 =
-  "https://images.unsplash.com/photo-1557767382-97b28f5488e7?w=800&q=80";
-const CHARGER_IMG_2 =
-  "https://images.unsplash.com/photo-1573868388390-2739872961e6?w=800&q=80";
-const CHARGER_IMG_3 =
-  "https://images.unsplash.com/photo-1492107376256-4026437926cd?w=800&q=80";
-const POWERBANK_IMG =
-  "https://images.unsplash.com/photo-1613070541337-b40942ee6527?w=800&q=80";
-const EARPHONE_IMG_1 =
-  "https://images.unsplash.com/photo-1572569511254-d8f925fe2cbb?w=800&q=80";
-const EARPHONE_IMG_2 =
-  "https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=800&q=80";
-const EARPHONE_IMG_3 =
-  "https://images.unsplash.com/photo-1606841837239-c5a1a4a07af7?w=800&q=80";
+// Screen protector images — hotlinked from official brand stores / CDNs
+// (IMAGES_VARIANTS_TASK.md Decision #2: no re-hosting; onError fallback
+// handles any future breakage).
+const SPIGEN_PROTECTOR_IMG =
+  "https://www.spigen.com/cdn/shop/files/title_web_ip6.7p_glas_tr_ezfit_privacy_02.jpg?v=1695762562";
+const SUPERSHIELDZ_PROTECTOR_IMG =
+  "https://m.media-amazon.com/images/I/61NMwjPBaLL._AC_SL1500_.jpg";
+const ESR_PROTECTOR_IMG =
+  "https://www.esrtech.com/cdn/shop/files/iPhone-17-Pro-Max-UltraFit-Armoriter_-Screen-Protector-2-Pack-ESR-240689570.jpg?v=1783011407";
+const ICAREZ_PROTECTOR_IMG =
+  "https://m.media-amazon.com/images/I/717JbmVrqUL._AC_SL1500_.jpg";
+const FLASFIT_PROTECTOR_IMG =
+  "https://www.safesleevecases.com/cdn/shop/files/clear_screen_protector_samsung_0d75c230-f1c1-4bf0-8828-33cb8e463553.jpg?v=1752092506";
+const WHITESTONE_PROTECTOR_IMG =
+  "https://cdn.shopify.com/s/files/1/0089/7843/2096/files/2023-10-23_161747_600x600.png?v=1698046305";
+const BELKIN_PROTECTOR_IMG =
+  "https://www.belkin.com/dw/image/v2/BGBH_PRD/on/demandware.static/-/Sites-master-product-catalog-blk/default/dw8542938d/images/hi-res/4/137647988_belkin-OVA104zz-screenforce-ultraglass-treated-screen-protector-for-iphone-14-pro-max-amazon-gg1-v01-r01-1600x1600-us.jpg?sw=800&sh=800&sm=fit&sfrm=jpg";
+
+// Power bank images — hotlinked from official brand stores / CDNs
+// (IMAGES_VARIANTS_TASK.md Decision #2: no re-hosting; onError fallback
+// handles any future breakage).
+const ANKER_POWERBANK_10000_IMG =
+  "https://cdn.shopify.com/s/files/1/0595/4034/0926/products/A1263011.jpg?v=1654744958";
+const ANKER_POWERBANK_20000_IMG =
+  "https://phonesstorekenya.com/wp-content/uploads/2022/09/Anker-PowerCore-20000-mAh-Powerbank.jpg";
+const PHILIPS_POWERBANK_IMG =
+  "https://www.shopyvision.com/wp-content/uploads/2024/03/Philips-DLP10006-10000MAH-Power-Bank.jpg";
+const ANKER_POWERBANK_26800_IMG =
+  "https://cdn.shopify.com/s/files/1/0595/4034/0926/products/pc6.jpg?v=1687942176";
+const BASEUS_POWERBANK_20000_IMG =
+  "https://eu.baseus.com/cdn/shop/files/Baseus_Qpow2_Power_Bank_22.5W_20000mAh_800x.jpg?v=1706581719";
+const SAMSUNG_POWERBANK_IMG =
+  "https://images.samsung.com/is/image/samsung/p6pim/in/eb-u2510xuegin/gallery/in-wireless-battery-pack-10000mah-eb-u2510-eb-u2510xuegin-541527841?%241164_776_PNG%24";
+const ANKER_POWERBANK_SLIM_IMG =
+  "https://techhouse.sg/cdn/shop/files/sg-11134201-7qvej-lgkgkixveebk75.jpg?v=1721209718&width=1024";
+const XIAOMI_POWERBANK_20000_IMG =
+  "https://i0.wp.com/truststore.pk/wp-content/uploads/2024/06/image-9.jpg?fit=1000%2C1000&ssl=1";
+const BASEUS_POWERBANK_MINI_IMG =
+  "https://hypervolt.in/cdn/shop/files/superminipowerbank.jpg?v=1781797787";
+
+// Earphones & headphones images — hotlinked from official brand stores / CDNs
+// (IMAGES_VARIANTS_TASK.md Decision #2: no re-hosting; onError fallback
+// handles any future breakage).
+const SONY_EARBUDS_1000XM4_IMG =
+  "https://cdn.ecoustics.com/db0/wblob/17BA35E873D594/27F9/41D8A/LbPPKRs5Zxn4GpHROeQXrvMLx_STq3_zNGSqeqTXt1c/sony-wf-1000xm4-wireless-earphones-listen-lifestyle.jpg";
+const SAMSUNG_BUDS2_IMG =
+  "https://target.scene7.com/is/image/Target/GUEST_5f1eb8fb-cd8e-4205-a94d-d8f2087f99b7?wid=800&hei=800&qlt=80&fmt=pjpeg";
+const JBL_230NC_IMG =
+  "https://in.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwaa43ee65/1.JBL_TUNE_230NC_Product%20image_Hero_Blue.png?sw=535&sh=535";
+const SOUNDCORE_LIFE_Q35_IMG =
+  "https://cdn.shopify.com/s/files/1/0516/3761/6830/products/1_7eb8a2c3-590c-4f4e-afcc-688dc287cf70.jpg?v=1643362487";
+const AIRPODS_PRO_2_IMG =
+  "https://www.apple.com/newsroom/images/2023/09/apple-introduces-new-airpods-pro-2nd-generation/tile/Apple-AirPods-Pro-2nd-generation-USB-C-connection-230912.jpg.og.jpg?202605201554";
+const JBL_510BT_IMG =
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw45a05bde/JBL_TUNE_510BT_Product%20Image_Hero_Black.png?sw=535&sh=535";
+const SONY_WH_1000XM5_IMG =
+  "https://pisces.bbystatic.com/image2/BestBuy_US/images/products/6505/6505727_rd.jpg;maxHeight=1920;maxWidth=900?format=webp";
+const JBL_770NC_IMG =
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwb041313a/1.JBL_Tune_770NC_Product%20Image_Hero_Blue.png?sw=535&sh=535";
+const SOUNDCORE_SPACE_A40_IMG =
+  "https://cdn.shopify.com/s/files/1/0516/3761/6830/files/A3936012.png?v=1749638951";
+
+// Phone cases & covers images — hotlinked from official brand stores / CDNs.
+const SPIGEN_TOUGH_ARMOR_IMG =
+  "https://partners.spigen.com/cdn/shop/files/title_web_ip16_tougharmor_black_01.jpg?v=1725899076";
+const SUPCASE_UB_PRO_IMG =
+  "https://supcase.com/cdn/shop/files/SUPCASE_iPhone_17_Pro_Max_Unicorn_Beetle_Pro_Rugged_phone_case_Black_12.webp?v=1764571953";
+const OLIXAR_CLEAR_IMG =
+  "https://images.mobilefun.co.uk/graphics/450pixelp/85801.jpg";
+const NILLKIN_SHIELD_PRO_IMG =
+  "https://www.nillkin.com/cdn/shop/files/Super-Frosted-Shield-Pro-Case-for-iPhone-17ProMax-black_1.jpg?v=1757496506";
+const UAG_MONARCH_PRO_IMG =
+  "https://images.ctfassets.net/9hslf09drsil/3tvPNiiZsNb2KkLrElx77X/c10cb0ab5a3986593d87e6206e7127df/UAG_Studio-HQ_092425_iPhone17_Monarch-Pro_Derrick_1721692.jpg?w=1200&fm=jpg&q=70";
+const MOSHI_IGLAZE_IMG =
+  "https://us.moshi.com/cdn/shop/files/1000_3.jpg?v=1725955626";
+const SPIGEN_LIQUID_CRYSTAL_IMG =
+  "https://partners.spigen.com/cdn/shop/files/title_web_ip6.1p_2023__liquidcrystal_cc_01_b19e9626-7c86-4600-8295-a6dd7dcb1d65.jpg?v=1773434601";
+const NILLKIN_AIR_IMG =
+  "https://nillkin.org/image/cache/data/product-5287/1-800x800.jpg";
+const RINGKE_ONYX_IMG =
+  "https://www.ringkestore.com/cdn/shop/files/IP17_ONX_ALL_Main.jpg?v=1756841244";
+const ESR_SHOCKPROOF_IMG =
+  "https://www.esrtech.com/cdn/shop/files/iPhone-16-Pro-Cyber-Tough-Case-with-Stand-Magsafe-Green-1.jpg?v=1741853155";
+const LAMICALL_CASE_IMG =
+  "https://lamicallshop.com/cdn/shop/products/AL01-_-min.jpg?v=1676456489";
+const OTTERBOX_DEFENDER_IMG =
+  "https://images.mobilefun.co.uk/graphics/450pixelp/97461.jpg";
+const SPIGEN_ULTRA_HYBRID_IMG =
+  "https://partners.spigen.com/cdn/shop/files/title_web_iphone17_pro_ultra_hybrid_cc_01.jpg?v=1773445003";
+
+// Chargers & cables images — hotlinked from official brand stores / CDNs.
+const ANKER_3PORT_IMG =
+  "https://www.tanotis.com/cdn/shop/files/1753713586_1907766_1024x.jpg?v=1765916288";
+const AMAZONBASICS_USBC_IMG =
+  "https://d3gqasl9vmjfd8.cloudfront.net/a3adc08d-bc59-4b49-861a-5d8d2c86ed08.png";
+const APPLE_MAGSAFE_IMG =
+  "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MGD74?wid=1000&hei=1000&fmt=jpeg&qlt=95&.v=1755025001125";
+const BASEUS_USBC_IMG =
+  "https://www.baseus.com/cdn/shop/products/Baseus_USB-C_to_USB-C_Cable_100W_3.3ft_1_front.jpg?v=1667906429";
+const ANKER_30W_IMG =
+  "https://cdn.shopify.com/s/files/1/0493/9834/9974/files/SKU-04-Phantom_Black.png?v=1764228261";
+const ANKER_NANO_20W_IMG =
+  "https://cdn.shopify.com/s/files/1/0493/9834/9974/files/A2637126_TD05_V1-1280x1280.jpg?v=1756201952";
+const BELKIN_BOOSTCHARGE_IMG =
+  "https://www.belkin.com/dw/image/v2/BGBH_PRD/on/demandware.static/-/Sites-master-product-catalog-blk/default/dw3b2be774/images/hi-res/6/6e81fbb07dda0115_CAB004BT0M-BLK_BoostCharge_USB-C_to_USB-C_Gallery_Shot_03_WEB.jpg?sw=700&sh=700&sm=fit&sfrm=png";
+const UGREEN_65W_IMG =
+  "https://us.ugreen.com/cdn/shop/products/ugreen-nexode-65w-usb-c-gan-charger-3-ports-wall-charger-276386.png?v=1764234605";
+const ANKER_20W_ADAPTER_IMG =
+  "https://m.media-amazon.com/images/I/51UCIcDXQaS._AC_SL1500_.jpg";
+const UGREEN_100W_IMG =
+  "https://us.ugreen.com/cdn/shop/products/ugreen-usb-c-to-usb-c-100w-fast-cable-2-pack-131955.png?v=1692873952";
+
+// Phone images — hotlinked from Apple Newsroom / Samsung official CDNs.
+const IPHONE_15_PRO_IMG =
+  "https://www.apple.com/newsroom/images/2023/09/apple-unveils-iphone-15-pro-and-iphone-15-pro-max/article/Apple-iPhone-15-Pro-lineup-hero-230912_Full-Bleed-Image.jpg.large.jpg";
+const IPHONE_15_PRO_TILE_IMG =
+  "https://www.apple.com/newsroom/images/2023/09/apple-unveils-iphone-15-pro-and-iphone-15-pro-max/tile/Apple-iPhone-15-Pro-lineup-hero-230912.jpg.og.jpg?202605131923";
+const IPHONE_15_IMG =
+  "https://www.apple.com/newsroom/images/2023/09/apple-debuts-iphone-15-and-iphone-15-plus/article/Apple-iPhone-15-lineup-hero-230912_inline.jpg.large.jpg";
+const IPHONE_15_PLUS_IMG =
+  "https://www.apple.com/newsroom/images/2023/09/apple-debuts-iphone-15-and-iphone-15-plus/tile/Apple-iPhone-15-lineup-hero-230912.jpg.og.jpg?202605131930";
+const S24_ULTRA_IMG =
+  "https://images.samsung.com/is/image/samsung/p6pim/ie/2401/gallery/ie-galaxy-s24-ultra-491407-sm-s928bztgeub-539465773?$Q90_684_547_JPG$";
+const S24_PLUS_IMG =
+  "https://images.samsung.com/is/image/samsung/p6pim/za/2401/gallery/za-galaxy-s24-plus-sm-s926bzkbafa-539309747?$1164_776_PNG$";
+const S24_IMG =
+  "https://image-us.samsung.com/us/smartphones/galaxy-s24/all-gallery/01_E1_OynxBlack_Lockup_1600x1200.jpg?$product-details-jpg$";
+const S23_FE_IMG =
+  "https://images.samsung.com/is/image/samsung/p6pim/africa_en/sm-s711bzabafa/gallery/africa-en-galaxy-s23-fe-s711-sm-s711bzabafa-538424099?$1164_776_PNG$";
 
 const placeholder = (text) =>
   `https://placehold.co/800x600/1e1b4b/ffffff?text=${encodeURIComponent(text)}`;
@@ -59,14 +164,14 @@ const CLOUD_HEADPHONE_BLACK = CLOUD_IMG("cld-sample-5.jpg");
 const CLOUD_GALLERY_VIDEO = CLOUD_VIDEO("dog.mp4");
 
 const PRODUCTS = [
-  // ─── Phones (iPhone + Samsung Galaxy only) ───────────────
+  // ─── Phones (real brand images, Phase 1 batch) ──────────
   {
     name: "iPhone 15 Pro Max (1TB)",
     slug: "iphone-15-pro-max-1tb",
     description:
       "Apple iPhone 15 Pro Max with 48MP camera system, A17 Pro chip, 6.7-inch Super Retina XDR display, and surgical-grade titanium design.",
     price: 1299999,
-    images: [IPHONE_IMG_1],
+    images: [IPHONE_15_PRO_IMG],
     category: "Phones",
     stock: 20,
     sku: "EZW-IPH-001",
@@ -85,7 +190,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 Pro with 48MP main camera, A17 Pro chip, and advanced titanium frame design.",
     price: 1099999,
-    images: [IPHONE_IMG_2],
+    images: [IPHONE_15_PRO_IMG],
     category: "Phones",
     stock: 25,
     sku: "EZW-IPH-002",
@@ -98,7 +203,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 Pro with A17 Pro chip, titanium frame, and pro-grade 48MP camera.",
     price: 949999,
-    images: [IPHONE_IMG_1],
+    images: [IPHONE_15_PRO_TILE_IMG],
     category: "Phones",
     stock: 30,
     sku: "EZW-IPH-004",
@@ -111,7 +216,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 with Dynamic Island, A16 Bionic chip, and enhanced battery life.",
     price: 799999,
-    images: [IPHONE_IMG_2],
+    images: [IPHONE_15_IMG],
     category: "Phones",
     stock: 35,
     sku: "EZW-IPH-003",
@@ -124,7 +229,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S24 Ultra with 200MP camera, Snapdragon 8 Gen 3 processor, and integrated S Pen.",
     price: 1099999,
-    images: [SAMSUNG_IMG],
+    images: [S24_ULTRA_IMG],
     category: "Phones",
     stock: 30,
     sku: "EZW-SAM-001",
@@ -143,7 +248,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S24+ with Dynamic AMOLED 2X display, Snapdragon 8 Gen 3, and enhanced camera system.",
     price: 899999,
-    images: [SAMSUNG_IMG],
+    images: [S24_PLUS_IMG],
     category: "Phones",
     stock: 28,
     sku: "EZW-SAM-002",
@@ -156,7 +261,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S24 with vibrant 6.2-inch display, Snapdragon 8 Gen 3, and Pro-grade camera.",
     price: 699999,
-    images: [SAMSUNG_IMG],
+    images: [S24_IMG],
     category: "Phones",
     stock: 40,
     sku: "EZW-SAM-003",
@@ -169,7 +274,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S23 FE with Snapdragon processor, amazing camera system, and great value.",
     price: 699999,
-    images: [SAMSUNG_IMG],
+    images: [S23_FE_IMG],
     category: "Phones",
     stock: 45,
     sku: "EZW-SAM-004",
@@ -182,7 +287,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 Plus with Dynamic Island, A16 Bionic chip, and an extended battery that lasts all day.",
     price: 749999,
-    images: [IPHONE_IMG_2],
+    images: [IPHONE_15_PLUS_IMG],
     category: "Phones",
     stock: 30,
     sku: "EZW-IPH-005",
@@ -196,14 +301,14 @@ const PRODUCTS = [
     isActive: true,
   },
 
-  // ─── Phone Cases & Covers ────────────────────────────────
+  // ─── Phone Cases & Covers (real brand images, Phase 1 batch) ──
   {
     name: "Spigen Tough Armor Case",
     slug: "spigen-tough-armor-case",
     description:
       "Durable Spigen Tough Armor case with shock absorption and elegant design.",
     price: 15999,
-    images: [CLOUD_CASE_BLACK],
+    images: [SPIGEN_TOUGH_ARMOR_IMG],
     category: "Phone Cases & Covers",
     stock: 150,
     sku: "EZW-SPG-001",
@@ -224,7 +329,7 @@ const PRODUCTS = [
     description:
       "Supcase Universal case with built-in kickstand and shockproof protection.",
     price: 12999,
-    images: [CASE_IMG_2],
+    images: [SUPCASE_UB_PRO_IMG],
     category: "Phone Cases & Covers",
     stock: 120,
     sku: "EZW-SUP-001",
@@ -237,7 +342,7 @@ const PRODUCTS = [
     description:
       "Olixar clear transparent case with raised camera lip and anti-yellowing protection.",
     price: 9999,
-    images: [CLOUD_CASE_WHITE],
+    images: [OLIXAR_CLEAR_IMG],
     category: "Phone Cases & Covers",
     stock: 200,
     sku: "EZW-OLI-001",
@@ -258,7 +363,7 @@ const PRODUCTS = [
     description:
       "Nillkin Hard case with kickstand and shockproof protection for iPhone.",
     price: 18999,
-    images: [CASE_IMG_2],
+    images: [NILLKIN_SHIELD_PRO_IMG],
     category: "Phone Cases & Covers",
     stock: 100,
     sku: "EZW-NIL-001",
@@ -271,7 +376,7 @@ const PRODUCTS = [
     description:
       "UAG Military Series case with MIL-STD-810G certification and tactical design.",
     price: 39999,
-    images: [CLOUD_CASE_BLACK],
+    images: [UAG_MONARCH_PRO_IMG],
     category: "Phone Cases & Covers",
     stock: 40,
     sku: "EZW-UAG-001",
@@ -292,7 +397,7 @@ const PRODUCTS = [
     description:
       "Moshi Syber case with modular design and antimicrobial protection.",
     price: 34999,
-    images: [CASE_IMG_2],
+    images: [MOSHI_IGLAZE_IMG],
     category: "Phone Cases & Covers",
     stock: 35,
     sku: "EZW-MOS-001",
@@ -305,7 +410,7 @@ const PRODUCTS = [
     description:
       "Spigen Liquid Crystal case with crystal clear design and shock absorption.",
     price: 11999,
-    images: [CASE_IMG_1],
+    images: [SPIGEN_LIQUID_CRYSTAL_IMG],
     category: "Phone Cases & Covers",
     stock: 140,
     sku: "EZW-SPG-002",
@@ -318,7 +423,7 @@ const PRODUCTS = [
     description:
       "Nillkin Air case with ultra-slim design and excellent heat dissipation.",
     price: 16999,
-    images: [CASE_IMG_2],
+    images: [NILLKIN_AIR_IMG],
     category: "Phone Cases & Covers",
     stock: 85,
     sku: "EZW-NIL-002",
@@ -331,7 +436,7 @@ const PRODUCTS = [
     description:
       "Ringke Onyx case with matte black finish, raised bezel, and secure grip design.",
     price: 14999,
-    images: [CASE_IMG_1],
+    images: [RINGKE_ONYX_IMG],
     category: "Phone Cases & Covers",
     stock: 110,
     sku: "EZW-RIN-001",
@@ -344,7 +449,7 @@ const PRODUCTS = [
     description:
       "ESR Shockproof case with double-layer protection and military-grade drop resistance.",
     price: 11999,
-    images: [CASE_IMG_2],
+    images: [ESR_SHOCKPROOF_IMG],
     category: "Phone Cases & Covers",
     stock: 95,
     sku: "EZW-ESR-001",
@@ -357,7 +462,7 @@ const PRODUCTS = [
     description:
       "Lamicall nylon weave case with soft microfibre lining and slim profile.",
     price: 12999,
-    images: [CASE_IMG_1],
+    images: [LAMICALL_CASE_IMG],
     category: "Phone Cases & Covers",
     stock: 75,
     sku: "EZW-LAM-001",
@@ -370,7 +475,7 @@ const PRODUCTS = [
     description:
       "OtterBox Defender multi-layer case with rugged drop protection and a belt-clip holster.",
     price: 44999,
-    images: [CASE_IMG_1],
+    images: [OTTERBOX_DEFENDER_IMG],
     category: "Phone Cases & Covers",
     stock: 45,
     sku: "EZW-OTT-001",
@@ -389,7 +494,7 @@ const PRODUCTS = [
     description:
       "Spigen Ultra Hybrid clear case with a shock-absorbing bumper and anti-yellowing back panel.",
     price: 19999,
-    images: [CLOUD_CASE_WHITE],
+    images: [SPIGEN_ULTRA_HYBRID_IMG],
     category: "Phone Cases & Covers",
     stock: 130,
     sku: "EZW-SPG-004",
@@ -410,14 +515,14 @@ const PRODUCTS = [
     isActive: true,
   },
 
-  // ─── Chargers & Cables ──────────────────────────────────
+  // ─── Chargers & Cables (real brand images, Phase 1 batch) ──
   {
     name: "Anker 3-Port Charger",
     slug: "anker-3-port-charger",
     description:
       "Anker 3-port smart charger with AI power management and fast charging.",
     price: 29999,
-    images: [CHARGER_IMG_1],
+    images: [ANKER_3PORT_IMG],
     category: "Chargers & Cables",
     stock: 80,
     sku: "EZW-ANK-001",
@@ -430,7 +535,7 @@ const PRODUCTS = [
     description:
       "AmazonBasics USB-C to USB-C cable with 2-meter length and 60W fast charging.",
     price: 15999,
-    images: [CHARGER_IMG_2],
+    images: [AMAZONBASICS_USBC_IMG],
     category: "Chargers & Cables",
     stock: 200,
     sku: "EZW-AMZ-001",
@@ -443,7 +548,7 @@ const PRODUCTS = [
     description:
       "Apple MagSafe Charger with 15W fast wireless charging.",
     price: 69999,
-    images: [CHARGER_IMG_3],
+    images: [APPLE_MAGSAFE_IMG],
     category: "Chargers & Cables",
     stock: 45,
     sku: "EZW-APP-001",
@@ -456,7 +561,7 @@ const PRODUCTS = [
     description:
       "Baseus 3-meter USB-C cable with nylon braided design and 100W fast charging.",
     price: 24999,
-    images: [CHARGER_IMG_1],
+    images: [BASEUS_USBC_IMG],
     category: "Chargers & Cables",
     stock: 90,
     sku: "EZW-BAS-001",
@@ -469,7 +574,7 @@ const PRODUCTS = [
     description:
       "Anker 30W 3-Port smart charger with AI power management.",
     price: 34999,
-    images: [CHARGER_IMG_2],
+    images: [ANKER_30W_IMG],
     category: "Chargers & Cables",
     stock: 55,
     sku: "EZW-ANK-005",
@@ -482,7 +587,7 @@ const PRODUCTS = [
     description:
       "Compact Anker Nano 20W USB-C charger with fast charging for iPhone and Android.",
     price: 14999,
-    images: [CHARGER_IMG_3],
+    images: [ANKER_NANO_20W_IMG],
     category: "Chargers & Cables",
     stock: 130,
     sku: "EZW-ANK-006",
@@ -495,7 +600,7 @@ const PRODUCTS = [
     description:
       "Belkin BoostCharge braided USB-C to USB-C cable with 2-meter length and 60W charging.",
     price: 11999,
-    images: [CHARGER_IMG_1],
+    images: [BELKIN_BOOSTCHARGE_IMG],
     category: "Chargers & Cables",
     stock: 160,
     sku: "EZW-BLK-001",
@@ -508,7 +613,7 @@ const PRODUCTS = [
     description:
       "UGREEN 65W GaN fast charger with two USB-C and one USB-A port for laptops and phones.",
     price: 44999,
-    images: [CHARGER_IMG_2],
+    images: [UGREEN_65W_IMG],
     category: "Chargers & Cables",
     stock: 70,
     sku: "EZW-UGR-001",
@@ -521,7 +626,7 @@ const PRODUCTS = [
     description:
       "Anker 20W USB-C power adapter with compact design and fast charging for iPhone and Android.",
     price: 17999,
-    images: [CHARGER_IMG_3],
+    images: [ANKER_20W_ADAPTER_IMG],
     category: "Chargers & Cables",
     stock: 110,
     sku: "EZW-ANK-008",
@@ -540,7 +645,7 @@ const PRODUCTS = [
     description:
       "UGREEN 100W braided USB-C to USB-C cable with E-marker chip for safe laptop and phone fast charging.",
     price: 21999,
-    images: [CHARGER_IMG_2],
+    images: [UGREEN_100W_IMG],
     category: "Chargers & Cables",
     stock: 140,
     sku: "EZW-UGR-002",
@@ -554,14 +659,14 @@ const PRODUCTS = [
     isActive: true,
   },
 
-  // ─── Power Banks ────────────────────────────────────────
+  // ─── Power Banks (real brand images, Phase 1 batch) ────
   {
     name: "Anker PowerCore 10000",
     slug: "anker-powercore-10000",
     description:
       "Anker PowerCore 10000 mAh portable charger with dual USB output.",
     price: 45999,
-    images: [POWERBANK_IMG],
+    images: [ANKER_POWERBANK_10000_IMG],
     category: "Power Banks",
     stock: 60,
     sku: "EZW-ANK-002",
@@ -574,7 +679,7 @@ const PRODUCTS = [
     description:
       "Anker PowerCore 20000 mAh portable charger with fast charging and LED display.",
     price: 85999,
-    images: [POWERBANK_IMG],
+    images: [ANKER_POWERBANK_20000_IMG],
     category: "Power Banks",
     stock: 40,
     sku: "EZW-ANK-003",
@@ -593,7 +698,7 @@ const PRODUCTS = [
     description:
       "Philips Ego Charge portable charger with 10000 mAh and slim design.",
     price: 49999,
-    images: [POWERBANK_IMG],
+    images: [PHILIPS_POWERBANK_IMG],
     category: "Power Banks",
     stock: 50,
     sku: "EZW-PHI-001",
@@ -606,7 +711,7 @@ const PRODUCTS = [
     description:
       "Anker PowerCore 26800 mAh portable charger with triple USB output for heavy users.",
     price: 119999,
-    images: [POWERBANK_IMG],
+    images: [ANKER_POWERBANK_26800_IMG],
     category: "Power Banks",
     stock: 35,
     sku: "EZW-ANK-007",
@@ -619,7 +724,7 @@ const PRODUCTS = [
     description:
       "Baseus 20000 mAh power bank with 22.5W fast charging and digital LED display.",
     price: 54999,
-    images: [POWERBANK_IMG],
+    images: [BASEUS_POWERBANK_20000_IMG],
     category: "Power Banks",
     stock: 55,
     sku: "EZW-BAS-002",
@@ -632,7 +737,7 @@ const PRODUCTS = [
     description:
       "Samsung 10000 mAh power bank with 15W wireless charging and USB-C fast charging.",
     price: 64999,
-    images: [POWERBANK_IMG],
+    images: [SAMSUNG_POWERBANK_IMG],
     category: "Power Banks",
     stock: 45,
     sku: "EZW-SAM-005",
@@ -645,7 +750,7 @@ const PRODUCTS = [
     description:
       "Anker PowerCore Slim 10000 mAh power bank with a pocket-friendly design and dual fast-charge output.",
     price: 39999,
-    images: [POWERBANK_IMG],
+    images: [ANKER_POWERBANK_SLIM_IMG],
     category: "Power Banks",
     stock: 70,
     sku: "EZW-ANK-009",
@@ -664,7 +769,7 @@ const PRODUCTS = [
     description:
       "Xiaomi Mi Power Bank 3 with 20000 mAh capacity, dual USB output, and 18W fast charging.",
     price: 49999,
-    images: [POWERBANK_IMG],
+    images: [XIAOMI_POWERBANK_20000_IMG],
     category: "Power Banks",
     stock: 60,
     sku: "EZW-XIA-001",
@@ -683,7 +788,7 @@ const PRODUCTS = [
     description:
       "Baseus 10000 mAh mini power bank with digital LED display and 22.5W fast charging.",
     price: 34999,
-    images: [POWERBANK_IMG],
+    images: [BASEUS_POWERBANK_MINI_IMG],
     category: "Power Banks",
     stock: 85,
     sku: "EZW-BAS-003",
@@ -697,14 +802,14 @@ const PRODUCTS = [
     isActive: true,
   },
 
-  // ─── Earphones & Headphones ─────────────────────────────
+  // ─── Earphones & Headphones (real brand images, Phase 1 batch) ──
   {
     name: "Sony WF-1000XM4 Earbuds",
     slug: "sony-wf-1000xm4-earbuds",
     description:
       "Sony WF-1000XM4 wireless earbuds with noise cancellation and 8 hours battery life.",
     price: 199999,
-    images: [EARPHONE_IMG_1],
+    images: [SONY_EARBUDS_1000XM4_IMG],
     category: "Earphones & Headphones",
     stock: 35,
     sku: "EZW-SNY-001",
@@ -717,7 +822,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy Buds2 wireless earbuds with ANC and comfortable fit.",
     price: 79999,
-    images: [EARPHONE_IMG_2],
+    images: [SAMSUNG_BUDS2_IMG],
     category: "Earphones & Headphones",
     stock: 70,
     sku: "EZW-SAM-006",
@@ -730,7 +835,7 @@ const PRODUCTS = [
     description:
       "JBL TUNE 230NC true wireless earbuds with 40 hours battery life and ANC.",
     price: 89999,
-    images: [EARPHONE_IMG_3],
+    images: [JBL_230NC_IMG],
     category: "Earphones & Headphones",
     stock: 65,
     sku: "EZW-JBL-001",
@@ -743,7 +848,7 @@ const PRODUCTS = [
     description:
       "Anker Soundcore Life Q35 wireless headphones with active noise cancellation.",
     price: 79999,
-    images: [EARPHONE_IMG_1],
+    images: [SOUNDCORE_LIFE_Q35_IMG],
     category: "Earphones & Headphones",
     stock: 45,
     sku: "EZW-ANK-004",
@@ -756,7 +861,7 @@ const PRODUCTS = [
     description:
       "Apple AirPods Pro 2 with active noise cancellation, adaptive transparency, and USB-C charging case.",
     price: 429999,
-    images: [EARPHONE_IMG_2],
+    images: [AIRPODS_PRO_2_IMG],
     category: "Earphones & Headphones",
     stock: 25,
     sku: "EZW-APP-002",
@@ -769,7 +874,7 @@ const PRODUCTS = [
     description:
       "JBL Tune 510BT on-ear wireless headphones with JBL Pure Bass sound and 40 hours battery.",
     price: 89999,
-    images: [EARPHONE_IMG_3],
+    images: [JBL_510BT_IMG],
     category: "Earphones & Headphones",
     stock: 60,
     sku: "EZW-JBL-002",
@@ -782,7 +887,7 @@ const PRODUCTS = [
     description:
       "Sony WH-1000XM5 wireless headphones with industry-leading noise cancellation and 30 hours battery.",
     price: 499999,
-    images: [CLOUD_HEADPHONE_BLACK],
+    images: [SONY_WH_1000XM5_IMG],
     category: "Earphones & Headphones",
     stock: 20,
     sku: "EZW-SNY-002",
@@ -802,7 +907,7 @@ const PRODUCTS = [
     description:
       "JBL Tune 770NC wireless headphones with adaptive noise cancelling and 70 hours of battery life.",
     price: 119999,
-    images: [EARPHONE_IMG_3],
+    images: [JBL_770NC_IMG],
     category: "Earphones & Headphones",
     stock: 40,
     sku: "EZW-JBL-003",
@@ -821,7 +926,7 @@ const PRODUCTS = [
     description:
       "Anker Soundcore Space A40 wireless earbuds with adaptive ANC, 50 hours total battery, and LDAC support.",
     price: 99999,
-    images: [EARPHONE_IMG_1],
+    images: [SOUNDCORE_SPACE_A40_IMG],
     category: "Earphones & Headphones",
     stock: 50,
     sku: "EZW-ANK-010",
@@ -835,14 +940,14 @@ const PRODUCTS = [
     isActive: true,
   },
 
-  // ─── Screen Protectors (placeholder images kept) ────────
+  // ─── Screen Protectors (real brand images, Phase 1 batch) ────────
   {
     name: "Spigen Tempered Glass Screen Protector",
     slug: "spigen-tempered-glass-screen-protector",
     description:
       "Spigen 9H tempered glass screen protector with oleophobic coating and easy install kit.",
     price: 8999,
-    images: [placeholder("Spigen Glass Protector")],
+    images: [SPIGEN_PROTECTOR_IMG],
     category: "Screen Protectors",
     stock: 250,
     sku: "EZW-SPG-003",
@@ -861,7 +966,7 @@ const PRODUCTS = [
     description:
       "Supershieldz tempered glass screen protector with scratch resistance and bubble-free adhesion.",
     price: 7999,
-    images: [placeholder("Supershieldz Protector")],
+    images: [SUPERSHIELDZ_PROTECTOR_IMG],
     category: "Screen Protectors",
     stock: 300,
     sku: "EZW-SUP-002",
@@ -874,7 +979,7 @@ const PRODUCTS = [
     description:
       "ESR screen protector 2-pack with auto-alignment frame and military-grade protection.",
     price: 11999,
-    images: [placeholder("ESR Protector 2-Pack")],
+    images: [ESR_PROTECTOR_IMG],
     category: "Screen Protectors",
     stock: 180,
     sku: "EZW-ESR-002",
@@ -887,7 +992,7 @@ const PRODUCTS = [
     description:
       "iCarez tempered glass screen protector for iPhone 15 series with 9H hardness and oleophobic coating.",
     price: 6999,
-    images: [placeholder("iCarez Protector")],
+    images: [ICAREZ_PROTECTOR_IMG],
     category: "Screen Protectors",
     stock: 220,
     sku: "EZW-ICA-001",
@@ -906,7 +1011,7 @@ const PRODUCTS = [
     description:
       "Flasfit tempered glass screen protector for Samsung Galaxy S24 series with an easy-fit alignment tray.",
     price: 7499,
-    images: [placeholder("Flasfit Protector")],
+    images: [FLASFIT_PROTECTOR_IMG],
     category: "Screen Protectors",
     stock: 210,
     sku: "EZW-FLA-001",
@@ -925,7 +1030,7 @@ const PRODUCTS = [
     description:
       "Whitestone Dome Glass with UV-cured adhesive for edge-to-edge coverage on iPhone 15 Pro Max.",
     price: 29999,
-    images: [placeholder("Whitestone Dome Glass")],
+    images: [WHITESTONE_PROTECTOR_IMG],
     category: "Screen Protectors",
     stock: 40,
     sku: "EZW-WHI-001",
@@ -944,7 +1049,7 @@ const PRODUCTS = [
     description:
       "Belkin UltraGlass screen protector with chemically strengthened glass and 2x drop protection.",
     price: 13999,
-    images: [placeholder("Belkin UltraGlass")],
+    images: [BELKIN_PROTECTOR_IMG],
     category: "Screen Protectors",
     stock: 150,
     sku: "EZW-BLK-002",
