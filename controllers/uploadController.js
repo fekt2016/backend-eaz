@@ -2,7 +2,12 @@ const multer = require('multer');
 const { cloudinary } = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_MIME_TYPES = [
+  'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
+  // Gallery videos — same Cloudinary upload path as images (secure_url works
+  // for video too, the gallery renders it with <video controls>).
+  'video/mp4', 'video/webm', 'video/ogg',
+];
 
 // Configure multer for memory storage with type + size validation
 const upload = multer({
@@ -12,7 +17,7 @@ const upload = multer({
     if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files (JPEG, PNG, WebP, GIF) are allowed.'));
+      cb(new Error('Only image files (JPEG, PNG, WebP, GIF) and videos (MP4, WebM, OGG) are allowed.'));
     }
   },
 });

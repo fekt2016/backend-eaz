@@ -82,12 +82,44 @@ const createOrder = async (req, res, next) => {
       if (!product) {
         return res.status(400).json({ success: false, error: `Product "${slug}" not found.` });
       }
-      if (product.stock < qty) {
+
+      // Structured variants (Decision #1): when a variant SKU is sent, stock is
+      // checked against that variant, and the order line records which variant
+      // was purchased. Products without variants keep the old single-SKU path.
+      let variantInfo = null;
+      if (item.variant && item.variant.sku) {
+        const variant = (product.variants || []).find(
+          (v) => v.sku === item.variant.sku,
+        );
+        if (!variant) {
+          return res.status(400).json({
+            success: false,
+            error: `Variant "${item.variant.sku}" not found for ${product.name}.`,
+          });
+        }
+        if (variant.stock < qty) {
+          const label = Object.values(variant.attributes || {}).join(" ");
+          return res.status(400).json({
+            success: false,
+            error: `${product.name}${label ? ` (${label})` : ""} only has ${variant.stock} in stock.`,
+          });
+        }
+        variantInfo = {
+          sku: variant.sku,
+          attributes:
+            variant.attributes && typeof variant.attributes.toObject === "function"
+              ? variant.attributes.toObject()
+              : variant.attributes || {},
+        };
+      }
+
+      if (product.stock < qty && !variantInfo) {
         return res.status(400).json({ success: false, error: `${product.name} only has ${product.stock} in stock.` });
       }
       orderItems.push({
         product: product._id,
         name: product.name,
+        ...(variantInfo && { variant: variantInfo }),
         price: product.price,
         qty,
       });

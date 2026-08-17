@@ -52,10 +52,20 @@ async function fulfilShopOrder(reference) {
       continue;
     }
 
-    const result = await Product.findOneAndUpdate(
-      { _id: item.product, stock: { $gte: item.qty } },
-      { $inc: { stock: -item.qty } }
-    );
+    // Variant lines decrement that variant's stock; plain product lines keep
+    // the original top-level stock decrement.
+    let result;
+    if (item.variant && item.variant.sku) {
+      result = await Product.findOneAndUpdate(
+        { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku, stock: { $gte: item.qty } } } },
+        { $inc: { "variants.$.stock": -item.qty } }
+      );
+    } else {
+      result = await Product.findOneAndUpdate(
+        { _id: item.product, stock: { $gte: item.qty } },
+        { $inc: { stock: -item.qty } }
+      );
+    }
     if (!result) {
       console.error(
         `[fulfil] Stock decrement failed for order ${paid.orderNumber} item ${item.name} (qty ${item.qty})`

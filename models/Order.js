@@ -24,6 +24,15 @@ const orderSchema = new mongoose.Schema({
       required: true,
       trim: true
     },
+    // Which variant was purchased (structured variants feature). Absent for
+    // products bought as a single implicit SKU and for retail parts.
+    variant: new mongoose.Schema(
+      {
+        sku: { type: String, trim: true },
+        attributes: { type: Map, of: String, default: {} },
+      },
+      { _id: false }
+    ),
     price: {
       type: Number,
       required: true,
@@ -107,7 +116,11 @@ const orderSchema = new mongoose.Schema({
     }
   }]
 }, {
-  timestamps: true
+  timestamps: true,
+  // item.variant.attributes is a Map — flatten it in responses so the API
+  // serves { color: "Black" }, not an empty {}.
+  toObject: { flattenMaps: true },
+  toJSON: { flattenMaps: true }
 });
 
 orderSchema.index({ paystackReference: 1 }, { sparse: true });

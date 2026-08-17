@@ -35,6 +35,7 @@ const productRoutes      = require('./routes/productRoutes');
 const orderRoutes        = require('./routes/orderRoutes');
 const deliveryZoneRoutes = require('./routes/deliveryZoneRoutes');
 const activityLogRoutes  = require('./routes/activityLogRoutes');
+const productReviewRoutes = require('./routes/productReviewRoutes');
 
 const app = express();
 
@@ -158,6 +159,15 @@ app.use('/api/v1/auth/verify',          makeLimit(15, 10,  'Too many verificatio
 // Public submission endpoints — prevent spam
 app.use('/api/v1/contacts',             makeLimit(60, 10,  'Too many messages sent. Please try again later.'));
 app.use('/api/v1/reviews',              makeLimit(60, 5,   'Too many reviews submitted. Please try again later.'));
+// Product-review submits only — public GET list must not be throttled like a form.
+app.use('/api/v1/products/:productId/reviews', rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many reviews submitted. Please try again later.' },
+  skip: (req) => req.method !== 'POST' || (!PROD && req.ip === '::1'),
+}));
 
 // Chat — public and unbounded by default, so lock it down
 app.use('/api/v1/chat',                 makeLimit(15, 60,  'Too many chat messages. Please slow down.'));
@@ -200,6 +210,7 @@ app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/orders',   orderRoutes);
 app.use('/api/v1/delivery-zones', deliveryZoneRoutes);
 app.use('/api/v1/activity-logs', activityLogRoutes); // admin/superadmin only
+app.use('/api/v1/product-reviews', productReviewRoutes);
 
 // ────────────────────────────────────────────────
 // 🩺 Health Check
