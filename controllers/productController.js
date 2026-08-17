@@ -1,6 +1,10 @@
 const mongoose = require("mongoose");
 const Product = require("../models/Product");
 const Part = require("../models/Part");
+const { logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
+// escapeRegex: match user-supplied search text literally (prevents ReDoS).
+const { escapeRegex } = require("../utils/regex");
+const { formatGhs } = require("../utils/money");
 
 // Shape a retail Part like a shop product so it flows through the same
 // product-detail page, metadata, JSON-LD and cart/checkout. Mirrors the part
@@ -33,15 +37,9 @@ function slugify(value) {
     .replace(/(^-|-$)/g, "");
 }
 
-// Escape regex metacharacters so user-supplied search text is matched
-// literally — prevents ReDoS and unintended regex-metacharacter matching.
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 const getProducts = async (req, res, next) => {
   try {
-    const { category, q, sort } = req.query;
+    const { category, q, sort, kind } = req.query;
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(
       Math.max(parseInt(req.query.limit, 10) || 12, 1),
@@ -75,7 +73,8 @@ const getProducts = async (req, res, next) => {
     // Merge shop products with sellable retail parts, then sort + paginate in
     // the database (a single $unionWith aggregation) so we never load the whole
     // catalogue into memory. Retail parts are matched independently of the
-    // product query — same behaviour as before.
+    // product query — same behaviour as before. Pass `kind=product` to list only
+    // real shop products (e.g. the homepage "Recent Products" strip).
     const pipeline = [
       { $match: query },
       {
@@ -86,25 +85,27 @@ const getProducts = async (req, res, next) => {
         },
       },
       { $addFields: { kind: "product", partId: null } },
-      {
-        $unionWith: {
-          coll: "parts",
-          pipeline: [
-            { $match: { isRetail: true, quantity: { $gt: 0 } } },
-            {
-              $project: {
-                _id: 1, name: 1, category: 1, sku: 1, createdAt: 1, updatedAt: 1,
-                slug: { $concat: ["part-", { $toString: "$_id" }] },
-                description: { $ifNull: ["$description", { $ifNull: ["$notes", ""] }] },
-                price: "$sellingPrice",
-                stock: "$quantity",
-                images: { $ifNull: ["$images", []] },
+      ...(kind === "product" ? [] : [
+        {
+          $unionWith: {
+            coll: "parts",
+            pipeline: [
+              { $match: { isRetail: true, quantity: { $gt: 0 } } },
+              {
+                $project: {
+                  _id: 1, name: 1, category: 1, sku: 1, createdAt: 1, updatedAt: 1,
+                  slug: { $concat: ["part-", { $toString: "$_id" }] },
+                  description: { $ifNull: ["$description", { $ifNull: ["$notes", ""] }] },
+                  price: "$sellingPrice",
+                  stock: "$quantity",
+                  images: { $ifNull: ["$images", []] },
+                },
               },
-            },
-            { $addFields: { variants: [], isActive: true, kind: "part", partId: "$_id" } },
-          ],
+              { $addFields: { variants: [], isActive: true, kind: "part", partId: "$_id" } },
+            ],
+          },
         },
-      },
+      ]),
       { $sort: sortStage },
       {
         $facet: {
@@ -209,6 +210,15 @@ const createProduct = async (req, res, next) => {
       isActive: isActive !== undefined ? Boolean(isActive) : true,
     });
 
+    await logFromRequest(req, {
+      action: ACTIONS.PRODUCT_CREATED,
+      resourceType: RESOURCES.PRODUCT,
+      resourceId: product._id,
+      resourceName: product.name,
+      description: `Created product ${product.name} (${formatGhs(product.price)})`,
+      metadata: { slug: product.slug, category: product.category },
+    });
+
     res.status(201).json({ success: true, data: product });
   } catch (error) {
     if (error.code === 11000) {
@@ -238,6 +248,15 @@ const updateProduct = async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Product not found" });
     }
 
+    await logFromRequest(req, {
+      action: ACTIONS.PRODUCT_UPDATED,
+      resourceType: RESOURCES.PRODUCT,
+      resourceId: product._id,
+      resourceName: product.name,
+      description: `Updated product ${product.name}`,
+      metadata: { slug: product.slug, category: product.category },
+    });
+
     res.status(200).json({ success: true, data: product });
   } catch (error) {
     if (error.code === 11000) {
@@ -261,6 +280,14 @@ const deleteProduct = async (req, res, next) => {
     if (!product) {
       return res.status(404).json({ success: false, error: "Product not found" });
     }
+
+    await logFromRequest(req, {
+      action: ACTIONS.PRODUCT_DELETED,
+      resourceType: RESOURCES.PRODUCT,
+      resourceId: product._id,
+      resourceName: product.name,
+      description: `Deactivated product ${product.name} (${product.slug})`,
+    });
 
     res.status(200).json({ success: true, data: product });
   } catch (error) {

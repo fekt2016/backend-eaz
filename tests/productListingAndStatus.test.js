@@ -56,6 +56,23 @@ describe("GET /api/v1/products (merged listing)", () => {
     const sorted = [...prices].sort((a, b) => a - b);
     expect(prices).toEqual(sorted);
   });
+
+  it("kind=product returns only real shop products, excluding retail parts", async () => {
+    await Product.create({
+      name: "Cable", slug: "cable", price: 2000, category: "Accessory", stock: 5, isActive: true,
+    });
+    await Part.create({
+      name: "iPhone 12 Battery", category: "Battery", isRetail: true, quantity: 4,
+      costPrice: 8000, sellingPrice: 15000,
+    });
+
+    const res = await request(app).get("/api/v1/products?kind=product&limit=50");
+    expect(res.status).toBe(200);
+    expect(res.body.data.every((d) => d.kind === "product")).toBe(true);
+    expect(res.body.data.find((d) => d.slug === "cable")).toBeTruthy();
+    expect(res.body.data.find((d) => d.kind === "part")).toBeFalsy();
+    expect(res.body.total).toBe(1);
+  });
 });
 
 // ── #14: forward-only order status transitions ──
