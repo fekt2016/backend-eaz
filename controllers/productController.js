@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Product = require("../models/Product");
 const Part = require("../models/Part");
+const { getRatingSummary } = require("./productReviewController");
 
 // Shape a retail Part like a shop product so it flows through the same
 // product-detail page, metadata, JSON-LD and cart/checkout. Mirrors the part
@@ -16,6 +17,7 @@ function partAsProduct(p) {
     stock: p.quantity,
     sku: p.sku,
     variants: [],
+    gallery: { images: [], videos: [] },
     isActive: true,
     kind: "part",
     partId: p._id,
@@ -147,7 +149,9 @@ const getProductBySlug = async (req, res, next) => {
       if (!part || !part.isRetail || !Number(part.sellingPrice) || part.sellingPrice <= 0) {
         return res.status(404).json({ success: false, error: "Product not found" });
       }
-      return res.status(200).json({ success: true, data: partAsProduct(part) });
+      const partAsProductDoc = partAsProduct(part);
+      const ratingSummary = await getRatingSummary(part._id);
+      return res.status(200).json({ success: true, data: { ...partAsProductDoc, ratingSummary } });
     }
 
     const product = await Product.findOne({
@@ -162,9 +166,11 @@ const getProductBySlug = async (req, res, next) => {
       });
     }
 
+    const ratingSummary = await getRatingSummary(product._id);
+
     res.status(200).json({
       success: true,
-      data: product,
+      data: { ...product.toObject(), ratingSummary },
     });
   } catch (error) {
     next(error);
@@ -182,7 +188,7 @@ const getAdminProducts = async (req, res, next) => {
 
 const createProduct = async (req, res, next) => {
   try {
-    const { name, slug, description, price, images, category, stock, sku, variants, isActive } = req.body;
+    const { name, slug, description, price, images, category, stock, sku, variants, gallery, isActive } = req.body;
 
     if (!name || price == null || !category) {
       return res.status(400).json({
@@ -206,6 +212,7 @@ const createProduct = async (req, res, next) => {
       stock: stock == null ? 0 : Number(stock),
       sku: sku || "",
       variants: Array.isArray(variants) ? variants.filter(Boolean) : [],
+      gallery: gallery && typeof gallery === "object" ? gallery : {},
       isActive: isActive !== undefined ? Boolean(isActive) : true,
     });
 
