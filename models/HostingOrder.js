@@ -51,8 +51,14 @@ const hostingOrderSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['paystack_card', 'mobile_money', 'bank_transfer'],
+    enum: ['paystack_card', 'mobile_money', 'bank_transfer', 'cash'],
     required: true
+  },
+  // Set when a staff/admin created this order on a customer's behalf (in-store).
+  createdByStaff: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   },
   paystackReference: {
     type: String,

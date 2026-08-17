@@ -17,6 +17,7 @@ const { deductPartStock } = require('../utils/deductPartStock');
 const Part = require('../models/Part');
 const namecheap = require('../services/namecheap');
 const whm = require('../services/whm');
+const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
 
 /**
  * Ensure a paid part is on the job, snapshot its real cost, and reserve stock
@@ -118,6 +119,15 @@ const handlePaystackWebhook = async (req, res) => {
       // Amount stored in major GHS units → compare against pesewas.
       if (amountMismatch(event.data, Math.round((hostingOrder.amount || 0) * 100))) {
         console.error(`[webhook] Amount mismatch for hosting order ${hostingOrder._id}`);
+        await log({
+          action: ACTIONS.PAYMENT_FAILED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: `Hosting order ${hostingOrder._id}`,
+          description: `Payment failed — amount mismatch for hosting order ${hostingOrder._id}`,
+          metadata: { reason: 'amount_mismatch' },
+          status: 'failure',
+        });
         return res.status(400).json({ error: 'Amount mismatch' });
       }
 
@@ -169,6 +179,14 @@ const handlePaystackWebhook = async (req, res) => {
         hostingOrder.status = 'active';
         hostingOrder.provisioningStatus = 'skipped';
         await hostingOrder.save({ validateBeforeSave: false });
+        await log({
+          action: ACTIONS.PAYMENT_VERIFIED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: `Hosting renewal ${hostingOrder._id}`,
+          description: `Renewal payment verified for hosting order ${parent._id} — new expiry ${base.toISOString().slice(0, 10)}`,
+          metadata: { reference, type: 'hosting_renewal' },
+        });
         return res.status(200).json({ received: true });
       }
 
@@ -181,6 +199,14 @@ const handlePaystackWebhook = async (req, res) => {
         sendPaymentReceived(hostingOrder).catch(() => {});
       }
       provisionHostingAccount(hostingOrder).catch(() => {});
+      await log({
+        action: ACTIONS.PAYMENT_VERIFIED,
+        resourceType: RESOURCES.PAYMENT,
+        resourceId: reference,
+        resourceName: `Hosting order ${hostingOrder._id}`,
+        description: `Payment verified for hosting order ${hostingOrder._id}`,
+        metadata: { reference, type: 'hosting' },
+      });
       return res.status(200).json({ received: true });
     }
 
@@ -190,6 +216,15 @@ const handlePaystackWebhook = async (req, res) => {
       // Price stored in major GHS units → compare against pesewas.
       if (amountMismatch(event.data, Math.round((domainOrder.price || 0) * 100))) {
         console.error(`[webhook] Amount mismatch for domain order ${domainOrder._id}`);
+        await log({
+          action: ACTIONS.PAYMENT_FAILED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: `Domain order ${domainOrder._id}`,
+          description: `Payment failed — amount mismatch for domain order ${domainOrder._id}`,
+          metadata: { reason: 'amount_mismatch' },
+          status: 'failure',
+        });
         return res.status(400).json({ error: 'Amount mismatch' });
       }
 
@@ -203,6 +238,14 @@ const handlePaystackWebhook = async (req, res) => {
       domainOrder.status = 'completed';
       domainOrder.paidAt = new Date();
       await domainOrder.save();
+      await log({
+        action: ACTIONS.PAYMENT_VERIFIED,
+        resourceType: RESOURCES.PAYMENT,
+        resourceId: reference,
+        resourceName: domainOrder.domain,
+        description: `Payment verified for domain order ${domainOrder.domain}`,
+        metadata: { reference, type: 'domain' },
+      });
 
       let registrationSucceeded = false;
 
@@ -304,6 +347,15 @@ const handlePaystackWebhook = async (req, res) => {
       // subtotalPesewas is Paystack-native (amount × 100 from the GHS unit price).
       if (amountMismatch(event.data, partOrder.subtotalPesewas)) {
         console.error(`[webhook] Amount mismatch for part order ${partOrder._id}`);
+        await log({
+          action: ACTIONS.PAYMENT_FAILED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: `Part order ${partOrder._id}`,
+          description: `Payment failed — amount mismatch for part order ${partOrder._id}`,
+          metadata: { reason: 'amount_mismatch' },
+          status: 'failure',
+        });
         return res.status(400).json({ error: 'Amount mismatch' });
       }
 
@@ -318,6 +370,15 @@ const handlePaystackWebhook = async (req, res) => {
         return res.status(200).json({ received: true, idempotent: true });
       }
 
+      await log({
+        action: ACTIONS.PAYMENT_VERIFIED,
+        resourceType: RESOURCES.PAYMENT,
+        resourceId: reference,
+        resourceName: `Part order ${paid._id}`,
+        description: `Payment verified for part order ${paid._id} — ${paid.partName} ×${paid.quantity}`,
+        metadata: { reference, type: 'part_order' },
+      });
+
       fulfilPartOrder(paid).catch((err) =>
         console.error(`[webhook] Failed to fulfil part order ${paid._id}:`, err.message)
       );
@@ -329,6 +390,15 @@ const handlePaystackWebhook = async (req, res) => {
     if (repairOrder) {
       if (amountMismatch(event.data, repairOrder.totalPesewas)) {
         console.error(`[webhook] Amount mismatch for repair order ${repairOrder._id}`);
+        await log({
+          action: ACTIONS.PAYMENT_FAILED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: `Repair order ${repairOrder._id}`,
+          description: `Payment failed — amount mismatch for repair order ${repairOrder._id}`,
+          metadata: { reason: 'amount_mismatch' },
+          status: 'failure',
+        });
         return res.status(400).json({ error: 'Amount mismatch' });
       }
 
@@ -342,6 +412,15 @@ const handlePaystackWebhook = async (req, res) => {
       if (!paid) {
         return res.status(200).json({ received: true, idempotent: true });
       }
+
+      await log({
+        action: ACTIONS.PAYMENT_VERIFIED,
+        resourceType: RESOURCES.PAYMENT,
+        resourceId: reference,
+        resourceName: `Repair order ${paid._id}`,
+        description: `Payment verified for repair order ${paid._id} (${(paid.items || []).length} item(s))`,
+        metadata: { reference, type: 'repair_order' },
+      });
 
       fulfilRepairOrder(paid).catch((err) =>
         console.error(`[webhook] Failed to fulfil repair order ${paid._id}:`, err.message)
@@ -360,6 +439,15 @@ const handlePaystackWebhook = async (req, res) => {
       }
       if (amountMismatch(event.data, charge.amountPesewas)) {
         console.error(`[webhook] Amount mismatch for balance payment ${reference}`);
+        await log({
+          action: ACTIONS.PAYMENT_FAILED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: `Repair job ${balanceJob.jobNumber}`,
+          description: `Payment failed — amount mismatch for balance payment on job ${balanceJob.jobNumber}`,
+          metadata: { reason: 'amount_mismatch' },
+          status: 'failure',
+        });
         return res.status(400).json({ error: 'Amount mismatch' });
       }
 
@@ -373,6 +461,15 @@ const handlePaystackWebhook = async (req, res) => {
         return res.status(200).json({ received: true, idempotent: true });
       }
 
+      await log({
+        action: ACTIONS.PAYMENT_VERIFIED,
+        resourceType: RESOURCES.PAYMENT,
+        resourceId: reference,
+        resourceName: `Repair job ${balanceJob.jobNumber}`,
+        description: `Balance payment verified for repair job ${balanceJob.jobNumber}`,
+        metadata: { reference, type: 'job_balance' },
+      });
+
       fulfilJobBalancePayment(paid, reference).catch((err) =>
         console.error(`[webhook] Failed to fulfil balance payment ${reference}:`, err.message)
       );
@@ -385,6 +482,15 @@ const handlePaystackWebhook = async (req, res) => {
       // depositAmount stored in major GHS units → compare against pesewas.
       if (amountMismatch(event.data, Math.round((serviceOrder.depositAmount || 0) * 100))) {
         console.error(`[webhook] Amount mismatch for service order ${serviceOrder._id}`);
+        await log({
+          action: ACTIONS.PAYMENT_FAILED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: `Service order ${serviceOrder._id}`,
+          description: `Payment failed — amount mismatch for service order ${serviceOrder._id}`,
+          metadata: { reason: 'amount_mismatch' },
+          status: 'failure',
+        });
         return res.status(400).json({ error: 'Amount mismatch' });
       }
 
@@ -397,6 +503,14 @@ const handlePaystackWebhook = async (req, res) => {
       serviceOrder.status = 'paid';
       serviceOrder.paidAt = new Date();
       await serviceOrder.save({ validateBeforeSave: false });
+      await log({
+        action: ACTIONS.PAYMENT_VERIFIED,
+        resourceType: RESOURCES.PAYMENT,
+        resourceId: reference,
+        resourceName: `Service order ${serviceOrder._id}`,
+        description: `Payment verified for service order ${serviceOrder._id} — ${serviceOrder.package}`,
+        metadata: { reference, type: 'service' },
+      });
       console.log(
         `[webhook] Service order paid: ${serviceOrder._id} — ${serviceOrder.package} for ${serviceOrder.email}`
       );

@@ -10,6 +10,7 @@ const {
   normalizeDomain,
 } = require("../utils/domainHelper");
 const namecheap = require("../services/namecheap");
+const { registerDomainOrder } = require("../utils/registerDomainOrder");
 const {
   sanitizeName,
   sanitizePhone,
@@ -554,6 +555,38 @@ const searchDomain = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /api/v1/domain/orders/:id/retry-registration  (admin)
+ * Re-attempt Namecheap registration for a paid order whose registration failed.
+ * Only valid once the order is paid (status 'completed'); succeeds idempotently.
+ */
+const retryDomainRegistration = async (req, res, next) => {
+  try {
+    const order = await DomainOrder.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Order not found" });
+    }
+    if (order.status !== "completed") {
+      return res.status(400).json({
+        success: false,
+        error: "Only a paid (completed) order can be registered.",
+      });
+    }
+
+    const result = await registerDomainOrder(order);
+    if (!result.success) {
+      return res.status(502).json({
+        success: false,
+        error: result.error || "Domain registration failed. Please try again.",
+      });
+    }
+
+    res.status(200).json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   checkDomain,
   checkDomainBatch,
@@ -564,4 +597,5 @@ module.exports = {
   getDomainOrders,
   getDomainOrder,
   updateOrderStatus,
+  retryDomainRegistration,
 };

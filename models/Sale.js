@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const saleItemSchema = new mongoose.Schema({
   part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' },
+  product:     { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
   name:        { type: String, required: true },      // snapshot — never changes
   barcode:     { type: String },
   sku:         { type: String },

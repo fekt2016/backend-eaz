@@ -10,7 +10,9 @@ const { cloudinary } = require('../config/cloudinary');
 const { sendOrderConfirmation, sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const { buildInvoiceBuffer } = require('../utils/hostingInvoice');
+const { escapeRegex } = require('../utils/regex');
 const whm = require('../services/whm');
+const { logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -25,10 +27,6 @@ const FRONTEND_URL = require("../utils/frontendUrl")();
 function computeAddonsTotal(addons) {
   if (!Array.isArray(addons)) return 0;
   return addons.reduce((sum, a) => sum + (Number(a.price) || 0), 0);
-}
-
-function escapeRegex(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -545,6 +543,18 @@ const updateOrderStatus = async (req, res, next) => {
 
     await order.save({ validateBeforeSave: false });
 
+    if (prevStatus !== status) {
+      await logFromRequest(req, {
+        action: ACTIONS.ORDER_STATUS_CHANGED,
+        resourceType: RESOURCES.ORDER,
+        resourceId: order._id,
+        resourceName: order.domain || `Hosting order ${order._id}`,
+        description: `Hosting order ${order._id} status changed ${prevStatus} → ${status}`,
+        changes: [{ field: 'status', label: 'Hosting Status', before: prevStatus, after: status }],
+        metadata: { type: 'hosting' },
+      });
+    }
+
     if (status === 'paid') {
       // Only send the "payment received" email the first time we transition into paid.
       if (prevStatus !== 'paid' && prevStatus !== 'active') {
@@ -703,6 +713,14 @@ const deleteOrder = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
+    await logFromRequest(req, {
+      action: ACTIONS.ORDER_UPDATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order._id,
+      resourceName: order.domain || `Hosting order ${order._id}`,
+      description: `Deleted hosting order ${order._id}${order.domain ? ` (${order.domain})` : ''}`,
+      metadata: { type: 'hosting', deleted: true, amount: order.amount },
+    });
     return res.status(200).json({ success: true, message: 'Order deleted from system' });
   } catch (err) {
     next(err);
@@ -823,9 +841,175 @@ function adminLifecycleAction(action) {
   };
 }
 
+/**
+ * POST /api/v1/hosting/orders/staff-create   (staff / admin)
+ * Create a cPanel hosting account for a customer in-store.
+ *   - paymentMethod 'cash'  → order marked paid + provisioned immediately via WHM.
+ *   - paymentMethod 'paystack_card' | 'mobile_money' → payment initialized; the
+ *     Paystack webhook provisions once the charge succeeds (same path as online orders).
+ * The customer's cPanel username/password are auto-generated and emailed on success.
+ */
+const staffCreateHostingAccount = async (req, res, next) => {
+  try {
+    const User = require('../models/User');
+    const {
+      planType, tier, billingCycle, addons = [], customer,
+      paymentMethod = 'cash', mobileNumber, network,
+      domainMode = 'skip', domain, domainRegistrationYears = 1,
+    } = req.body;
+
+    const method = ['cash', 'paystack_card', 'mobile_money'].includes(paymentMethod) ? paymentMethod : null;
+    if (!method) {
+      return res.status(400).json({ success: false, error: "paymentMethod must be 'cash', 'paystack_card', or 'mobile_money'." });
+    }
+
+    const customerName  = sanitizeName(customer?.name);
+    const customerEmail = sanitizeEmail(customer?.email);
+    const customerPhone = sanitizePhone(customer?.phone);
+    const domain_s      = sanitizeDomain(domain);
+
+    if (!planType || !tier || !billingCycle || !customerName || !customerEmail) {
+      return res.status(400).json({ success: false, error: 'planType, tier, billingCycle, and customer (name, email) are required' });
+    }
+
+    const price = getPlanPrice(planType, tier, billingCycle);
+    if (!price || price.total == null) {
+      return res.status(400).json({ success: false, error: 'Invalid plan or tier' });
+    }
+    const addonsTotal = computeAddonsTotal(addons);
+
+    // Domain fee (register-new mode) — recomputed server-side, never trusted from the client.
+    let domainFee = 0;
+    if (domainMode === 'new' && domain_s) {
+      try {
+        const tld = domain_s.split('.').slice(1).join('.');
+        const prices = await namecheap.getPricing();
+        const priceUSD = prices[tld] ?? null;
+        if (priceUSD != null) {
+          const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
+          const markup  = parseFloat(process.env.DOMAIN_MARKUP)   || 1.2;
+          const years   = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
+          domainFee = Math.round(priceUSD * usdRate * markup * years * 100) / 100;
+        }
+      } catch { /* Namecheap unavailable — no domain fee added */ }
+    }
+    const totalAmount = price.total + addonsTotal + domainFee;
+
+    // Find-or-create the customer's user account so the order shows in their dashboard.
+    let customerUser = await User.findOne({ email: customerEmail });
+    if (!customerUser) {
+      customerUser = await User.create({
+        name: customerName,
+        email: customerEmail,
+        ...(customerPhone && { phone: customerPhone }),
+        password: whm.generatePassword(),
+        role: 'user',
+      });
+    }
+
+    const orderPayload = {
+      user: customerUser._id,
+      createdByStaff: req.user._id,
+      planType, tier, billingCycle,
+      addons: addons.map(a => ({ id: a.id, name: a.name, price: a.price || 0 })),
+      customer: {
+        name: customerName,
+        email: customerEmail,
+        phone: customerPhone || '',
+        country: (customer?.country || 'Ghana').trim(),
+      },
+      amount: totalAmount,
+      currency: 'GHS',
+      status: 'pending',
+      provisioningStatus: 'not_started',
+      paymentMethod: method,
+      ...(domain_s && { domain: domain_s }),
+      domainMode: ['new', 'own', 'skip'].includes(domainMode) ? domainMode : 'skip',
+      ...(domainMode === 'new' && domain_s && {
+        domainRegistrationFee: domainFee,
+        domainRegistrationYears: Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1)),
+        domainRegistered: false,
+      }),
+    };
+
+    // ── Paystack: create the order, initialize payment, let the webhook provision ──
+    if (method === 'paystack_card' || method === 'mobile_money') {
+      if (!paystack) {
+        return res.status(503).json({ success: false, error: 'Paystack is not configured.' });
+      }
+      const reference = `HOST_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const mobile_s = sanitizePhone(mobileNumber);
+      const transaction = await paystack.transaction.initialize({
+        email: customerEmail,
+        amount: Math.round(totalAmount * 100),
+        currency: 'GHS',
+        reference,
+        channels: method === 'mobile_money' ? ['mobile_money'] : ['card', 'mobile_money'],
+        metadata: { type: 'hosting_order', planType, tier, billingCycle, staffCreated: true },
+        callback_url: `${FRONTEND_URL}/hosting/order-confirmation`,
+        ...(method === 'mobile_money' && mobile_s && { mobile_money: { phone: mobile_s, provider: network || 'mtn' } }),
+      });
+      if (!transaction.status) {
+        return res.status(502).json({ success: false, error: 'Failed to initialize payment' });
+      }
+      orderPayload.paystackReference = reference;
+      const order = await HostingOrder.create(orderPayload);
+      sendOrderConfirmation(order).catch(() => {});
+      await logFromRequest(req, {
+        action: ACTIONS.ORDER_CREATED,
+        resourceType: RESOURCES.ORDER,
+        resourceId: order._id,
+        resourceName: order.domain || `Hosting order ${order._id}`,
+        description: `Staff created hosting order ${order._id} for ${customerEmail} (Paystack, pending payment)`,
+        metadata: { type: 'hosting', staffCreated: true, paymentMethod: method },
+      }).catch(() => {});
+      return res.status(200).json({
+        success: true,
+        data: {
+          orderId: order._id,
+          paymentMethod: method,
+          authorizationUrl: transaction.data.authorization_url,
+          reference,
+        },
+      });
+    }
+
+    // ── Cash: mark paid and provision immediately ──
+    orderPayload.status = 'paid';
+    orderPayload.paidAt = new Date();
+    const order = await HostingOrder.create(orderPayload);
+    await provisionHostingAccount(order); // awaited so we can report the outcome to staff
+    const fresh = await HostingOrder.findById(order._id);
+    sendOrderConfirmation(order).catch(() => {});
+    await logFromRequest(req, {
+      action: ACTIONS.ORDER_CREATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order._id,
+      resourceName: fresh.domain || `Hosting order ${order._id}`,
+      description: `Staff created + cash-provisioned hosting order ${order._id} for ${customerEmail} (${fresh.provisioningStatus})`,
+      metadata: { type: 'hosting', staffCreated: true, paymentMethod: 'cash' },
+    }).catch(() => {});
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        orderId: fresh._id,
+        status: fresh.status,
+        provisioningStatus: fresh.provisioningStatus,
+        provisioningError: fresh.provisioningError || null,
+        cpanelUsername: fresh.cpanelUsername || null,
+        domain: fresh.domain || null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getPlans,
   createOrder,
+  staffCreateHostingAccount,
   getOrders,
   getAdminOverview,
   getHostingOrdersAdminSummary,

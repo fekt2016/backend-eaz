@@ -34,6 +34,7 @@ const trackRoutes        = require('./routes/trackRoutes');
 const productRoutes      = require('./routes/productRoutes');
 const orderRoutes        = require('./routes/orderRoutes');
 const deliveryZoneRoutes = require('./routes/deliveryZoneRoutes');
+const activityLogRoutes  = require('./routes/activityLogRoutes');
 
 const app = express();
 
@@ -198,6 +199,7 @@ app.use('/api/v1/track',   trackRoutes);   // public — no auth
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/orders',   orderRoutes);
 app.use('/api/v1/delivery-zones', deliveryZoneRoutes);
+app.use('/api/v1/activity-logs', activityLogRoutes); // admin/superadmin only
 
 // ────────────────────────────────────────────────
 // 🩺 Health Check

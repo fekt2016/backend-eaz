@@ -5,6 +5,9 @@ const Product = require("../models/Product");
 const Part = require("../models/Part");
 const DeliveryZone = require("../models/DeliveryZone");
 const { fulfilShopOrder } = require("../utils/fulfilShopOrder");
+const { formatGhs } = require("../utils/money");
+const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
+const { normalizePhone } = require("../utils/phone");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -149,6 +152,8 @@ const createOrder = async (req, res, next) => {
       }],
     });
 
+    await logOrderCreated(order);
+
     return res.status(200).json({
       success: true,
       data: {
@@ -164,17 +169,29 @@ const createOrder = async (req, res, next) => {
   }
 };
 
+// Log the shop order creation once it has been persisted (guest checkout — no
+// authenticated actor, so the record carries the customer snapshot instead).
+async function logOrderCreated(order) {
+  await log({
+    action: ACTIONS.ORDER_CREATED,
+    resourceType: RESOURCES.ORDER,
+    resourceId: order.orderNumber,
+    resourceName: order.orderNumber,
+    description: `Order ${order.orderNumber} placed (${order.items.length} item${order.items.length === 1 ? '' : 's'}, ${formatGhs(order.total)})`,
+    metadata: {
+      customerName: order.customer.name,
+      customerPhone: order.customer.phone,
+      reference: order.paystackReference,
+      totalPesewas: order.total,
+    },
+  });
+}
+
 function orderCustomerEmail(customer) {
   const email = (customer.email || '').trim().toLowerCase();
   if (email) return email;
   const phone = (customer.phone || '').trim().replace(/\s+/g, '');
   return `${phone || 'guest'}@eazworld.com`;
-}
-
-function normalizePhone(value) {
-  let digits = String(value || '').replace(/[^\d]/g, '');
-  if (digits.startsWith('233')) digits = `0${digits.slice(3)}`;
-  return digits;
 }
 
 /**
@@ -438,6 +455,7 @@ const updateOrderStatus = async (req, res, next) => {
       });
     }
 
+    const prevStatus = order.status;
     order.status = status;
     if (status === 'paid' && !order.paidAt) {
       order.paidAt = new Date();
@@ -449,6 +467,19 @@ const updateOrderStatus = async (req, res, next) => {
       timestamp: new Date(),
     });
     await order.save();
+
+    if (prevStatus !== status) {
+      await logFromRequest(req, {
+        action: status === 'cancelled' ? ACTIONS.ORDER_CANCELLED : ACTIONS.ORDER_STATUS_CHANGED,
+        resourceType: RESOURCES.ORDER,
+        resourceId: order.orderNumber,
+        resourceName: order.orderNumber,
+        description: status === 'cancelled'
+          ? `Order ${order.orderNumber} cancelled`
+          : `Order ${order.orderNumber} status changed ${prevStatus} → ${status}`,
+        changes: [{ field: 'status', label: 'Order Status', before: prevStatus, after: status }],
+      });
+    }
 
     res.status(200).json({ success: true, data: order });
   } catch (error) {
@@ -488,6 +519,7 @@ const addTrackingEvent = async (req, res, next) => {
       });
     }
 
+    const prevStatus = order.status;
     if (status) {
       order.status = status;
       if (status === 'paid' && !order.paidAt) {
@@ -503,6 +535,30 @@ const addTrackingEvent = async (req, res, next) => {
       timestamp: new Date(),
     });
     await order.save();
+
+    const statusChanged = status && status !== prevStatus;
+    const changes = [];
+    if (statusChanged) {
+      changes.push({ field: 'status', label: 'Order Status', before: prevStatus, after: status });
+    }
+    if (note) {
+      changes.push({ field: 'note', label: 'Tracking Note', before: null, after: String(note).trim() });
+    }
+    if (location) {
+      changes.push({ field: 'location', label: 'Location', before: null, after: String(location).trim() });
+    }
+    await logFromRequest(req, {
+      action: statusChanged
+        ? (status === 'cancelled' ? ACTIONS.ORDER_CANCELLED : ACTIONS.ORDER_STATUS_CHANGED)
+        : ACTIONS.ORDER_TRACKING_UPDATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order.orderNumber,
+      resourceName: order.orderNumber,
+      description: statusChanged
+        ? `Order ${order.orderNumber} status changed ${prevStatus} → ${status}`
+        : `Tracking updated for order ${order.orderNumber}`,
+      changes,
+    });
 
     res.status(200).json({ success: true, data: order });
   } catch (error) {

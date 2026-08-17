@@ -1,5 +1,6 @@
 const Settings = require('../models/Settings');
 const { sanitizeMessage } = require('../utils/sanitize');
+const { logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
 
 /**
  * GET /api/v1/settings
@@ -58,6 +59,15 @@ const updateSettings = async (req, res, next) => {
       { $set: updates },
       { new: true, upsert: true, runValidators: true }
     );
+
+    await logFromRequest(req, {
+      action: ACTIONS.SETTINGS_UPDATED,
+      resourceType: RESOURCES.SETTINGS,
+      resourceId: settings._id,
+      resourceName: 'Global Settings',
+      description: `Updated site settings (${Object.keys(updates).join(', ')})`,
+      changes: Object.entries(updates).map(([k, v]) => ({ field: k, label: k, before: null, after: v })),
+    });
 
     res.status(200).json({
       success: true,

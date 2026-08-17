@@ -3,6 +3,7 @@ const HostingOrder = require('../models/HostingOrder');
 const DomainOrder = require('../models/DomainOrder');
 const { sendHostingCredentials } = require('./hostingEmail');
 const { registerDomain, setEazWorldNameservers } = require('../services/namecheap');
+const logger = require("./logger");
 
 async function provisionHostingAccount(orderRef) {
   const doc = await HostingOrder.findById(orderRef?._id || orderRef);
@@ -75,8 +76,8 @@ async function provisionHostingAccount(orderRef) {
     // Non-fatal if it fails — WHM AutoSSL will pick it up within 24hrs.
     whm.runAutoSSL(username)
       .then((r) => {
-        if (r.success) console.log(`[provision] AutoSSL triggered for ${username}`);
-        else console.warn(`[provision] AutoSSL will run on next WHM cron for ${username}: ${r.error}`);
+        if (r.success) logger.info(`[provision] AutoSSL triggered for ${username}`);
+        else logger.warn(`[provision] AutoSSL will run on next WHM cron for ${username}: ${r.error}`);
       })
       .catch(() => {});
 
@@ -85,7 +86,7 @@ async function provisionHostingAccount(orderRef) {
     // Case 1: Customer chose "Register new domain" in hosting checkout
     // → Register the domain via Namecheap AND automatically set EazWorld nameservers
     if (doc.domainMode === 'new' && doc.domain && !doc.domainRegistered && !isTempDomain) {
-      console.log(`[provision] Registering domain ${doc.domain} bundled with hosting order`);
+      logger.info(`[provision] Registering domain ${doc.domain} bundled with hosting order`);
       const regResult = await registerDomain(
         doc.domain,
         doc.domainRegistrationYears || 1,
@@ -100,10 +101,10 @@ async function provisionHostingAccount(orderRef) {
 
       if (regResult.success) {
         doc.domainRegistered = true;
-        console.log(`[provision] Domain ${doc.domain} registered + nameservers set ✅`);
+        logger.info(`[provision] Domain ${doc.domain} registered + nameservers set ✅`);
       } else {
         doc.domainRegistrationError = regResult.error;
-        console.warn(`[provision] Domain registration failed for ${doc.domain}: ${regResult.error}`);
+        logger.warn(`[provision] Domain registration failed for ${doc.domain}: ${regResult.error}`);
       }
       await doc.save({ validateBeforeSave: false }).catch(() => {});
     }
@@ -119,8 +120,8 @@ async function provisionHostingAccount(orderRef) {
       if (existingDomainOrder) {
         setEazWorldNameservers(doc.domain)
           .then((r) => {
-            if (r.success) console.log(`[provision] Nameservers auto-updated for ${doc.domain} ✅`);
-            else console.warn(`[provision] Nameserver update skipped for ${doc.domain}: ${r.error}`);
+            if (r.success) logger.info(`[provision] Nameservers auto-updated for ${doc.domain} ✅`);
+            else logger.warn(`[provision] Nameserver update skipped for ${doc.domain}: ${r.error}`);
           })
           .catch(() => {});
       }

@@ -43,6 +43,23 @@ const EARPHONE_IMG_2 =
   "https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=800&q=80";
 const EARPHONE_IMG_3 =
   "https://images.unsplash.com/photo-1606841837239-c5a1a4a07af7?w=800&q=80";
+// Extra angles so every product has more than one image (verified to resolve).
+const IPHONE_IMG_3 =
+  "https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=800&q=80";
+const SAMSUNG_IMG_2 =
+  "https://images.unsplash.com/photo-1610945415295-d9bbf067e59c?w=800&q=80";
+const SAMSUNG_IMG_3 =
+  "https://images.unsplash.com/photo-1592899677977-9c10ca588bbd?w=800&q=80";
+const CASE_IMG_3 =
+  "https://images.unsplash.com/photo-1592286927505-1def25115558?w=800&q=80";
+const POWERBANK_IMG_2 =
+  "https://images.unsplash.com/photo-1585060544812-6b45742d762f?w=800&q=80";
+const POWERBANK_IMG_3 =
+  "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=800&q=80";
+const SCREEN_IMG_1 =
+  "https://images.unsplash.com/photo-1512054502232-10a0a035d672?w=800&q=80";
+const SCREEN_IMG_2 =
+  "https://images.unsplash.com/photo-1546027658-7aa750153465?w=800&q=80";
 
 const placeholder = (text) =>
   `https://placehold.co/800x600/1e1b4b/ffffff?text=${encodeURIComponent(text)}`;
@@ -55,7 +72,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 Pro Max with 48MP camera system, A17 Pro chip, 6.7-inch Super Retina XDR display, and surgical-grade titanium design.",
     price: 1299999,
-    images: [IPHONE_IMG_1],
+    images: [IPHONE_IMG_1, IPHONE_IMG_2, IPHONE_IMG_3],
     category: "Phones",
     stock: 20,
     sku: "EZW-IPH-001",
@@ -68,7 +85,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 Pro with 48MP main camera, A17 Pro chip, and advanced titanium frame design.",
     price: 1099999,
-    images: [IPHONE_IMG_2],
+    images: [IPHONE_IMG_2, IPHONE_IMG_3, IPHONE_IMG_1],
     category: "Phones",
     stock: 25,
     sku: "EZW-IPH-002",
@@ -81,7 +98,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 Pro with A17 Pro chip, titanium frame, and pro-grade 48MP camera.",
     price: 949999,
-    images: [IPHONE_IMG_1],
+    images: [IPHONE_IMG_1, IPHONE_IMG_2, IPHONE_IMG_3],
     category: "Phones",
     stock: 30,
     sku: "EZW-IPH-004",
@@ -94,7 +111,7 @@ const PRODUCTS = [
     description:
       "Apple iPhone 15 with Dynamic Island, A16 Bionic chip, and enhanced battery life.",
     price: 799999,
-    images: [IPHONE_IMG_2],
+    images: [IPHONE_IMG_2, IPHONE_IMG_3, IPHONE_IMG_1],
     category: "Phones",
     stock: 35,
     sku: "EZW-IPH-003",
@@ -107,7 +124,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S24 Ultra with 200MP camera, Snapdragon 8 Gen 3 processor, and integrated S Pen.",
     price: 1099999,
-    images: [SAMSUNG_IMG],
+    images: [SAMSUNG_IMG, SAMSUNG_IMG_2, SAMSUNG_IMG_3],
     category: "Phones",
     stock: 30,
     sku: "EZW-SAM-001",
@@ -120,7 +137,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S24+ with Dynamic AMOLED 2X display, Snapdragon 8 Gen 3, and enhanced camera system.",
     price: 899999,
-    images: [SAMSUNG_IMG],
+    images: [SAMSUNG_IMG, SAMSUNG_IMG_2, SAMSUNG_IMG_3],
     category: "Phones",
     stock: 28,
     sku: "EZW-SAM-002",
@@ -133,7 +150,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S24 with vibrant 6.2-inch display, Snapdragon 8 Gen 3, and Pro-grade camera.",
     price: 699999,
-    images: [SAMSUNG_IMG],
+    images: [SAMSUNG_IMG, SAMSUNG_IMG_2, SAMSUNG_IMG_3],
     category: "Phones",
     stock: 40,
     sku: "EZW-SAM-003",
@@ -146,7 +163,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy S23 FE with Snapdragon processor, amazing camera system, and great value.",
     price: 699999,
-    images: [SAMSUNG_IMG],
+    images: [SAMSUNG_IMG, SAMSUNG_IMG_2, SAMSUNG_IMG_3],
     category: "Phones",
     stock: 45,
     sku: "EZW-SAM-004",
@@ -161,7 +178,7 @@ const PRODUCTS = [
     description:
       "Durable Spigen Tough Armor case with shock absorption and elegant design.",
     price: 15999,
-    images: [CASE_IMG_1],
+    images: [CASE_IMG_1, CASE_IMG_2, CASE_IMG_3],
     category: "Phone Cases & Covers",
     stock: 150,
     sku: "EZW-SPG-001",
@@ -174,7 +191,7 @@ const PRODUCTS = [
     description:
       "Supcase Universal case with built-in kickstand and shockproof protection.",
     price: 12999,
-    images: [CASE_IMG_2],
+    images: [CASE_IMG_2, CASE_IMG_3, CASE_IMG_1],
     category: "Phone Cases & Covers",
     stock: 120,
     sku: "EZW-SUP-001",
@@ -187,7 +204,7 @@ const PRODUCTS = [
     description:
       "Olixar clear transparent case with raised camera lip and anti-yellowing protection.",
     price: 9999,
-    images: [CASE_IMG_1],
+    images: [CASE_IMG_1, CASE_IMG_2, CASE_IMG_3],
     category: "Phone Cases & Covers",
     stock: 200,
     sku: "EZW-OLI-001",
@@ -200,7 +217,7 @@ const PRODUCTS = [
     description:
       "Nillkin Hard case with kickstand and shockproof protection for iPhone.",
     price: 18999,
-    images: [CASE_IMG_2],
+    images: [CASE_IMG_2, CASE_IMG_3, CASE_IMG_1],
     category: "Phone Cases & Covers",
     stock: 100,
     sku: "EZW-NIL-001",
@@ -213,7 +230,7 @@ const PRODUCTS = [
     description:
       "UAG Military Series case with MIL-STD-810G certification and tactical design.",
     price: 39999,
-    images: [CASE_IMG_1],
+    images: [CASE_IMG_1, CASE_IMG_2, CASE_IMG_3],
     category: "Phone Cases & Covers",
     stock: 40,
     sku: "EZW-UAG-001",
@@ -226,7 +243,7 @@ const PRODUCTS = [
     description:
       "Moshi Syber case with modular design and antimicrobial protection.",
     price: 34999,
-    images: [CASE_IMG_2],
+    images: [CASE_IMG_2, CASE_IMG_3, CASE_IMG_1],
     category: "Phone Cases & Covers",
     stock: 35,
     sku: "EZW-MOS-001",
@@ -239,7 +256,7 @@ const PRODUCTS = [
     description:
       "Spigen Liquid Crystal case with crystal clear design and shock absorption.",
     price: 11999,
-    images: [CASE_IMG_1],
+    images: [CASE_IMG_1, CASE_IMG_2, CASE_IMG_3],
     category: "Phone Cases & Covers",
     stock: 140,
     sku: "EZW-SPG-002",
@@ -252,7 +269,7 @@ const PRODUCTS = [
     description:
       "Nillkin Air case with ultra-slim design and excellent heat dissipation.",
     price: 16999,
-    images: [CASE_IMG_2],
+    images: [CASE_IMG_2, CASE_IMG_3, CASE_IMG_1],
     category: "Phone Cases & Covers",
     stock: 85,
     sku: "EZW-NIL-002",
@@ -265,7 +282,7 @@ const PRODUCTS = [
     description:
       "Ringke Onyx case with matte black finish, raised bezel, and secure grip design.",
     price: 14999,
-    images: [CASE_IMG_1],
+    images: [CASE_IMG_1, CASE_IMG_2, CASE_IMG_3],
     category: "Phone Cases & Covers",
     stock: 110,
     sku: "EZW-RIN-001",
@@ -278,7 +295,7 @@ const PRODUCTS = [
     description:
       "ESR Shockproof case with double-layer protection and military-grade drop resistance.",
     price: 11999,
-    images: [CASE_IMG_2],
+    images: [CASE_IMG_2, CASE_IMG_3, CASE_IMG_1],
     category: "Phone Cases & Covers",
     stock: 95,
     sku: "EZW-ESR-001",
@@ -291,7 +308,7 @@ const PRODUCTS = [
     description:
       "Lamicall nylon weave case with soft microfibre lining and slim profile.",
     price: 12999,
-    images: [CASE_IMG_1],
+    images: [CASE_IMG_1, CASE_IMG_2, CASE_IMG_3],
     category: "Phone Cases & Covers",
     stock: 75,
     sku: "EZW-LAM-001",
@@ -306,7 +323,7 @@ const PRODUCTS = [
     description:
       "Anker 3-port smart charger with AI power management and fast charging.",
     price: 29999,
-    images: [CHARGER_IMG_1],
+    images: [CHARGER_IMG_1, CHARGER_IMG_2, CHARGER_IMG_3],
     category: "Chargers & Cables",
     stock: 80,
     sku: "EZW-ANK-001",
@@ -319,7 +336,7 @@ const PRODUCTS = [
     description:
       "AmazonBasics USB-C to USB-C cable with 2-meter length and 60W fast charging.",
     price: 15999,
-    images: [CHARGER_IMG_2],
+    images: [CHARGER_IMG_2, CHARGER_IMG_3, CHARGER_IMG_1],
     category: "Chargers & Cables",
     stock: 200,
     sku: "EZW-AMZ-001",
@@ -332,7 +349,7 @@ const PRODUCTS = [
     description:
       "Apple MagSafe Charger with 15W fast wireless charging.",
     price: 69999,
-    images: [CHARGER_IMG_3],
+    images: [CHARGER_IMG_3, CHARGER_IMG_1, CHARGER_IMG_2],
     category: "Chargers & Cables",
     stock: 45,
     sku: "EZW-APP-001",
@@ -345,7 +362,7 @@ const PRODUCTS = [
     description:
       "Baseus 3-meter USB-C cable with nylon braided design and 100W fast charging.",
     price: 24999,
-    images: [CHARGER_IMG_1],
+    images: [CHARGER_IMG_1, CHARGER_IMG_2, CHARGER_IMG_3],
     category: "Chargers & Cables",
     stock: 90,
     sku: "EZW-BAS-001",
@@ -358,7 +375,7 @@ const PRODUCTS = [
     description:
       "Anker 30W 3-Port smart charger with AI power management.",
     price: 34999,
-    images: [CHARGER_IMG_2],
+    images: [CHARGER_IMG_2, CHARGER_IMG_3, CHARGER_IMG_1],
     category: "Chargers & Cables",
     stock: 55,
     sku: "EZW-ANK-005",
@@ -371,7 +388,7 @@ const PRODUCTS = [
     description:
       "Compact Anker Nano 20W USB-C charger with fast charging for iPhone and Android.",
     price: 14999,
-    images: [CHARGER_IMG_3],
+    images: [CHARGER_IMG_3, CHARGER_IMG_1, CHARGER_IMG_2],
     category: "Chargers & Cables",
     stock: 130,
     sku: "EZW-ANK-006",
@@ -384,7 +401,7 @@ const PRODUCTS = [
     description:
       "Belkin BoostCharge braided USB-C to USB-C cable with 2-meter length and 60W charging.",
     price: 11999,
-    images: [CHARGER_IMG_1],
+    images: [CHARGER_IMG_1, CHARGER_IMG_2, CHARGER_IMG_3],
     category: "Chargers & Cables",
     stock: 160,
     sku: "EZW-BLK-001",
@@ -397,7 +414,7 @@ const PRODUCTS = [
     description:
       "UGREEN 65W GaN fast charger with two USB-C and one USB-A port for laptops and phones.",
     price: 44999,
-    images: [CHARGER_IMG_2],
+    images: [CHARGER_IMG_2, CHARGER_IMG_3, CHARGER_IMG_1],
     category: "Chargers & Cables",
     stock: 70,
     sku: "EZW-UGR-001",
@@ -412,7 +429,7 @@ const PRODUCTS = [
     description:
       "Anker PowerCore 10000 mAh portable charger with dual USB output.",
     price: 45999,
-    images: [POWERBANK_IMG],
+    images: [POWERBANK_IMG, POWERBANK_IMG_2, POWERBANK_IMG_3],
     category: "Power Banks",
     stock: 60,
     sku: "EZW-ANK-002",
@@ -425,7 +442,7 @@ const PRODUCTS = [
     description:
       "Anker PowerCore 20000 mAh portable charger with fast charging and LED display.",
     price: 85999,
-    images: [POWERBANK_IMG],
+    images: [POWERBANK_IMG, POWERBANK_IMG_2, POWERBANK_IMG_3],
     category: "Power Banks",
     stock: 40,
     sku: "EZW-ANK-003",
@@ -438,7 +455,7 @@ const PRODUCTS = [
     description:
       "Philips Ego Charge portable charger with 10000 mAh and slim design.",
     price: 49999,
-    images: [POWERBANK_IMG],
+    images: [POWERBANK_IMG, POWERBANK_IMG_2, POWERBANK_IMG_3],
     category: "Power Banks",
     stock: 50,
     sku: "EZW-PHI-001",
@@ -451,7 +468,7 @@ const PRODUCTS = [
     description:
       "Anker PowerCore 26800 mAh portable charger with triple USB output for heavy users.",
     price: 119999,
-    images: [POWERBANK_IMG],
+    images: [POWERBANK_IMG, POWERBANK_IMG_2, POWERBANK_IMG_3],
     category: "Power Banks",
     stock: 35,
     sku: "EZW-ANK-007",
@@ -464,7 +481,7 @@ const PRODUCTS = [
     description:
       "Baseus 20000 mAh power bank with 22.5W fast charging and digital LED display.",
     price: 54999,
-    images: [POWERBANK_IMG],
+    images: [POWERBANK_IMG, POWERBANK_IMG_2, POWERBANK_IMG_3],
     category: "Power Banks",
     stock: 55,
     sku: "EZW-BAS-002",
@@ -477,7 +494,7 @@ const PRODUCTS = [
     description:
       "Samsung 10000 mAh power bank with 15W wireless charging and USB-C fast charging.",
     price: 64999,
-    images: [POWERBANK_IMG],
+    images: [POWERBANK_IMG, POWERBANK_IMG_2, POWERBANK_IMG_3],
     category: "Power Banks",
     stock: 45,
     sku: "EZW-SAM-005",
@@ -492,7 +509,7 @@ const PRODUCTS = [
     description:
       "Sony WF-1000XM4 wireless earbuds with noise cancellation and 8 hours battery life.",
     price: 199999,
-    images: [EARPHONE_IMG_1],
+    images: [EARPHONE_IMG_1, EARPHONE_IMG_2, EARPHONE_IMG_3],
     category: "Earphones & Headphones",
     stock: 35,
     sku: "EZW-SNY-001",
@@ -505,7 +522,7 @@ const PRODUCTS = [
     description:
       "Samsung Galaxy Buds2 wireless earbuds with ANC and comfortable fit.",
     price: 79999,
-    images: [EARPHONE_IMG_2],
+    images: [EARPHONE_IMG_2, EARPHONE_IMG_3, EARPHONE_IMG_1],
     category: "Earphones & Headphones",
     stock: 70,
     sku: "EZW-SAM-006",
@@ -518,7 +535,7 @@ const PRODUCTS = [
     description:
       "JBL TUNE 230NC true wireless earbuds with 40 hours battery life and ANC.",
     price: 89999,
-    images: [EARPHONE_IMG_3],
+    images: [EARPHONE_IMG_3, EARPHONE_IMG_1, EARPHONE_IMG_2],
     category: "Earphones & Headphones",
     stock: 65,
     sku: "EZW-JBL-001",
@@ -531,7 +548,7 @@ const PRODUCTS = [
     description:
       "Anker Soundcore Life Q35 wireless headphones with active noise cancellation.",
     price: 79999,
-    images: [EARPHONE_IMG_1],
+    images: [EARPHONE_IMG_1, EARPHONE_IMG_2, EARPHONE_IMG_3],
     category: "Earphones & Headphones",
     stock: 45,
     sku: "EZW-ANK-004",
@@ -544,7 +561,7 @@ const PRODUCTS = [
     description:
       "Apple AirPods Pro 2 with active noise cancellation, adaptive transparency, and USB-C charging case.",
     price: 429999,
-    images: [EARPHONE_IMG_2],
+    images: [EARPHONE_IMG_2, EARPHONE_IMG_3, EARPHONE_IMG_1],
     category: "Earphones & Headphones",
     stock: 25,
     sku: "EZW-APP-002",
@@ -557,7 +574,7 @@ const PRODUCTS = [
     description:
       "JBL Tune 510BT on-ear wireless headphones with JBL Pure Bass sound and 40 hours battery.",
     price: 89999,
-    images: [EARPHONE_IMG_3],
+    images: [EARPHONE_IMG_3, EARPHONE_IMG_1, EARPHONE_IMG_2],
     category: "Earphones & Headphones",
     stock: 60,
     sku: "EZW-JBL-002",
@@ -570,7 +587,7 @@ const PRODUCTS = [
     description:
       "Sony WH-1000XM5 wireless headphones with industry-leading noise cancellation and 30 hours battery.",
     price: 499999,
-    images: [EARPHONE_IMG_1],
+    images: [EARPHONE_IMG_1, EARPHONE_IMG_2, EARPHONE_IMG_3],
     category: "Earphones & Headphones",
     stock: 20,
     sku: "EZW-SNY-002",
@@ -585,7 +602,7 @@ const PRODUCTS = [
     description:
       "Spigen 9H tempered glass screen protector with oleophobic coating and easy install kit.",
     price: 8999,
-    images: [placeholder("Spigen Glass Protector")],
+    images: [SCREEN_IMG_1, SCREEN_IMG_2, placeholder("Spigen Glass Protector")],
     category: "Screen Protectors",
     stock: 250,
     sku: "EZW-SPG-003",
@@ -598,7 +615,7 @@ const PRODUCTS = [
     description:
       "Supershieldz tempered glass screen protector with scratch resistance and bubble-free adhesion.",
     price: 7999,
-    images: [placeholder("Supershieldz Protector")],
+    images: [SCREEN_IMG_2, SCREEN_IMG_1, placeholder("Supershieldz Protector")],
     category: "Screen Protectors",
     stock: 300,
     sku: "EZW-SUP-002",
@@ -611,7 +628,7 @@ const PRODUCTS = [
     description:
       "ESR screen protector 2-pack with auto-alignment frame and military-grade protection.",
     price: 11999,
-    images: [placeholder("ESR Protector 2-Pack")],
+    images: [SCREEN_IMG_1, SCREEN_IMG_2, placeholder("ESR Protector 2-Pack")],
     category: "Screen Protectors",
     stock: 180,
     sku: "EZW-ESR-002",

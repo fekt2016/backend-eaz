@@ -10,7 +10,7 @@ const {
   initiateMomoCharge, checkMomoCharge, initiateCardCharge,
   getStaff, createStaff,
   getTechnicians,
-  getOverview, getMyOverview,
+  getOverview, getMyOverview, getReportsAnalytics,
   getPartOrders, updatePartOrder, updateRepairOrder,
   getExpenses, createExpense, updateExpense, deleteExpense,
   triggerReminders, getUncollectedJobs,
@@ -36,6 +36,10 @@ router.use(restrictTo('superadmin', 'admin', 'staff', 'technician'));
 
 // ── Overview / reports — shop-wide financials (superadmin + admin) ───────────
 router.get('/overview', restrictTo('superadmin', 'admin'), getOverview);
+
+// ── Reports & analytics — consolidated BI for the Reports dashboard ──────────
+// superadmin/admin/staff can read reports (matches the sidebar visibility).
+router.get('/reports/analytics', restrictTo('superadmin', 'admin', 'staff'), getReportsAnalytics);
 
 // ── My dashboard — scoped to the logged-in user (all POS roles) ──────────────
 // Staff: jobs they created + their sales + low stock. Technician: their jobs only.

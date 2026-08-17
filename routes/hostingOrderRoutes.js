@@ -16,6 +16,7 @@ const { upload } = require('../controllers/uploadController');
 const {
   getPlans,
   createOrder,
+  staffCreateHostingAccount,
   getOrders,
   getAdminOverview,
   getHostingOrdersAdminSummary,
@@ -38,6 +39,7 @@ const router = express.Router();
 
 router.get('/plans', getPlans);
 router.post('/orders', protect, createOrder);
+router.post('/orders/staff-create', protect, restrictTo('admin', 'staff'), staffCreateHostingAccount);
 router.get('/orders', protect, getOrders);
 router.get('/orders/admin-overview', protect, restrictTo('admin'), getAdminOverview);
 router.get('/orders/admin-summary', protect, restrictTo('admin'), getHostingOrdersAdminSummary);

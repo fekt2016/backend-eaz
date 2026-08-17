@@ -3,6 +3,7 @@ const User = require('../models/User');
 const { protect, restrictTo } = require('../middleware/auth');
 const { sendWelcomeEmail, sendPasswordResetEmail, sendVerificationPin, sendTwoFactorPin } = require('../utils/email');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, validatePassword } = require('../utils/sanitize');
+const { log, logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
 
 const ALLOWED_ROLES = ['user', 'admin', 'staff', 'technician', 'superadmin'];
 
@@ -83,6 +84,17 @@ const register = async (req, res, next) => {
     });
 
     await sendVerificationPin(user, pin).catch(() => {});
+    await log({
+      actor: user,
+      action: ACTIONS.USER_REGISTERED,
+      resourceType: RESOURCES.USER,
+      resourceId: user._id,
+      resourceName: user.email,
+      description: `New account registered (${user.email})`,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+      requestId: req.id,
+    });
 
     res.status(201).json({
       success: true,
@@ -135,6 +147,17 @@ const login = async (req, res, next) => {
 
     const user = await User.findOne({ $or: lookups }).select('+password +verifyPin +twoFactorEnabled');
     if (!user) {
+      await log({
+        action: ACTIONS.AUTH_LOGIN_FAILED,
+        resourceType: RESOURCES.AUTH,
+        resourceId: identifier.toLowerCase(),
+        description: `Failed login attempt for ${identifier}`,
+        metadata: { reason: 'account_not_found' },
+        status: 'failure',
+        ip: req.ip,
+        userAgent: req.get('user-agent') || '',
+        requestId: req.id,
+      });
       return res.status(401).json({
         success: false,
         error: 'Invalid credentials.'
@@ -143,6 +166,18 @@ const login = async (req, res, next) => {
 
     const match = await user.comparePassword(password);
     if (!match) {
+      await log({
+        action: ACTIONS.AUTH_LOGIN_FAILED,
+        resourceType: RESOURCES.AUTH,
+        resourceId: user._id,
+        resourceName: user.email,
+        description: `Failed login attempt for ${user.email}`,
+        metadata: { reason: 'invalid_password' },
+        status: 'failure',
+        ip: req.ip,
+        userAgent: req.get('user-agent') || '',
+        requestId: req.id,
+      });
       return res.status(401).json({
         success: false,
         error: 'Invalid email or phone or password.'
@@ -151,6 +186,18 @@ const login = async (req, res, next) => {
 
     // Block blocked accounts
     if (user.isBlocked) {
+      await log({
+        action: ACTIONS.AUTH_LOGIN_FAILED,
+        resourceType: RESOURCES.AUTH,
+        resourceId: user._id,
+        resourceName: user.email,
+        description: `Blocked account attempted login (${user.email})`,
+        metadata: { reason: 'account_blocked' },
+        status: 'failure',
+        ip: req.ip,
+        userAgent: req.get('user-agent') || '',
+        requestId: req.id,
+      });
       return res.status(403).json({
         success: false,
         error: user.blockedReason
@@ -190,6 +237,17 @@ const login = async (req, res, next) => {
     }
 
     user.password = undefined;
+    await log({
+      actor: user,
+      action: ACTIONS.AUTH_LOGIN,
+      resourceType: RESOURCES.AUTH,
+      resourceId: user._id,
+      resourceName: user.email,
+      description: `Logged in as ${user.email}`,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+      requestId: req.id,
+    });
     sendTokenResponse(user, 200, res);
   } catch (error) {
     next(error);
@@ -197,6 +255,29 @@ const login = async (req, res, next) => {
 };
 
 const logout = async (req, res) => {
+  // Best-effort actor identity from the (possibly still valid) token cookie —
+  // logout is unauthenticated by design, so we decode without verifying expiry.
+  let actor = null;
+  try {
+    const token = req.cookies && req.cookies.token;
+    if (token) {
+      const payload = jwt.decode(token);
+      if (payload && payload.id) {
+        actor = { id: payload.id, email: payload.email, role: payload.role };
+      }
+    }
+  } catch { /* ignore — logout should never fail */ }
+  await log({
+    actor,
+    action: ACTIONS.AUTH_LOGOUT,
+    resourceType: RESOURCES.AUTH,
+    resourceId: actor ? actor.id : undefined,
+    resourceName: actor ? actor.email : undefined,
+    description: actor ? `Logged out (${actor.email})` : 'Logged out',
+    ip: req.ip,
+    userAgent: req.get('user-agent') || '',
+    requestId: req.id,
+  });
   // Reuse full cookieOptions so secure/sameSite are consistent
   res.cookie('token', 'none', { ...cookieOptions, maxAge: 5000 });
   res.status(200).json({ success: true, data: { message: 'Logged out.' } });
@@ -277,6 +358,17 @@ const resetPassword = async (req, res, next) => {
     await user.save();
 
     user.password = undefined;
+    await log({
+      actor: user,
+      action: ACTIONS.USER_PASSWORD_CHANGED,
+      resourceType: RESOURCES.USER,
+      resourceId: user._id,
+      resourceName: user.email,
+      description: `Password reset via email link (${user.email})`,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+      requestId: req.id,
+    });
     sendTokenResponse(user, 200, res);
   } catch (error) {
     next(error);
@@ -416,6 +508,17 @@ const changePassword = async (req, res, next) => {
     }
     user.password = newPassword;
     await user.save();
+    await log({
+      actor: user,
+      action: ACTIONS.USER_PASSWORD_CHANGED,
+      resourceType: RESOURCES.USER,
+      resourceId: user._id,
+      resourceName: user.email,
+      description: `Changed own password (${user.email})`,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+      requestId: req.id,
+    });
     res.json({ success: true, data: { message: 'Password changed successfully.' } });
   } catch (error) { next(error); }
 };
@@ -498,6 +601,17 @@ const verifyTwoFactor = async (req, res, next) => {
     user.twoFactorPin = undefined;
     user.twoFactorPinExpires = undefined;
     await user.save({ validateBeforeSave: false });
+    await log({
+      actor: user,
+      action: ACTIONS.AUTH_LOGIN,
+      resourceType: RESOURCES.AUTH,
+      resourceId: user._id,
+      resourceName: user.email,
+      description: `Logged in via 2FA as ${user.email}`,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+      requestId: req.id,
+    });
     sendTokenResponse(user, 200, res);
   } catch (error) { next(error); }
 };
@@ -515,6 +629,13 @@ const adminChangePassword = async (req, res, next) => {
     }
     targetUser.password = newPassword;
     await targetUser.save();
+    await logFromRequest(req, {
+      action: ACTIONS.USER_PASSWORD_CHANGED,
+      resourceType: RESOURCES.USER,
+      resourceId: targetUser._id,
+      resourceName: targetUser.email,
+      description: `Admin reset password for ${targetUser.name} (${targetUser.email})`,
+    });
     res.json({ success: true, data: { message: 'Password updated successfully.' } });
   } catch (error) {
     next(error);
@@ -572,6 +693,15 @@ const adminCreateUser = async (req, res, next) => {
       password,
       role,
       isVerified: true,
+    });
+
+    await logFromRequest(req, {
+      action: ACTIONS.USER_CREATED,
+      resourceType: RESOURCES.USER,
+      resourceId: user._id,
+      resourceName: user.email,
+      description: `Created user ${user.name} (${user.email}) with role ${role}`,
+      metadata: { role },
     });
 
     res.status(201).json({
@@ -632,6 +762,28 @@ const adminUpdateUser = async (req, res, next) => {
     }
 
     const updated = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+
+    // Audit: a role change is its own security-relevant event; other edits are
+    // logged as a generic update with the changed fields.
+    const roleChanged = role && updated.role !== targetUser.role;
+    const changes = [
+      ...(name && name !== targetUser.name ? [{ field: 'name', label: 'Name', before: targetUser.name, after: name }] : []),
+      ...(email && email !== targetUser.email ? [{ field: 'email', label: 'Email', before: targetUser.email, after: email }] : []),
+      ...(phone !== undefined && (phone || '') !== (targetUser.phone || '') ? [{ field: 'phone', label: 'Phone', before: targetUser.phone, after: phone }] : []),
+      ...(roleChanged ? [{ field: 'role', label: 'Role', before: targetUser.role, after: updated.role }] : []),
+    ];
+    await logFromRequest(req, {
+      action: roleChanged ? ACTIONS.USER_ROLE_CHANGED : ACTIONS.USER_UPDATED,
+      resourceType: RESOURCES.USER,
+      resourceId: updated._id,
+      resourceName: updated.email,
+      description: roleChanged
+        ? `Changed ${updated.name}'s role from ${targetUser.role} to ${updated.role}`
+        : `Updated user ${updated.name} (${updated.email})`,
+      changes,
+      metadata: { roleChanged },
+    });
+
     res.json({ success: true, data: updated });
   } catch (error) {
     next(error);
@@ -654,6 +806,16 @@ const adminToggleBlock = async (req, res, next) => {
     targetUser.isBlocked = Boolean(isBlocked);
     targetUser.blockedReason = isBlocked ? (blockedReason || '') : '';
     await targetUser.save({ validateBeforeSave: false });
+    await logFromRequest(req, {
+      action: isBlocked ? ACTIONS.USER_BLOCKED : ACTIONS.USER_UNBLOCKED,
+      resourceType: RESOURCES.USER,
+      resourceId: targetUser._id,
+      resourceName: targetUser.email,
+      description: isBlocked
+        ? `Blocked ${targetUser.name} (${targetUser.email})${blockedReason ? ` — ${blockedReason}` : ''}`
+        : `Unblocked ${targetUser.name} (${targetUser.email})`,
+      changes: [{ field: 'isBlocked', label: 'Blocked', before: !isBlocked, after: Boolean(isBlocked) }],
+    });
     res.json({ success: true, data: targetUser });
   } catch (error) {
     next(error);

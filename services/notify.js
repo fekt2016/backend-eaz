@@ -17,6 +17,7 @@
 const SHOP_NAME    = process.env.SHOP_NAME    || 'EazWorld Repair';
 const SHOP_PHONE   = process.env.SHOP_PHONE   || '0244388190';
 const FRONTEND_URL = require('../utils/frontendUrl')();
+const logger = require("../utils/logger");
 
 // ── Status messages — keep under 160 chars for a single SMS segment ──────────
 const STATUS_MESSAGES = {
@@ -160,7 +161,7 @@ async function notifyReminder(job, count) {
       meta: { jobId: String(job._id), jobNumber: job.jobNumber, reminderCount: count },
     });
   } catch (err) {
-    console.error(`[notify] Reminder email failed for job ${job.jobNumber}:`, err.message);
+    logger.error(`[notify] Reminder email failed for job ${job.jobNumber}:`, err.message);
     return false;
   }
 }
@@ -232,7 +233,7 @@ async function _sendHubtelSms(to, content) {
 async function sendCredentialsSms(phone, name, password) {
   const to = _toHubtelNumber(phone);
   if (!to) {
-    console.warn(`[notify] Could not normalise phone for credentials SMS: ${phone}`);
+    logger.warn(`[notify] Could not normalise phone for credentials SMS: ${phone}`);
     return false;
   }
 
@@ -240,17 +241,17 @@ async function sendCredentialsSms(phone, name, password) {
 
   if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[notify] (Hubtel not configured) Would SMS ${to}: ${content}`);
+      logger.info(`[notify] (Hubtel not configured) Would SMS ${to}: ${content}`);
     }
     return false;
   }
 
   try {
     await _sendHubtelSms(to, content);
-    console.log(`[notify] Credentials SMS sent to ${to}`);
+    logger.info(`[notify] Credentials SMS sent to ${to}`);
     return true;
   } catch (err) {
-    console.error(`[notify] Failed to send credentials SMS to ${to}:`, err.message);
+    logger.error(`[notify] Failed to send credentials SMS to ${to}:`, err.message);
     return false;
   }
 }
@@ -275,7 +276,7 @@ async function notifyCustomer(job, newStatus) {
       const sent = await notifyByEmail(job, newStatus, email);
       if (sent) return;
     } catch (err) {
-      console.error(`[notify] Email failed for job ${job.jobNumber}:`, err.message);
+      logger.error(`[notify] Email failed for job ${job.jobNumber}:`, err.message);
     }
   }
 
@@ -288,7 +289,7 @@ async function notifyCustomer(job, newStatus) {
 
   const to = _toHubtelNumber(phone);
   if (!to) {
-    console.warn(`[notify] Could not normalise phone number: ${phone}`);
+    logger.warn(`[notify] Could not normalise phone number: ${phone}`);
     return;
   }
 
@@ -297,17 +298,17 @@ async function notifyCustomer(job, newStatus) {
   // If Hubtel not configured — log in dev, silent in prod
   if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[notify] (Hubtel not configured) Would SMS ${to}: ${content}`);
+      logger.info(`[notify] (Hubtel not configured) Would SMS ${to}: ${content}`);
     }
     return;
   }
 
   try {
     await _sendHubtelSms(to, content);
-    console.log(`[notify] SMS sent to ${to} — status: ${newStatus}`);
+    logger.info(`[notify] SMS sent to ${to} — status: ${newStatus}`);
   } catch (err) {
     // Never crash the main flow — just log
-    console.error(`[notify] Failed to send SMS to ${to}:`, err.message);
+    logger.error(`[notify] Failed to send SMS to ${to}:`, err.message);
   }
 }
 

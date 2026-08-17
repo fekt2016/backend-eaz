@@ -12,6 +12,7 @@
 
 const RepairJob = require('../models/RepairJob');
 const { notifyReminder } = require('./notify');
+const logger = require("../utils/logger");
 
 const REMIND_AFTER_DAYS    = parseInt(process.env.REMINDER_AFTER_DAYS    || '3',  10);
 const REMIND_INTERVAL_DAYS = parseInt(process.env.REMINDER_INTERVAL_DAYS || '3',  10);
@@ -69,7 +70,7 @@ async function _sendSms(to, content) {
 
 async function runReminderJob() {
   const now = new Date();
-  console.log(`[reminders] Running at ${now.toISOString()}`);
+  logger.info(`[reminders] Running at ${now.toISOString()}`);
 
   try {
     // Jobs that are "ready", haven't been collected, and haven't hit the max reminder count
@@ -89,11 +90,11 @@ async function runReminderJob() {
       .select('jobNumber deviceBrand deviceModel status customer remindersSent lastReminderAt trackingToken');
 
     if (!jobs.length) {
-      console.log('[reminders] No jobs need reminders right now.');
+      logger.info('[reminders] No jobs need reminders right now.');
       return;
     }
 
-    console.log(`[reminders] Found ${jobs.length} job(s) to remind.`);
+    logger.info(`[reminders] Found ${jobs.length} job(s) to remind.`);
 
     for (const job of jobs) {
       const count   = job.remindersSent + 1;
@@ -104,27 +105,27 @@ async function runReminderJob() {
       if (!emailed) {
         const phone = job.customer?.phone;
         if (!phone) {
-          console.warn(`[reminders] Job ${job.jobNumber} — no customer phone, skipping.`);
+          logger.warn(`[reminders] Job ${job.jobNumber} — no customer phone, skipping.`);
           continue;
         }
 
         const to = _toHubtelNumber(phone);
         if (!to) {
-          console.warn(`[reminders] Job ${job.jobNumber} — could not parse phone ${phone}, skipping.`);
+          logger.warn(`[reminders] Job ${job.jobNumber} — could not parse phone ${phone}, skipping.`);
           continue;
         }
 
         // Dev mode: just log
         if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
           if (process.env.NODE_ENV !== 'production') {
-            console.log(`[reminders] (Hubtel not configured) Would SMS ${to}: ${content}`);
+            logger.info(`[reminders] (Hubtel not configured) Would SMS ${to}: ${content}`);
           }
         } else {
           try {
             await _sendSms(to, content);
-            console.log(`[reminders] SMS sent to ${to} for job ${job.jobNumber} (reminder #${count})`);
+            logger.info(`[reminders] SMS sent to ${to} for job ${job.jobNumber} (reminder #${count})`);
           } catch (err) {
-            console.error(`[reminders] SMS failed for job ${job.jobNumber}:`, err.message);
+            logger.error(`[reminders] SMS failed for job ${job.jobNumber}:`, err.message);
             continue; // don't update counter if SMS failed
           }
         }
@@ -136,9 +137,9 @@ async function runReminderJob() {
       await job.save();
     }
 
-    console.log('[reminders] Done.');
+    logger.info('[reminders] Done.');
   } catch (err) {
-    console.error('[reminders] Job error:', err.message);
+    logger.error('[reminders] Job error:', err.message);
   }
 }
 

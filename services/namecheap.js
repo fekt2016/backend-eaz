@@ -2,6 +2,7 @@ const axios = require("axios");
 const { parseString } = require("xml2js");
 const { promisify } = require("util");
 const { extractTLD, getDefaultPrice } = require("../utils/domainHelper");
+const logger = require("../utils/logger");
 
 const parseXml = promisify(parseString);
 
@@ -73,12 +74,12 @@ async function getPricing() {
 
     const apiResponse = parsed?.ApiResponse;
     const status = apiResponse?.$?.Status;
-    console.log(`[Namecheap] getPricing status: ${status}`);
+    logger.info(`[Namecheap] getPricing status: ${status}`);
 
     if (status !== "OK") {
       const errors = apiResponse?.Errors?.[0]?.Error;
       const errMsg = Array.isArray(errors) ? errors[0]?._ : errors?._;
-      console.warn(
+      logger.warn(
         `⚠️  Namecheap getPricing failed: ${errMsg || "non-OK status"}`,
       );
       return priceCache.data || {};
@@ -88,14 +89,14 @@ async function getPricing() {
     const productTypes =
       apiResponse?.CommandResponse?.[0]?.UserGetPricingResult?.[0]
         ?.ProductType || [];
-    console.log(`[Namecheap] ProductType entries: ${productTypes.length}`);
+    logger.info(`[Namecheap] ProductType entries: ${productTypes.length}`);
 
     // ── TEMPORARY DEBUG — remove after fix ──
     // const comProduct = productTypes
     //   .flatMap((pt) => pt.ProductCategory || [])
     //   .flatMap((cat) => cat.Product || [])
     //   .find((p) => p?.$?.Name === "com");
-    // console.log("COM PRODUCT:", JSON.stringify(comProduct, null, 2));
+    // logger.info("COM PRODUCT:", JSON.stringify(comProduct, null, 2));
     // // ── END DEBUG ──
 
     for (const pt of productTypes) {
@@ -123,14 +124,14 @@ async function getPricing() {
 
     if (Object.keys(pricing).length > 0) {
       priceCache = { data: pricing, timestamp: Date.now() };
-      console.log(
+      logger.info(
         `✅ Namecheap pricing loaded: ${Object.keys(pricing).length} TLDs`,
       );
     }
 
     return pricing;
   } catch (err) {
-    console.warn("⚠️  Namecheap getPricing failed:", err.message);
+    logger.warn("⚠️  Namecheap getPricing failed:", err.message);
     return priceCache.data || {};
   }
 }
@@ -264,7 +265,7 @@ async function checkMultipleDomains(
       if (apiResponse?.$?.Status !== "OK") {
         const errors = apiResponse?.Errors?.[0]?.Error;
         const errMsg = Array.isArray(errors) ? errors[0]?._ : errors?._;
-        console.warn(
+        logger.warn(
           `[Namecheap] domains.check ERROR: ${errMsg || apiResponse?.$?.Status}`,
         );
         chunk.forEach((d) => {
@@ -279,7 +280,7 @@ async function checkMultipleDomains(
       }
 
       const items = apiResponse?.CommandResponse?.[0]?.DomainCheckResult || [];
-      console.log(
+      logger.info(
         `[Namecheap] domains.check — ${items.length} results:`,
         items.map((i) => `${i?.$?.Domain}=${i?.$?.Available}`),
       );
@@ -384,7 +385,7 @@ async function registerDomain(domain, years, registrant, options = {}) {
     const ns2 = process.env.NAMESERVER_2 || "ns2.eazworld.com";
     nameserverParams.Nameserver1 = ns1;
     nameserverParams.Nameserver2 = ns2;
-    console.log(
+    logger.info(
       `[Namecheap] Registering ${domain} with EazWorld nameservers: ${ns1}, ${ns2}`,
     );
   }
@@ -457,7 +458,7 @@ async function setEazWorldNameservers(domain) {
       return { success: false, error: errMsg || "Nameserver update failed" };
     }
 
-    console.log(
+    logger.info(
       `[Namecheap] Nameservers updated for ${domain} → ${ns1}, ${ns2}`,
     );
     return { success: true };

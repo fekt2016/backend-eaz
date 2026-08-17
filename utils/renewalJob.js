@@ -13,6 +13,7 @@ const EmailLog = require('../models/EmailLog');
 const { Resend } = require('resend');
 const whm = require('../services/whm');
 const { LIFECYCLE } = require('../config/hostingPlans');
+const logger = require("./logger");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -55,7 +56,7 @@ async function sendRenewalReminder(order, daysLeft) {
     });
     EmailLog.create({ to: order.customer.email, subject, type: 'renewal_reminder', status: 'sent', orderId: order._id, meta: { daysLeft } }).catch(() => {});
   } catch (err) {
-    console.error(`[renewalJob] Reminder email failed for ${order.customer.email}:`, err.message);
+    logger.error(`[renewalJob] Reminder email failed for ${order.customer.email}:`, err.message);
     EmailLog.create({ to: order.customer.email, subject, type: 'renewal_reminder', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
   }
 }
@@ -88,7 +89,7 @@ async function sendExpiredNotice(order) {
     });
     EmailLog.create({ to: order.customer.email, subject, type: 'expired_notice', status: 'sent', orderId: order._id }).catch(() => {});
   } catch (err) {
-    console.error(`[renewalJob] Expired notice email failed for ${order.customer.email}:`, err.message);
+    logger.error(`[renewalJob] Expired notice email failed for ${order.customer.email}:`, err.message);
     EmailLog.create({ to: order.customer.email, subject, type: 'expired_notice', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
   }
 }
@@ -96,7 +97,7 @@ async function sendExpiredNotice(order) {
 // ── Main job ───────────────────────────────────────────────────────────────────
 
 async function runRenewalJob() {
-  console.log('[renewalJob] Running...');
+  logger.info('[renewalJob] Running...');
   const now = new Date();
 
   try {
@@ -114,21 +115,21 @@ async function runRenewalJob() {
         await sendRenewalReminder(order, days);
         order.renewalReminderSent = 'sent_30d';
         await order.save({ validateBeforeSave: false }).catch(() => {});
-        console.log(`[renewalJob] 30d reminder sent → ${order.customer.email}`);
+        logger.info(`[renewalJob] 30d reminder sent → ${order.customer.email}`);
       }
       // 7-day reminder
       else if (days <= 7 && days > 1 && !['sent_7d', 'sent_1d'].includes(order.renewalReminderSent)) {
         await sendRenewalReminder(order, days);
         order.renewalReminderSent = 'sent_7d';
         await order.save({ validateBeforeSave: false }).catch(() => {});
-        console.log(`[renewalJob] 7d reminder sent → ${order.customer.email}`);
+        logger.info(`[renewalJob] 7d reminder sent → ${order.customer.email}`);
       }
       // 1-day reminder
       else if (days <= 1 && order.renewalReminderSent !== 'sent_1d') {
         await sendRenewalReminder(order, days <= 0 ? 1 : days);
         order.renewalReminderSent = 'sent_1d';
         await order.save({ validateBeforeSave: false }).catch(() => {});
-        console.log(`[renewalJob] 1d reminder sent → ${order.customer.email}`);
+        logger.info(`[renewalJob] 1d reminder sent → ${order.customer.email}`);
       }
     }
 
@@ -143,11 +144,11 @@ async function runRenewalJob() {
 
     let suspended = 0;
     for (const order of toSuspend) {
-      console.log(`[renewalJob] Suspending expired account past grace: ${order.cpanelUsername} (${order.customer.email})`);
+      logger.info(`[renewalJob] Suspending expired account past grace: ${order.cpanelUsername} (${order.customer.email})`);
       if (order.cpanelUsername && whm.hasConfig()) {
         const r = await whm.suspendAccount(order.cpanelUsername, 'Subscription expired');
         if (!r.success) {
-          console.error(`[renewalJob] Suspend failed for ${order.cpanelUsername}: ${r.error}`);
+          logger.error(`[renewalJob] Suspend failed for ${order.cpanelUsername}: ${r.error}`);
           continue; // leave active; retry next run
         }
       }
@@ -167,11 +168,11 @@ async function runRenewalJob() {
 
     let terminated = 0;
     for (const order of toTerminate) {
-      console.log(`[renewalJob] Terminating long-suspended account: ${order.cpanelUsername} (${order.customer.email})`);
+      logger.info(`[renewalJob] Terminating long-suspended account: ${order.cpanelUsername} (${order.customer.email})`);
       if (order.cpanelUsername && whm.hasConfig()) {
         const r = await whm.terminateAccount(order.cpanelUsername);
         if (!r.success) {
-          console.error(`[renewalJob] Terminate failed for ${order.cpanelUsername}: ${r.error}`);
+          logger.error(`[renewalJob] Terminate failed for ${order.cpanelUsername}: ${r.error}`);
           continue; // retry next run
         }
       }
@@ -182,9 +183,9 @@ async function runRenewalJob() {
       terminated += 1;
     }
 
-    console.log(`[renewalJob] Done — ${upcoming.length} reminders checked, ${suspended} suspended, ${terminated} terminated`);
+    logger.info(`[renewalJob] Done — ${upcoming.length} reminders checked, ${suspended} suspended, ${terminated} terminated`);
   } catch (err) {
-    console.error('[renewalJob] Error:', err.message);
+    logger.error('[renewalJob] Error:', err.message);
   }
 }
 
@@ -208,7 +209,7 @@ async function sendTerminatedNotice(order) {
     });
     EmailLog.create({ to: order.customer.email, subject, type: 'terminated_notice', status: 'sent', orderId: order._id }).catch(() => {});
   } catch (err) {
-    console.error(`[renewalJob] Terminated notice email failed for ${order.customer.email}:`, err.message);
+    logger.error(`[renewalJob] Terminated notice email failed for ${order.customer.email}:`, err.message);
     EmailLog.create({ to: order.customer.email, subject, type: 'terminated_notice', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
   }
 }

@@ -1,6 +1,8 @@
 const Order = require('../models/Order');
 const Part = require('../models/Part');
 const Product = require('../models/Product');
+const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
+const { formatGhs } = require('./money');
 
 /**
  * Atomically transition a shop order pending→paid and decrement stock.
@@ -24,6 +26,15 @@ async function fulfilShopOrder(reference) {
   );
 
   if (!paid) return null;
+
+  await log({
+    action: ACTIONS.ORDER_PAID,
+    resourceType: RESOURCES.ORDER,
+    resourceId: paid.orderNumber,
+    resourceName: paid.orderNumber,
+    description: `Payment confirmed for order ${paid.orderNumber} (${formatGhs(paid.total)})`,
+    metadata: { reference: reference, totalPesewas: paid.total },
+  });
 
   // Decrement stock atomically per item. Never oversell: if the guard
   // fails for an item, log it and continue.

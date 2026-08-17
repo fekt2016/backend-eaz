@@ -9,6 +9,7 @@ const {
   getDomainOrders,
   getDomainOrder,
   updateOrderStatus,
+  retryDomainRegistration,
 } = require('../controllers/domainController');
 const { protect, restrictTo } = require('../middleware/auth');
 const namecheap = require('../services/namecheap');
@@ -36,5 +37,6 @@ router.post('/payment', protect, createDomainPayment);
 router.get('/orders', protect, getDomainOrders);
 router.get('/orders/:id', protect, getDomainOrder);
 router.patch('/orders/:id/status', protect, restrictTo('admin'), updateOrderStatus);
+router.post('/orders/:id/retry-registration', protect, restrictTo('admin'), retryDomainRegistration);
 
 module.exports = router;
