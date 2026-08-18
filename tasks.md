@@ -162,6 +162,18 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T36 · Supplier model: add WhatsApp and WeChat fields**
+  - **Issue:** Parts/products are sourced from China — vendors are contacted via **WhatsApp**
+    and **WeChat**, not just phone/email. The `Supplier` schema needs fields for both.
+  - **Location:** `models/Supplier.js` (add `whatsapp`, `wechat` strings), sanitization +
+    validation in `controllers/pos/expenseController.js` (createSupplier/updateSupplier),
+    include in `GET /pos/suppliers` + `GET /pos/suppliers/:id` responses (already returned via
+    find).
+  - **Fix:** Add `whatsapp` (phone, maxlength ~30) and `wechat` (WeChat ID, maxlength ~50)
+    optional fields; sanitize like phone (and allow a leading `+`). Frontend renders chat
+    links. Keep money/roles unchanged.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T36.
+
 - [ ] **T35 · Variant model: support a per-variant price**
   - **Issue:** `Product.variants[]` only has `sku`, `attributes`, `stock`, `images` — no price.
     Variants should support their own price (different sizes/colors/storage cost differently)
