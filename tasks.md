@@ -162,6 +162,19 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T37 · POS inventory search: return product images**
+  - **Issue:** When the sell page searches with `includeProducts=true`, the shop product
+    query does `.select('name sku price stock category')` — **no `images`** — so product
+    thumbnails can't render in the sell page results/cart. Parts already return their full
+    `images` array (Part model has `images`).
+  - **Location:** `controllers/pos/inventoryController.js` (getParts product query ~line 32 —
+    add `images` to `.select(...)`); scan lookup (`scanLookup` ~line 74) already returns full
+    docs but confirm `images` survives `normalizeProduct`
+  - **Fix:** Add `images` to the product `.select(...)` so `GET /pos/inventory?...` returns
+    them. `normalizeProduct` spreads the full product, so `images` flows through untouched.
+    No model change needed.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T37.
+
 - [ ] **T36 · Supplier model: add WhatsApp and WeChat fields**
   - **Issue:** Parts/products are sourced from China — vendors are contacted via **WhatsApp**
     and **WeChat**, not just phone/email. The `Supplier` schema needs fields for both.
