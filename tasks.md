@@ -162,6 +162,22 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T21 · Technicians have NO hosting/domain access — backend + audit**
+  - **Issue:** Technicians must have **zero** access to anything hosting- or domain-related.
+    Confirm the backend routes (`/api/v1/hosting/*`, `/api/v1/domains/*`) return 401/403 for
+    technicians, and that no technician-facing endpoint leaks hosting/domain data.
+  - **Location:** `routes/hostingRoutes.js`, `routes/domainRoutes.js`, `controllers/*`
+  - **Fix:** Audit and enforce role guards on every hosting/domain endpoint; add
+    `restrictTo('admin')`/staff where missing. Frontend nav/widget hiding for technicians
+    lives in `frontend-eaz/tasks.md` → T21.
+
+- [ ] **T20 · Hide repair/technician form when job is done or cancelled**
+  - **Issue:** The Technician Update + Parts forms on the repair job detail page remain editable
+    after the job is finished or cancelled.
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/pos/jobs/[id]/page.jsx`
+  - **Fix:** Frontend-only change — hide/make read-only for `ready`/`collected`/`cancelled`;
+    **no backend change required** (see `frontend-eaz/tasks.md` → T20).
+
 ---
 
 ## Notes / Reconciliation with `AUDIT_REPORT.md` (stale)
