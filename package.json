@@ -10,7 +10,9 @@
     "seed:iphone-parts": "node src/seedIphoneParts.js",
     "migrate:part-prices": "node src/migratePartPricesToPesewas.js",
     "migrate:pos-money": "node src/migratePosMoneyToPesewas.js",
+    "migrate:user-phones": "node scripts/normalizeUserPhones.js",
     "check:duplicate-skus": "node scripts/checkDuplicateSkus.js",
+    "check:duplicate-phones": "node scripts/checkDuplicatePhones.js",
     "test": "jest --runInBand",
     "test:watch": "jest --runInBand --watch"
   },

@@ -20,7 +20,9 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       trim: true,
-      sparse: true,
+      // No field-level `sparse` index here: uniqueness (for non-empty phones
+      // only) is enforced by the partial-unique index defined below. A field
+      // `sparse:true` would generate a second `phone_1` index and collide with it.
     },
     password: {
       type: String,
@@ -146,6 +148,14 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ role: 1 });
 userSchema.index({ isBlocked: 1 });
+// Unique phone — but only for non-empty string phones (many accounts have none;
+// absent/"" values must never collide). Store phones in canonical 0XXXXXXXXX form
+// (see utils/sanitize.sanitizePhone). Run `npm run check:duplicate-phones` before
+// deploying so this index can build.
+userSchema.index(
+  { phone: 1 },
+  { unique: true, partialFilterExpression: { phone: { $type: 'string', $gt: '' } } },
+);
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();

@@ -70,6 +70,19 @@ const register = async (req, res, next) => {
       });
     }
 
+    // Phone is optional, but when supplied it must be unique (canonical form
+    // guaranteed by sanitizePhone above). The unique index is the race-safe
+    // backstop; this pre-check gives a friendlier message.
+    if (phone) {
+      const phoneTaken = await User.findOne({ phone });
+      if (phoneTaken) {
+        return res.status(409).json({
+          success: false,
+          error: 'Phone number already registered.'
+        });
+      }
+    }
+
     const pin = generatePin();
     const pinExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
@@ -109,6 +122,12 @@ const register = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'Email already registered.'
+      });
+    }
+    if (error.code === 11000 && error.keyPattern?.phone) {
+      return res.status(409).json({
+        success: false,
+        error: 'Phone number already registered.'
       });
     }
     if (error.name === 'ValidationError') {
@@ -686,6 +705,17 @@ const adminCreateUser = async (req, res, next) => {
       });
     }
 
+    // Enforce phone uniqueness when supplied (unique index is the race-safe backstop).
+    if (phone) {
+      const phoneTaken = await User.findOne({ phone });
+      if (phoneTaken) {
+        return res.status(409).json({
+          success: false,
+          error: 'Phone number already in use by another account.'
+        });
+      }
+    }
+
     const user = await User.create({
       name,
       email,
@@ -721,6 +751,12 @@ const adminCreateUser = async (req, res, next) => {
         error: 'Email already registered.'
       });
     }
+    if (error.code === 11000 && error.keyPattern?.phone) {
+      return res.status(409).json({
+        success: false,
+        error: 'Phone number already in use by another account.'
+      });
+    }
     if (error.name === 'ValidationError') {
       const msg = error.message || Object.values(error.errors || {}).map((e) => e.message).join(', ');
       return res.status(400).json({
@@ -747,6 +783,15 @@ const adminUpdateUser = async (req, res, next) => {
     // Prevent admin from demoting themselves
     if (String(targetUser._id) === String(req.user._id) && role && role !== 'admin' && role !== 'superadmin') {
       return res.status(400).json({ success: false, error: 'You cannot remove your own admin role.' });
+    }
+
+    // When setting a non-empty phone, it must not belong to another account
+    // (clearing the phone to '' is always allowed). The unique index backstops races.
+    if (phone) {
+      const phoneOwner = await User.findOne({ phone, _id: { $ne: targetUser._id } });
+      if (phoneOwner) {
+        return res.status(409).json({ success: false, error: 'Phone number already in use by another account.' });
+      }
     }
 
     const updates = {};
@@ -786,6 +831,9 @@ const adminUpdateUser = async (req, res, next) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
+    if (error.code === 11000 && error.keyPattern?.phone) {
+      return res.status(409).json({ success: false, error: 'Phone number already in use by another account.' });
+    }
     next(error);
   }
 };
