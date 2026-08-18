@@ -162,6 +162,120 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T34 · Product image upload endpoint already covers local uploads — no backend change**
+  - **Issue:** The product form's main images field is URL-only in the UI, but the backend
+    upload route (`POST /api/v1/uploads`, Cloudinary) already exists and is used by the form's
+    variant/gallery upload buttons. No backend work required for local product image upload.
+  - **Location:** `controllers/uploadController.js` (or wherever `/uploads` is handled),
+    `routes/uploadRoutes.js`
+  - **Fix:** None expected on the backend — verify the upload endpoint accepts `image/*` and
+    returns `{ url }`. Frontend change only (see `frontend-eaz/tasks.md` → T34).
+
+- [ ] **T33 · `Part` model + inventory endpoint should support an image**
+  - **Issue:** Repair parts have no image field; the inventory form can't attach a photo. Shop
+    products already support images (`Product.images`). Parts need the same.
+  - **Location:** `models/Part.js`, `controllers/pos/inventoryController.js`,
+    upload route (Cloudinary) used by products
+  - **Fix:** Add an image field to `Part` (e.g. `image`/`images`), accept it in the inventory
+    create/update handlers, and expose it in `GET /pos/inventory` + scan/search responses.
+    Frontend part: `frontend-eaz/tasks.md` → T33.
+
+- [ ] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity**
+  - **Issue:** `getReportsAnalytics` returns **shop-wide** figures to every role (only
+    technicians blocked). Staff must see **only their own** numbers; admin must see **all
+    staff** and drill into each staff member's activity.
+  - **Location:** `controllers/pos/reportsController.js` (`getReportsAnalytics`),
+    `routes/posRoutes.js` (`/pos/reports/analytics`), `controllers/pos/common.js`
+  - **Fix:** Accept an optional `staffId` filter (jobs by `assignedTo`/`createdBy`, sales by
+    `cashier`, payments, activity). For staff roles, **force** the filter to `req.user._id`
+    regardless of the query param (never trust client ids). For admin/superadmin, allow
+    selecting a staff member and return a per-staff activity breakdown. Add tests.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T32.
+
+- [ ] **T31 · `createSale` must support shop products (accessories) too**
+  - **Issue:** The POS Sell page should sell **both** repair parts **and** shop
+    products/accessories. `createSale` already branches on `partId` vs `productId` — confirm
+    the product path works (stock check, `$inc`, `Sale.create`) and doesn't hit the T30 500.
+  - **Location:** `controllers/pos/salesController.js` (`createSale` product branch),
+    `models/Sale.js`, `routes/posRoutes.js` (`/pos/inventory` `includeProducts`)
+  - **Fix:** Verify products complete a sale correctly; add tests for a product-only sale and a
+    mixed parts+products sale. Frontend part: `frontend-eaz/tasks.md` → T31.
+
+- [ ] **T30 · POS sale `createSale` 500 when selling parts**
+  - **Symptom:** Completing a sale from the POS Sell page with parts in the cart returns a
+    **500** on **all payment options** (Cash/MoMo/Card); no sale is recorded.
+  - **Location:** `controllers/pos/salesController.js` (`createSale`), `models/Sale.js`
+  - **Fix (investigate):**
+    - Reproduce and capture the real server error (check logs — the 500 hides the root cause).
+    - Likely candidates: `res.status(201).json({ data: sale })` returns the **array** from
+      `Sale.create([...])` instead of a single object; `saleNumber`/pre-save hooks; a `part`
+      schema validation issue; transaction/abort mishandling.
+    - Add a regression test for selling a repair part via `POST /api/v1/pos/sales`.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T30.
+
+- [ ] **T29 · Role-based landing pages after login**
+  - **Issue:** The frontend currently redirects admin/superadmin to `/dashboard/pos` /
+    `/dashboard/pos/sell` after login instead of the Overview page.
+  - **Fix (frontend):** admin/superadmin → **Overview** (`/dashboard`); staff → **Sell**
+    (`/dashboard/pos/sell`); technician → `/dashboard/pos`; customer → `/`. Apply also after
+    email/2FA verification.
+  - **Location:** frontend — `frontend-eaz/src/app/auth/login/page.jsx`
+  - **Note:** frontend-only redirect change; **no backend change required** (see
+    `frontend-eaz/tasks.md` → T29).
+
+- [ ] **T28 · Admin order edits centralized on the detail page**
+  - **Issue:** The frontend admin orders list has inline status updates; all order editing
+    should live on the order detail page. The POS orders list also uses card layout and should
+    become a table.
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/orders/page.jsx`,
+    `frontend-eaz/src/app/dashboard/orders/[id]/page.jsx`,
+    `frontend-eaz/src/app/dashboard/pos/orders/page.jsx` (card → table)
+  - **Fix:** Frontend-only reorganization — make the list read-only with links to the detail
+    page where all updates happen, and convert the POS orders cards to a table; **no backend
+    change required** (see `frontend-eaz/tasks.md` → T28).
+
+- [ ] **T27 · Confirm product-review endpoints ready for order-page form**
+  - **Issue:** The customer order detail page needs a product review form. The backend
+    endpoints already exist (`POST /api/v1/products/:productId/reviews`, `GET/PATCH
+    …/reviews/mine`) — confirm they work for a product bought in an order and gate review
+    submission to customers who actually ordered the item (optional).
+  - **Location:** `routes/productRoutes.js`, `controllers/productReviewController.js`,
+    `models/ProductReview.js`
+  - **Fix:** Verify/complete review endpoints; optionally require a verified order of that
+    product before allowing a review. Frontend form lives in `frontend-eaz/tasks.md` → T27.
+
+- [ ] **T26 · Endpoint for the list of registered domains**
+  - **Issue:** The frontend Domains page needs to show the list of **registered domains**
+    (names the user owns + status/expiry), not just domain order records.
+  - **Location:** `routes/domainRoutes.js`, `controllers/domainController.js`,
+    `models/DomainOrder.js`
+  - **Fix:** Add a registered-domains endpoint (e.g. `GET /api/v1/domains/my` returning owned/
+    registered domains with name, status, expiry) or return registered-domain data from the
+    existing orders endpoint. Frontend wiring lives in `frontend-eaz/tasks.md` → T26.
+
+- [ ] **T25 · Hosting page should only show hosting-account related content**
+  - **Issue:** The frontend Hosting page mixes content not strictly related to the user's
+    hosting account(s).
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/hosting/page.jsx`
+  - **Fix:** Frontend-only cleanup of the hosting list/detail pages to show only hosting-account
+    content; **no backend change required** (see `frontend-eaz/tasks.md` → T25). Confirm the
+    hosting API responses only return hosting-order data.
+
+- [ ] **T24 · Merge "Marketplace" and "Inventory" into one page**
+  - **Issue:** The frontend has separate Marketplace and Inventory pages that should be one.
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/commerce/page.jsx`,
+    `frontend-eaz/src/app/dashboard/commerce/inventory/page.jsx`
+  - **Fix:** Primarily a frontend merge (see `frontend-eaz/tasks.md` → T24). Confirm no
+    backend endpoint change is needed (both views likely share `/api/v1/products`,
+    `/api/v1/inventory`).
+
+- [ ] **T23 · Remove "New Job" button from Overview dashboard**
+  - **Issue:** The frontend Overview page (`/dashboard`) shows a "New Job" button that should
+    not be there; creating a repair job belongs in the POS/Jobs area.
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/page.jsx`
+  - **Fix:** Frontend-only removal of the Overview "New Job" button and empty-state create link;
+    **no backend change required** (see `frontend-eaz/tasks.md` → T23).
+
 - [ ] **T22 · Integrate "My Repairs" and "My Jobs" into one page**
   - **Issue:** Two overlapping views of repair jobs exist — customer "My Repairs"
     (`/dashboard/repairs`, `useMyRepairs`) and technician "My Jobs" (`/dashboard/pos`,
