@@ -153,6 +153,17 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ---
 
+## Ad-hoc fixes (found during work, outside the original audit)
+
+- [ ] **T19 · "Customer will bring device in" → "Device received" when diagnosing starts**
+  - **Issue:** Once a repair job leaves the `received` stage, the customer/device card label
+    should read "Device received" instead of the dropoff-based "Customer will bring device in".
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/pos/jobs/[id]/_components/CustomerDeviceCard.jsx`
+  - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
+    (see `frontend-eaz/tasks.md` → T19).
+
+---
+
 ## Notes / Reconciliation with `AUDIT_REPORT.md` (stale)
 
 `AUDIT_REPORT.md` predates the migration to the current stack and is **superseded** by
