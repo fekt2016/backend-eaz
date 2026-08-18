@@ -162,6 +162,19 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T35 · Variant model: support a per-variant price**
+  - **Issue:** `Product.variants[]` only has `sku`, `attributes`, `stock`, `images` — no price.
+    Variants should support their own price (different sizes/colors/storage cost differently)
+    instead of always inheriting the base product price.
+  - **Location:** `models/Product.js` (variants schema ~lines 55–66 — add
+    `price: { type: Number, min: 0, default: 0 }` in **pesewas**), product create/update
+    validation, order line price resolution (variant price wins over base price), shop
+    product detail + POS sell
+  - **Fix:** Add `price` (pesewas) to the variant schema and accept it in product
+    create/update. When an order/sale line references a variant, use the variant price if set
+    (else base price). Keep money in integer pesewas.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T35.
+
 - [ ] **T34 · Product image upload endpoint already covers local uploads — no backend change**
   - **Issue:** The product form's main images field is URL-only in the UI, but the backend
     upload route (`POST /api/v1/uploads`, Cloudinary) already exists and is used by the form's
