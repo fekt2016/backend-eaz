@@ -11,6 +11,9 @@
 > **Status key:** `[ ]` open · `[~]` in progress · `[x]` done · `[-]` won't fix / N/A
 > **Priority:** **P0** blocking · **P1** important · **P2** improvement
 >
+> **Convention:** the **user** ticks boxes off (checks with issues); the agent **adds** new
+> issues to both `backend-eaz/tasks.md` and `frontend-eaz/tasks.md` when reported.
+>
 > ⚠️ The older `AUDIT_REPORT.md` in the repo is **stale** (it describes a pre-migration
 > Vite/React SPA with no auth). Its "critical" items are already resolved in the current
 > code — see the reconciliation note at the bottom. Do **not** re-open those tasks.
