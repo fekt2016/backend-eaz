@@ -162,6 +162,16 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T22 · Integrate "My Repairs" and "My Jobs" into one page**
+  - **Issue:** Two overlapping views of repair jobs exist — customer "My Repairs"
+    (`/dashboard/repairs`, `useMyRepairs`) and technician "My Jobs" (`/dashboard/pos`,
+    `useJobs`). They should be one integrated page.
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/repairs/page.jsx`,
+    `frontend-eaz/src/app/dashboard/pos/page.jsx`
+  - **Fix:** Primarily a frontend merge (see `frontend-eaz/tasks.md` → T22). Confirm the backend
+    endpoints backing each (`GET /api/v1/pos/jobs?assignedTo=me` vs the repairs endpoint) and
+    whether a single unified endpoint/hook is needed.
+
 - [ ] **T21 · Technicians have NO hosting/domain access — backend + audit**
   - **Issue:** Technicians must have **zero** access to anything hosting- or domain-related.
     Confirm the backend routes (`/api/v1/hosting/*`, `/api/v1/domains/*`) return 401/403 for
