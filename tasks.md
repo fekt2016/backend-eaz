@@ -155,6 +155,35 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+- [ ] **T52 · Frontend dashboard admin gates exclude superadmin**
+  - **Issue:** Admin pages gate on `user?.role === "admin"` (or `!== "admin"`), so a superadmin
+    (site owner) is redirected to `/dashboard` or the admin data never loads.
+  - **Location:** frontend — `src/app/dashboard/(admin)/hosting-orders/page.jsx:107`;
+    `domain-orders/page.jsx:35,38,41,57`; `consultations/page.jsx:187,207,231`;
+    `blog/page.jsx:126,140,186`; `chats/page.jsx:58,63`; `users/page.jsx:511`;
+    `emails/page.jsx:71`; `src/app/dashboard/hosting/[orderId]/page.jsx:176`.
+  - **Fix:** Use `["admin", "superadmin"].includes(user?.role)` everywhere admin views are
+    gated (ideally a small shared helper). `middleware.js` and `DashboardShell` already handle
+    superadmin correctly.
+  - **Backend part:** see `backend-eaz/tasks.md` → T51.
+
+- [ ] **T51 · Superadmin excluded by controller-level `role === 'admin'` checks**
+  - **Issue:** `restrictTo('admin')` grants superadmin implicit access
+    (`middleware/auth.js:46`), but several `protect`-only routes re-check
+    `req.user.role === 'admin'` inside the controller, so a superadmin passes the route yet is
+    treated as a regular user: sees only their own hosting/domain orders, and gets 403 on other
+    users' orders, invoices, cPanel SSO, service status, and cPanel password resets.
+  - **Location:** `controllers/hostingOrderController.js` — `getOrders:204`, `getOrder:425`,
+    `getInvoice:446`, `getCpanelLoginUrl:584`, `getServiceStatus:741`, `changeHostingPassword:781`;
+    `controllers/domainController.js` — `getDomainOrders:354`, `getDomainOrder:388`.
+  - **Fix:** Route-level: add `restrictTo('admin')` to the admin-capable routes (`/hosting/orders`,
+    `/hosting/orders/:id`, `/hosting/orders/:id/invoice`, `/hosting/orders/:id/cpanel-login`,
+    `/hosting/orders/:id/status`, `/hosting/orders/:id/password`, `/domains/orders`,
+    `/domains/orders/:id`) OR replace the manual checks with `['admin', 'superadmin'].includes(...)`.
+    Prefer route-level `restrictTo` for list endpoints and a superadmin-aware helper for
+    ownership-or-admin checks.
+  - **Frontend part:** see `frontend-eaz/tasks.md` → T52.
+
 - [ ] **T19 · "Customer will bring device in" → "Device received" when diagnosing starts**
   - **Issue:** Once a repair job leaves the `received` stage, the customer/device card label
     should read "Device received" instead of the dropoff-based "Customer will bring device in".
