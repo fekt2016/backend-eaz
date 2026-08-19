@@ -155,6 +155,56 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+- [ ] **T57 · POS `updateJob` accepts money fields from technicians (bill understatement)**
+  - **Issue:** `PATCH /pos/jobs/:id` (`routes/posRoutes.js:62`) sits behind the router-wide
+    `restrictTo('superadmin', 'admin', 'staff', 'technician')` (line 35), and `jobController.updateJob`
+    applies money-bearing fields straight from `req.body` with no role check: `laborCost`
+    (line 327), `depositPaid` (line 328), `diagnosisFee` (lines 331-334), and custom-part
+    `cost`/`costAtTime` (lines 362, 365). Inventory-linked parts are correctly anchored to
+    `Part.sellingPrice`/`costPrice` (lines 341-367), but **non-inventory custom parts accept a
+    client-supplied price**, and `laborCost`/`diagnosisFee`/`depositPaid` are client-trusted.
+    A technician can understate the customer's bill (e.g. `laborCost: 0`, free custom parts) or
+    claim a `depositPaid` without any staff involvement.
+  - **Location:** `controllers/pos/jobController.js` — `updateJob` (lines 327-334, 341-367);
+    `routes/posRoutes.js:62`.
+  - **Fix:** Role-guard the money fields server-side — only `superadmin`/`staff`/`admin` may set
+    `depositPaid` and client-priced custom parts; keep technician `laborCost`/`diagnosisFee` entry
+    only if that's the intended shop workflow (at minimum log it). Add a test: a technician
+    `PATCH /pos/jobs/:id` with `depositPaid: 0` (or a bogus custom part price) leaves the job's
+    money untouched.
+  - **Frontend part:** n/a — enforce server-side; the technician UI already hides the payment
+    section but the save payload still carries the money fields.
+
+- [ ] **T56 · POS job detail page missing `waiting_for_parts` status**
+  - **Issue:** `src/app/dashboard/pos/jobs/[id]/page.jsx:29` defines
+    `STATUSES = ["received", "diagnosing", "repairing", "ready", "collected", "cancelled"]` —
+    omitting `waiting_for_parts`, which IS a real backend status (`models/RepairJob.js:46` enum)
+    set by the online part-order flow (`webhookController.js:573, 631`) and covered by the
+    notification service (`services/notify.js:30`). A job in `waiting_for_parts` renders an
+    unmapped `<select>` value (lines 306-307 — no matching `<option>`, so the browser shows a
+    blank/first option) and has no quick-action button (the `status ===` cases end at line 501),
+    so staff can only advance it via the generic dropdown — the normal one-tap flow silently skips it.
+  - **Location:** `frontend-eaz/src/app/dashboard/pos/jobs/[id]/page.jsx` — `STATUSES` (line 29),
+    `<select>` (306-307), quick-status buttons (468-501).
+  - **Fix:** Add `waiting_for_parts` to `STATUSES` (with label "Waiting for parts") and add a
+    quick-action case (e.g. `waiting_for_parts → repairing`) so staff can advance the job with one
+    tap. Keep it between `diagnosing` and `repairing` in the flow.
+  - **Backend detail:** n/a — backend already supports the status end-to-end.
+
+- [ ] **T55 · Credentials/PINs generated with non-crypto `Math.random()`**
+  - **Issue:** `authController.generatePin` (`controllers/authController.js:11`,
+    `String(Math.floor(100000 + Math.random() * 900000))`) produces every 6-digit verification /
+    2FA PIN (call sites at lines 86, 243, 464, 553) with `Math.random`; `services/whm.js:22-31`
+    and `services/cyberpanel.js:22-28` generate live cPanel/CyberPanel account passwords the same
+    way (`chars[Math.floor(Math.random() * chars.length)]`). `Math.random` is a PRNG, not a CSPRNG
+    — for the PINs this compounds the unthrottled-PIN brute-force risk already tracked as T46.
+  - **Location:** `controllers/authController.js:11` (generatePin + 4 call sites);
+    `services/whm.js:22-31`; `services/cyberpanel.js:22-28`.
+  - **Fix:** Use `crypto.randomInt` for the PIN (`crypto.randomInt(100000, 1000000)`) and
+    `crypto.randomBytes`/`randomInt` for the passwords (they already import `crypto`). Add a test
+    asserting the PIN has the correct 6-digit range/format.
+  - **Frontend part:** n/a.
+
 - [ ] **T54 · Hosting order domain fee is client-trusted — Namecheap price lookup never matches**
   - **Issue:** `hostingOrderController.createOrder` (`controllers/hostingOrderController.js:84-104`)
     computes the domain fee server-side with `tld = domain_s.split('.').slice(1).join('.')` (e.g.
