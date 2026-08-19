@@ -64,7 +64,6 @@ const getProducts = async (req, res, next) => {
         { description: { $regex: search, $options: "i" } },
         { category: { $regex: search, $options: "i" } },
         { sku: { $regex: search, $options: "i" } },
-        { "parts.name": { $regex: search, $options: "i" } },
       ];
     }
 
@@ -74,10 +73,27 @@ const getProducts = async (req, res, next) => {
     if (sort === "name") sortStage = { name: 1 };
     if (sort === "newest") sortStage = { createdAt: -1 };
 
+    // Retail parts only belong in the unfiltered "All Products" view — a
+    // shop category (Phones, Screen Protectors, ...) is a different
+    // namespace from a part's own category (Battery, Screen, ...), so once
+    // a category chip is active, parts are excluded entirely rather than
+    // guessed at. When a search query is active, parts are matched by the
+    // same query text as products instead of being included unconditionally.
+    const partMatch = { isRetail: true, quantity: { $gt: 0 } };
+    if (q && q.trim()) {
+      const search = escapeRegex(q.trim());
+      partMatch.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { notes: { $regex: search, $options: "i" } },
+        { category: { $regex: search, $options: "i" } },
+        { sku: { $regex: search, $options: "i" } },
+      ];
+    }
+
     // Merge shop products with sellable retail parts, then sort + paginate in
     // the database (a single $unionWith aggregation) so we never load the whole
-    // catalogue into memory. Retail parts are matched independently of the
-    // product query — same behaviour as before.
+    // catalogue into memory.
     const pipeline = [
       { $match: query },
       {
@@ -88,11 +104,14 @@ const getProducts = async (req, res, next) => {
         },
       },
       { $addFields: { kind: "product", partId: null } },
-      {
+    ];
+
+    if (!category) {
+      pipeline.push({
         $unionWith: {
           coll: "parts",
           pipeline: [
-            { $match: { isRetail: true, quantity: { $gt: 0 } } },
+            { $match: partMatch },
             {
               $project: {
                 _id: 1, name: 1, category: 1, sku: 1, createdAt: 1, updatedAt: 1,
@@ -106,7 +125,10 @@ const getProducts = async (req, res, next) => {
             { $addFields: { variants: [], isActive: true, kind: "part", partId: "$_id" } },
           ],
         },
-      },
+      });
+    }
+
+    pipeline.push(
       { $sort: sortStage },
       {
         $facet: {
@@ -114,7 +136,7 @@ const getProducts = async (req, res, next) => {
           totalCount: [{ $count: "n" }],
         },
       },
-    ];
+    );
 
     const [result] = await Product.aggregate(pipeline).collation({ locale: "en", strength: 2 });
     const data = result?.data || [];

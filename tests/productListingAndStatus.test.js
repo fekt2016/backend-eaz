@@ -56,6 +56,40 @@ describe("GET /api/v1/products (merged listing)", () => {
     const sorted = [...prices].sort((a, b) => a - b);
     expect(prices).toEqual(sorted);
   });
+
+  // CATALOG_CLEANUP_TASK.md Phase D fix: parts used to be unioned in
+  // regardless of category/search, polluting every filtered listing.
+  it("excludes retail parts entirely once a category filter is active", async () => {
+    await Product.create({
+      name: "Screen Guard", slug: "screen-guard", price: 1000,
+      category: "Screen Protectors", stock: 10, isActive: true,
+    });
+    await Part.create({
+      name: "iPhone Screen Replacement", category: "Screen", isRetail: true,
+      quantity: 3, costPrice: 100, sellingPrice: 5000,
+    });
+
+    const res = await request(app).get("/api/v1/products?category=Screen%20Protectors&limit=50");
+    expect(res.body.total).toBe(1);
+    expect(res.body.data.every((d) => d.kind === "product")).toBe(true);
+  });
+
+  it("matches parts by the search query instead of including them unconditionally", async () => {
+    await Product.create({
+      name: "Widget", slug: "widget", price: 1000, category: "x", stock: 10, isActive: true,
+    });
+    await Part.create({
+      name: "iPhone 12 Battery", category: "Battery", isRetail: true,
+      quantity: 3, costPrice: 100, sellingPrice: 5000,
+    });
+
+    const noMatch = await request(app).get("/api/v1/products?q=nonexistentxyz123");
+    expect(noMatch.body.total).toBe(0);
+
+    const match = await request(app).get("/api/v1/products?q=battery");
+    expect(match.body.total).toBe(1);
+    expect(match.body.data[0].kind).toBe("part");
+  });
 });
 
 // ── #14: forward-only order status transitions ──
