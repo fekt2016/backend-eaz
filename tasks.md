@@ -162,6 +162,69 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T50 · `resetPassword` / `verifyPin` don't check `isBlocked`**
+  - **Issue:** `login` rejects blocked accounts, but `resetPassword` (~line 350) and
+    `verifyPin` (~line 397) issue a fresh token via `sendTokenResponse` without checking
+    `user.isBlocked`. A blocked user who still has a valid reset link or verification PIN can
+    obtain a valid session token. Impact is limited (`protect` rejects blocked users on the
+    next request) but the token is still issued and the flows are inconsistent.
+  - **Location:** `controllers/authController.js` — `resetPassword`, `verifyPin`.
+  - **Fix:** After loading the user in both flows, if `user.isBlocked` return the same 403
+    used by `login` (with `blockedReason`). Add a test: blocked user with valid reset token
+    / PIN gets 403, not a token.
+  - **Frontend part:** n/a.
+
+- [ ] **T49 · `verifyPin` / `twoFactorPin` stored and compared in plaintext**
+  - **Issue:** 6-digit PINs are stored unhashed on `User` (`verifyPin`, `twoFactorPin`) and
+    compared with plain `!==` (not a constant-time compare). A DB read exposes usable codes,
+    and timing side-channel on comparison is possible.
+  - **Location:** `models/User.js` (verifyPin/twoFactorPin fields), `controllers/authController.js`
+    (verifyPin ~line 424, verifyTwoFactor ~line 617, confirmTwoFactor ~line 570).
+  - **Fix (low risk):** Hash the PIN before storing (e.g. `crypto.createHash('sha256')` like
+    `resetPasswordToken`) and compare digests, or compare with `crypto.timingSafeEqual`.
+    Keep the 6-digit format for UX. Do NOT send the stored PIN anywhere; the plain code is
+    emailed at generation time only.
+  - **Frontend part:** n/a.
+
+- [ ] **T48 · `api.js` drops the `requiresVerification` flag from error responses**
+  - **Issue:** When login returns 403 for an unverified account, the backend body includes
+    `requiresVerification: true` + `email`, but `lib/api.js` (`request`, ~lines 20–26) only
+    copies `error`/`errors`/`status` onto the thrown Error. `AuthContext.login` then depends on
+    `err.message.toLowerCase().includes('verify')` (message text is `'Please verify your email
+    before logging in.'`) — brittle; breaks if the message text changes.
+  - **Location:** `frontend-eaz/src/lib/api.js` (error construction ~lines 20–26),
+    `frontend-eaz/src/context/AuthContext.jsx` (login ~lines 32–40).
+  - **Fix:** In `api.js`, spread the rest of `data` onto the Error (e.g. `Object.assign(err,
+    data)`) so `requiresVerification`, `email`, etc. survive; in `AuthContext.login`, check
+    `err.requiresVerification` instead of message matching; pass `err.email` through to the
+    verify redirect.
+  - **Backend:** none needed (see `backend-eaz/tasks.md` → T48).
+
+- [ ] **T47 · `updateProfile` missing phone-uniqueness pre-check**
+  - **Issue:** `updateProfile` (~line 497) does `User.findByIdAndUpdate` with
+    `phone: phone || ''` and no duplicate check. If a user sets a phone already in use, the
+    partial unique index throws a 11000 duplicate-key error → unhandled 500. `register` and
+    `adminCreateUser`/`adminUpdateUser` all pre-check and return a friendly 409.
+  - **Location:** `controllers/authController.js` — `updateProfile` (~lines 497–511).
+  - **Fix:** Before updating, if `phone` is non-empty, `User.findOne({ phone, _id: { $ne:
+    req.user._id } })` and return 409 if taken (mirror `adminUpdateUser` ~line 790). Clear the
+    phone field (`phone: ''`) is fine — the partial index ignores empty strings.
+  - **Frontend part:** n/a (error surfaces in the settings profile form).
+
+- [ ] **T46 · `/api/v1/auth/verify` rate limit is dead code — PIN endpoints unthrottled**
+  - **Issue:** `app.js:158` mounts a strict limiter at `app.use('/api/v1/auth/verify', 10/15min)`.
+    Express path matching means it only hits the literal `/api/v1/auth/verify` route — which
+    doesn't exist. The real routes `/api/v1/auth/verify-pin`, `/api/v1/auth/resend-pin`, and
+    `/api/v1/auth/2fa/verify` are protected **only** by the global 150/15min limit, so the
+    6-digit PIN endpoints can be brute-forced far beyond the intended 10 attempts/15min.
+  - **Location:** `app.js` (~line 158); routes are `routes/authRoutes.js` lines 32 (`verify-pin`),
+    33 (`resend-pin`), 47 (`2fa/verify`).
+  - **Fix:** Replace the dead mount with limits on the actual paths, e.g.
+    `app.use('/api/v1/auth/verify-pin', 10/15min)` and `app.use('/api/v1/auth/2fa/verify', 10/15min)`
+    (or a `router`-level limiter inside `authRoutes.js`). Add `resend-pin` a gentler limit
+    (e.g. 5/60min) to prevent PIN-resend spam. Verify with a rate-limit test.
+  - **Frontend part:** n/a.
+
 - [ ] **T45 · `expenseController`: unescaped supplier regex + no activity logs**
   - **Issue:** `getSuppliers` uses `{ $regex: q }` with no `escapeRegex` (vs.
     `customerController.getCustomers` which escapes it) — a `q` with regex metacharacters
