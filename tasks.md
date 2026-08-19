@@ -201,7 +201,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Location:** `controllers/authController.js:11` (generatePin + 4 call sites);
     `services/whm.js:22-31`; `services/cyberpanel.js:22-28`.
   - **Fix:** Use `crypto.randomInt` for the PIN (`crypto.randomInt(100000, 1000000)`) and
-    `crypto.randomBytes`/`randomInt` for the passwords (they already import `crypto`). Add a test
+    `crypto.randomBytes`/`randomInt` for the passwords (they already import `crypto`). The codebase
+    already has the correct pattern in `controllers/pos/common.js:89` (`generatePassword` uses
+    `crypto.randomInt` + Fisher–Yates) — mirror it. Add a test
     asserting the PIN has the correct 6-digit range/format.
   - **Frontend part:** n/a.
 
