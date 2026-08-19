@@ -2,7 +2,47 @@ const mongoose = require("mongoose");
 const ProductReview = require("../models/ProductReview");
 const Product = require("../models/Product");
 const Part = require("../models/Part");
+const Order = require("../models/Order");
+const { normalizePhone } = require("./orderController");
 const { sanitizeText, sanitizeMessage } = require("../utils/sanitize");
+
+// Orders are guest checkouts — there is no stored user id on Order, only a
+// customer.email/customer.phone snapshot from checkout time (see
+// orderController.getMyOrders, which uses the same match). A review is only
+// allowed once the logged-in reviewer's account email/phone matches at least
+// one paid or delivered order that actually contains this catalogue item
+// (product or part — reviews cover both, see resolveCatalogItem above).
+async function hasVerifiedPurchase(user, catalogItemId) {
+  const or = [];
+  if (user?.email) {
+    or.push({ "customer.email": String(user.email).toLowerCase() });
+  }
+  if (user?.phone) {
+    const digits = normalizePhone(user.phone);
+    if (digits) {
+      or.push({ "customer.phoneDigits": digits });
+      const variants = new Set([user.phone, digits]);
+      if (digits.startsWith("0")) {
+        variants.add(`233${digits.slice(1)}`);
+        variants.add(`+233${digits.slice(1)}`);
+      }
+      if (!/^0/.test(digits) && digits.startsWith("233")) {
+        variants.add(`0${digits.slice(3)}`);
+      }
+      or.push({ "customer.phone": { $in: [...variants] } });
+    }
+  }
+  if (!or.length) return false;
+
+  const match = await Order.exists({
+    status: { $in: ["paid", "delivered"] },
+    $or: or,
+    items: {
+      $elemMatch: { $or: [{ product: catalogItemId }, { part: catalogItemId }] },
+    },
+  });
+  return Boolean(match);
+}
 
 // Resolve a shop catalogue item by _id or slug. The product detail page serves
 // both real Products and retail Parts under a synthetic `part-<id>` slug, and
@@ -68,6 +108,15 @@ const submitProductReview = async (req, res, next) => {
         success: false,
         error: "You have already reviewed this product",
         data: existing,
+      });
+    }
+
+    const verified = await hasVerifiedPurchase(req.user, item._id);
+    if (!verified) {
+      return res.status(403).json({
+        success: false,
+        error: "Reviews are limited to verified purchasers of this product",
+        code: "PURCHASE_NOT_VERIFIED",
       });
     }
 
@@ -150,6 +199,35 @@ const getMyProductReview = async (req, res, next) => {
     }
     const review = await ProductReview.findOne({ product: item._id, user: req.user._id });
     res.status(200).json({ success: true, data: review });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/products/:productId/reviews/eligibility — auth required.
+ * Lets the product page decide, before rendering, whether to show the
+ * review form or a "verified purchasers only" message — rather than the
+ * user filling out a review and only then hitting the 403 from POST.
+ */
+const getReviewEligibility = async (req, res, next) => {
+  try {
+    const item = await resolveCatalogItem(req.params.productId);
+    if (!item) {
+      return res.status(404).json({ success: false, error: "Product not found" });
+    }
+    const alreadyReviewed = Boolean(
+      await ProductReview.exists({ product: item._id, user: req.user._id }),
+    );
+    const verifiedPurchase = await hasVerifiedPurchase(req.user, item._id);
+    res.status(200).json({
+      success: true,
+      data: {
+        canReview: verifiedPurchase && !alreadyReviewed,
+        alreadyReviewed,
+        verifiedPurchase,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -281,6 +359,7 @@ module.exports = {
   submitProductReview,
   getProductReviews,
   getMyProductReview,
+  getReviewEligibility,
   updateMyProductReview,
   getAllProductReviews,
   updateProductReviewApproval,
