@@ -155,6 +155,52 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+- [ ] **T61 · 2FA PIN email logged as `other` — not filterable in EmailLog**
+  - **Issue:** `utils/email.js` `sendTwoFactorPin` calls `send({ type: 'other', ... })` (line 284),
+    so the 2FA code emails are recorded in `EmailLog` with `type: 'other'` and the admin Email
+    log (`(admin)/emails`) has no `2fa` filter — they're lumped under "Other" and can't be
+    isolated from genuine misc logs. All other transactionals use distinct types
+    (`welcome`, `password_reset`, `contact_*`, `account_created`, `order_confirmation`, …).
+  - **Location:** `utils/email.js:281-284`; `frontend-eaz/src/app/dashboard/(admin)/emails/page.jsx`
+    `TYPE_LABELS`/`typeColors` (lines 15-26, 39+).
+  - **Fix:** Change the `type` to `'two_factor'` (keep the enum open — no Mongoose enum on
+    `EmailLog.type`), and add `two_factor: "2FA Pin"` to `TYPE_LABELS` + a color in `typeColors`
+    on the admin emails page.
+
+- [ ] **T60 · Hosting `createOrder` returns 500 instead of 400 for unknown plan/tier**
+  - **Issue:** `config/hostingPlans.js` `getPlanPrice` **throws** on an unknown `planType` or
+    `tier` (lines 330-336). `hostingOrderController.createOrder` calls it at line 77 inside the
+    try/catch, so a client sending `planType: "bogus"` (or a stale frontend sending a removed
+    tier) propagates as a 500. The `if (planTotal == null)` 400-check at lines 78-80 only
+    handles the `cloud/enterprise` custom tier (which returns `total: null`), not the throw.
+  - **Location:** `config/hostingPlans.js:328-336` (`getPlanPrice`); `controllers/hostingOrderController.js:77`.
+  - **Fix:** Return `{ total: null }` (or a sentinel) from `getPlanPrice` for unknown
+    type/tier instead of throwing, so the existing 400 path fires; add a test asserting
+    `POST /api/v1/hosting/orders` with a bogus plan returns 400 not 500.
+
+- [ ] **T59 · Service orders: free-form status + unclamped pagination**
+  - **Issue:** `serviceOrderController.updateServiceOrder` assigns `status` straight from the
+    body with no enum check, and uses `findByIdAndUpdate` (no `runValidators`), so any string
+    is silently persisted (no 400, no schema validation). `getServiceOrders` takes raw
+    `page`/`limit` from the query with no clamping (a client can pass `limit=100000` or
+    `page=-1`), unlike every other list endpoint's default/min/max pattern.
+  - **Location:** `controllers/serviceOrderController.js` — `getServiceOrders` (133-146),
+    `updateServiceOrder` (151-163).
+  - **Fix:** Validate `status` against the `ServiceOrder` enum (and a forward-only guard, e.g.
+    don't move `paid` → `pending`), and clamp `page`/`limit` to sane bounds. Add a test.
+
+- [ ] **T58 · POS part/repair order status allows backward moves**
+  - **Issue:** `inventoryController.updatePartOrder` (308-332) and `jobController.updateRepairOrder`
+    (802-826) validate the status against `['pending','paid','cancelled']` but enforce no
+    forward-only rule, so `paid → pending` and `paid → cancelled` are allowed. Cancelling a
+    **paid** part order also leaves the linked repair job stuck at `waiting_for_parts`
+    (set by the webhook on payment), with no re-evaluation back to `diagnosing`.
+  - **Location:** `controllers/pos/inventoryController.js` (`updatePartOrder` 308-332);
+    `controllers/pos/jobController.js` (`updateRepairOrder` 802-826).
+  - **Fix:** Mirror `orderController.canTransition` (390-401): forbid leaving `paid` backwards,
+    and when a `paid` part order is cancelled, reset the linked job's `waiting_for_parts` back
+    to `diagnosing` (or require manual status change). Add tests.
+
 - [ ] **T57 · POS `updateJob` accepts money fields from technicians (bill understatement)**
   - **Issue:** `PATCH /pos/jobs/:id` (`routes/posRoutes.js:62`) sits behind the router-wide
     `restrictTo('superadmin', 'admin', 'staff', 'technician')` (line 35), and `jobController.updateJob`
