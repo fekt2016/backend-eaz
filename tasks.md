@@ -155,6 +155,26 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+- [ ] **T54 · Hosting order domain fee is client-trusted — Namecheap price lookup never matches**
+  - **Issue:** `hostingOrderController.createOrder` (`controllers/hostingOrderController.js:84-104`)
+    computes the domain fee server-side with `tld = domain_s.split('.').slice(1).join('.')` (e.g.
+    `"com"`, **no leading dot**) and indexes `namecheap.getPricing()` — whose keys ARE
+    dot-prefixed (`.com`, see `services/namecheap.js:119` and `utils/domainHelper.js:28`).
+    The lookup always misses, so the code always falls back to
+    `Math.min(Number(domainRegistrationFee) || 0, 500)` — **trusting the client-supplied
+    `domainRegistrationFee`** in a GH₵0–500 band. A buyer can zero it out (free domain bundled
+    into a hosting order) or inflate it; the webhook then charges the stored `amount`.
+  - **Latent double-conversion:** `priceUSD` is a misnomer — `getPricing()` already returns GHS
+    (`usdToGhs`, 15.5 rate × 1.2 markup applied). If someone "fixes" the key to `.com`, the code
+    then multiplies by `usdRate * markup` **again** (~18× too high). Compare the correct pattern
+    in `domainController.createDomainPayment` (lines 242-244), which uses `pricing[tld]` directly.
+  - **Location:** `controllers/hostingOrderController.js` — `createOrder` (~lines 84-104).
+  - **Fix:** Use `extractTLD(domain_s)` (returns the dot-prefixed TLD) to index `prices`, drop the
+    redundant `usdRate * markup` conversion (price is already GHS), and keep the GH₵500-capped
+    client fallback only for the Namecheap-unavailable case. Add a test: `createOrder` with a
+    known TLD uses the server price and ignores `domainRegistrationFee`.
+  - **Frontend part:** n/a — the checkout already displays the correct server price from domain search.
+
 - [ ] **T53 · POS `updateJob` allows backward / terminal-to-live status transitions**
   - **Issue:** `jobController.updateJob` (`controllers/pos/jobController.js:318`) does
     `if (status) job.status = status;` with no transition validation — unlike
