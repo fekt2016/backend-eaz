@@ -148,6 +148,214 @@ const S24_IMG =
 const S23_FE_IMG =
   "https://images.samsung.com/is/image/samsung/p6pim/africa_en/sm-s711bzabafa/gallery/africa-en-galaxy-s23-fe-s711-sm-s711bzabafa-538424099?$1164_776_PNG$";
 
+// ─── Gallery images added in CATALOG_CLEANUP_TASK.md Phase B ───────────
+// Real per-product galleries sourced from the same official brand CDN as
+// each product's existing hero image (verified HTTP 200 before use).
+const SPIGEN_TOUGH_ARMOR_GALLERY = [
+  "https://partners.spigen.com/cdn/shop/files/detail_web_ip16_tougharmor_black_02.jpg?v=1725899076",
+  "https://partners.spigen.com/cdn/shop/files/detail_web_ip16_tougharmor_black_03.jpg?v=1725899076",
+  "https://partners.spigen.com/cdn/shop/files/detail_web_ip16_tougharmor_black_04.jpg?v=1725899076",
+  "https://partners.spigen.com/cdn/shop/files/detail_web_ip16_tougharmor_black_05.jpg?v=1725899076",
+];
+const SPIGEN_TOUGH_ARMOR_VARIANT_IMG = SPIGEN_TOUGH_ARMOR_IMG;
+const SPIGEN_TEMPERED_GLASS_GALLERY = [
+  "https://www.spigen.com/cdn/shop/files/id_ip6.7p_glas_tr_ezfit_privacy_03.jpg?v=1749662407",
+  "https://www.spigen.com/cdn/shop/files/id_ip6.7p_glas_tr_ezfit_privacy_04.jpg?v=1749662407",
+  "https://www.spigen.com/cdn/shop/files/id_ip6.7p_glas_tr_ezfit_privacy_05.jpg?v=1749662407",
+  "https://www.spigen.com/cdn/shop/files/id_ip6.7p_glas_tr_ezfit_privacy_06.jpg?v=1749662407",
+];
+const ESR_PROTECTOR_GALLERY = [
+  "https://www.esrtech.com/cdn/shop/files/iPhone-17-Pro-Max-UltraFit-Armoriter_-Screen-Protector-2-Pack-ESR-240689653.jpg?v=1783011417",
+  "https://www.esrtech.com/cdn/shop/files/iPhone-17-Pro-Max-UltraFit-Armoriter_-Screen-Protector-2-Pack-ESR-240689795.jpg?v=1783011450",
+  "https://www.esrtech.com/cdn/shop/files/iPhone-17-Pro-Max-UltraFit-Armoriter_-Screen-Protector-2-Pack-ESR-240689881.jpg?v=1783011441",
+  "https://www.esrtech.com/cdn/shop/files/iPhone-17-Pro-Max-UltraFit-Armoriter_-Screen-Protector-2-Pack-ESR-240689988.jpg?v=1783011457",
+];
+const BASEUS_POWERBANK_20000_GALLERY = [
+  "https://eu.baseus.com/cdn/shop/files/Baseus_Qpow2_Power_Bank_22.5W_20000mAh_front_800x.jpg",
+  "https://eu.baseus.com/cdn/shop/files/Baseus_Qpow2_Power_Bank_22.5W_20000mAh_back_800x.jpg",
+  "https://eu.baseus.com/cdn/shop/files/Baseus_Qpow2_Power_Bank_22.5W_20000mAh_side_800x.jpg",
+  "https://eu.baseus.com/cdn/shop/files/Baseus_Qpow2_Power_Bank_22.5W_20000mAh_2_800x.jpg",
+];
+const SAMSUNG_POWERBANK_GALLERY = [
+  "https://images.samsung.com/is/image/samsung/p6pim/us/eb-u2510xuegus/gallery/us-wireless-battery-pack-10000mah-eb-u2510-eb-u2510xuegus-551220655",
+  "https://images.samsung.com/is/image/samsung/p6pim/us/eb-u2510xuegus/gallery/us-wireless-battery-pack-10000mah-eb-u2510-eb-u2510xuegus-551220656",
+  "https://images.samsung.com/is/image/samsung/p6pim/us/eb-u2510xuegus/gallery/us-wireless-battery-pack-10000mah-eb-u2510-eb-u2510xuegus-551220657",
+  "https://images.samsung.com/is/image/samsung/p6pim/us/eb-u2510xuegus/gallery/us-wireless-battery-pack-10000mah-eb-u2510-eb-u2510xuegus-551220658",
+];
+const JBL_230NC_GALLERY = [
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwd5a85262/2.JBL_TUNE_230NC_Product%20Image_Front_Black.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwfb3bad76/3.JBL_TUNE_230NC_Product%20Image_Earbud%20Back_Black_.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwe3a9f190/4.JBL_TUNE_230NC_Product%20Image_Case%20open_Black.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwfa5c5952/5.JBL_TUNE_230NC_Product%20Image_Case%20Front_Black.png?sw=535&sh=535",
+];
+const JBL_510BT_GALLERY = [
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw4924f1d3/JBL_TUNE_510BT_Product%20Image_Front_White.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw6b2d4c88/JBL_TUNE_510BT_Product%20Image_Cushion_White.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwf4a553c1/JBL_TUNE_510BT_Product%20Image_Folded%202_White.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwfa712045/JBL_TUNE_510BT_Product%20Image_Detail_White.png?sw=535&sh=535",
+];
+const JBL_770NC_GALLERY = [
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw838c5c35/2.JBL_Tune_770NC_Product%20Image_Front_Black.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw2323e116/3.JBL_Tune_770NC_Product%20Image_Back_Black.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwadcd0ffa/4.JBL_Tune_770NC_Product%20Image_Left_Black.png?sw=535&sh=535",
+  "https://www.jbl.com/dw/image/v2/BFND_PRD/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwd40cda26/6.JBL_Tune_770NC_Product%20Image_Folded_Black.png?sw=535&sh=535",
+];
+const ESR_SHOCKPROOF_GALLERY = [
+  "https://www.esrtech.com/cdn/shop/files/iPhone_16_Pro_Cyber_Tough_Magsafe_Case_with_Stand_and_Camera_Control_Button_Black_KF1.jpg",
+  "https://www.esrtech.com/cdn/shop/files/iPhone_16_Pro_Cyber_Tough_Magsafe_Case_with_Stand_and_Camera_Control_Button_Black_KF2.jpg",
+  "https://www.esrtech.com/cdn/shop/files/iPhone_16_Pro_Cyber_Tough_Magsafe_Case_with_Stand_and_Camera_Control_Button_Black_KF3.jpg",
+  "https://www.esrtech.com/cdn/shop/files/iPhone_16_Pro_Cyber_Tough_Magsafe_Case_with_Stand_and_Camera_Control_Button_Black_KF4.jpg",
+];
+const RINGKE_ONYX_GALLERY = [
+  "https://www.ringkestore.com/cdn/shop/files/IP17_ONX_BK_Sub2.jpg",
+  "https://www.ringkestore.com/cdn/shop/files/IP17_ONX_BK_Sub3.jpg",
+  "https://www.ringkestore.com/cdn/shop/files/IP17_ONX_BK_Sub4.jpg",
+  "https://www.ringkestore.com/cdn/shop/files/IP17_ONX_BK_Sub5.jpg",
+];
+const SUPCASE_UB_PRO_GALLERY = [
+  "https://supcase.com/cdn/shop/files/SUPCASE_iPhone_17_Pro_Max_Unicorn_Beetle_Pro_Rugged_phone_case_Black_10_1024x1024.webp",
+  "https://supcase.com/cdn/shop/files/SUPCASE_iPhone_17_Pro_Max_Unicorn_Beetle_Pro_Rugged_phone_case_Black_11_1024x1024.webp",
+  "https://supcase.com/cdn/shop/files/SUPCASE_iPhone_17_Pro_Max_Unicorn_Beetle_Pro_Rugged_phone_case_Black_12_1024x1024.webp",
+  "https://supcase.com/cdn/shop/files/SUPCASE_iPhone_17_Pro_Max_Unicorn_Beetle_Pro_Rugged_phone_case_Black_13_1024x1024.webp",
+];
+const NILLKIN_SHIELD_PRO_GALLERY = [
+  "https://www.nillkin.com/cdn/shop/files/Super-Frosted-Shield-Pro-Case-for-iPhone-17ProMax-black_2.jpg",
+  "https://www.nillkin.com/cdn/shop/files/Super-Frosted-Shield-Pro-Case-for-iPhone-17ProMax-black_3.jpg",
+  "https://www.nillkin.com/cdn/shop/files/Super-Frosted-Shield-Pro-Case-for-iPhone-17ProMax-black_4.jpg",
+  "https://www.nillkin.com/cdn/shop/files/Super-Frosted-Shield-Pro-Case-for-iPhone-17ProMax-black_5.jpg",
+];
+const OTTERBOX_DEFENDER_GALLERY = [
+  "https://www.otterbox.com/cdn/shop/files/defender-iphd23-black-1.png",
+  "https://www.otterbox.com/cdn/shop/files/defender-iphd23-black-2.png",
+  "https://www.otterbox.com/cdn/shop/files/defender-iphd23-black-3.png",
+];
+const UGREEN_100W_GALLERY = [
+  "https://us.ugreen.com/cdn/shop/products/ugreen-usb-c-to-usb-c-100w-fast-cable-2-pack-291907.jpg",
+  "https://us.ugreen.com/cdn/shop/products/ugreen-usb-c-to-usb-c-100w-fast-cable-2-pack-364763.jpg",
+  "https://us.ugreen.com/cdn/shop/products/ugreen-usb-c-to-usb-c-100w-fast-cable-2-pack-546551.jpg",
+  "https://us.ugreen.com/cdn/shop/products/ugreen-usb-c-to-usb-c-100w-fast-cable-2-pack-619671.jpg",
+];
+const ANKER_NANO_20W_GALLERY = [
+  "https://cdn.shopify.com/s/files/1/0493/9834/9974/files/A2637126_TD02_V1-1280x1280.jpg",
+  "https://cdn.shopify.com/s/files/1/0493/9834/9974/files/A2637126_TD03_V1-1280x1280.jpg",
+  "https://cdn.shopify.com/s/files/1/0493/9834/9974/files/A2637126_TD04_V1-1280x1280.jpg",
+  "https://cdn.shopify.com/s/files/1/0493/9834/9974/files/A2637126_TD05_V1-1280x1280.jpg",
+];
+const BELKIN_BOOSTCHARGE_GALLERY = [
+  "https://www.belkin.com/dw/image/v2/BGBH_PRD/on/demandware.static/-/Sites-master-product-catalog-blk/default/dw5f89f3fa/images/hi-res/5/5f89f3fa5abd4f15_CAB004bt0MBK_CAB004bt2MBK_Gallery4.jpg?sw=700&sh=700&sm=fit&sfrm=png",
+  "https://www.belkin.com/dw/image/v2/BGBH_PRD/on/demandware.static/-/Sites-master-product-catalog-blk/default/dw25e82375/images/hi-res/9/25e82375e1a97a79_CAB004bt0MBK_CAB004bt2MBK_Gallery2.jpg?sw=700&sh=700&sm=fit&sfrm=png",
+  "https://www.belkin.com/dw/image/v2/BGBH_PRD/on/demandware.static/-/Sites-master-product-catalog-blk/default/dw59b910dd/images/hi-res/b/59b910dd3b7f2c35_CAB004bt0MBK_Gallery5.jpg?sw=700&sh=700&sm=fit&sfrm=png",
+  "https://www.belkin.com/dw/image/v2/BGBH_PRD/on/demandware.static/-/Sites-master-product-catalog-blk/default/dw53b7eff4/images/hi-res/5/53b7eff4d0836079_CAB004btBK-boostcharge-braided-usb-c-to-usb-c-cable-doctom-webgg1-6000x6000-us__lz__en_US.jpg?sw=700&sh=700&sm=fit&sfrm=png",
+];
+const APPLE_MAGSAFE_GALLERY = [
+  "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MGD74_AV1?wid=1000&hei=1000&fmt=jpeg&qlt=95",
+  "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MGD74_AV2?wid=1000&hei=1000&fmt=jpeg&qlt=95",
+  "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MGD74_AV3?wid=1000&hei=1000&fmt=jpeg&qlt=95",
+  "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MGD74_AV4?wid=1000&hei=1000&fmt=jpeg&qlt=95",
+];
+
+// ─── iPhone 14/16/17 series images added in CATALOG_CLEANUP_TASK.md
+// Phase C — hotlinked from Apple Newsroom announcement pages (same domain
+// pattern as the existing iPhone 15-series images above).
+const IPHONE_14_HERO_IMG =
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-hero-220907_Full-Bleed-Image.jpg.large.jpg";
+const IPHONE_14_GALLERY = [
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-blue-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-midnight-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-purple-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-starlight-220907_inline.jpg.large.jpg",
+];
+const IPHONE_14_PLUS_GALLERY = [
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-PRODUCT-RED-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-midnight-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-purple-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-starlight-220907_inline.jpg.large.jpg",
+];
+const IPHONE_14_COLOR_IMG = {
+  red: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-PRODUCT-RED-220907_inline.jpg.large.jpg",
+  blue: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-blue-220907_inline.jpg.large.jpg",
+  midnight: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-midnight-220907_inline.jpg.large.jpg",
+  purple: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-purple-220907_inline.jpg.large.jpg",
+  starlight: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-iPhone-14-Plus-2up-starlight-220907_inline.jpg.large.jpg",
+};
+
+const IPHONE_14_PRO_HERO_IMG =
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-hero-220907_Full-Bleed-Image.jpg.large.jpg";
+const IPHONE_14_PRO_GALLERY = [
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-gold-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-silver-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-deep-purple-220907_inline.jpg.large.jpg",
+];
+const IPHONE_14_PRO_MAX_GALLERY = [
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-space-black-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-gold-220907_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-deep-purple-220907_inline.jpg.large.jpg",
+];
+const IPHONE_14_PRO_COLOR_IMG = {
+  spaceblack: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-space-black-220907_inline.jpg.large.jpg",
+  silver: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-silver-220907_inline.jpg.large.jpg",
+  gold: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-gold-220907_inline.jpg.large.jpg",
+  deeppurple: "https://www.apple.com/newsroom/images/product/iphone/standard/Apple-iPhone-14-Pro-iPhone-14-Pro-Max-deep-purple-220907_inline.jpg.large.jpg",
+};
+
+const IPHONE_16_HERO_IMG =
+  "https://www.apple.com/newsroom/images/2024/09/apple-introduces-iphone-16-and-iphone-16-plus/tile/Apple-iPhone-16-lineup-240909-lp.jpg.og.jpg";
+const IPHONE_16_GALLERY = [
+  "https://www.apple.com/newsroom/images/2024/09/apple-introduces-iphone-16-and-iphone-16-plus/article/Apple-iPhone-16-Camera-Control-01-240909_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2024/09/apple-introduces-iphone-16-and-iphone-16-plus/article/Apple-iPhone-16-Camera-Control-02-240909_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2024/09/apple-introduces-iphone-16-and-iphone-16-plus/article/Apple-iPhone-16-Fusion-2x-Telephoto-photography-240909_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2024/09/apple-introduces-iphone-16-and-iphone-16-plus/article/Apple-iPhone-16-Photographic-Styles-01-240909_inline.jpg.large.jpg",
+];
+
+const IPHONE_16_PRO_HERO_IMG =
+  "https://www.apple.com/newsroom/images/2024/09/apple-debuts-iphone-16-pro-and-iphone-16-pro-max/tile/Apple-iPhone-16-Pro-hero-240909-lp.jpg.og.jpg";
+const IPHONE_16_PRO_GALLERY = [
+  "https://www.apple.com/newsroom/images/2024/09/apple-debuts-iphone-16-pro-and-iphone-16-pro-max/article/Apple-iPhone-16-Pro-hero-240909_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2024/09/apple-debuts-iphone-16-pro-and-iphone-16-pro-max/article/Apple-iPhone-16-Pro-finish-lineup-240909_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2024/09/apple-debuts-iphone-16-pro-and-iphone-16-pro-max/article/Apple-iPhone-16-Pro-camera-system-240909_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2024/09/apple-debuts-iphone-16-pro-and-iphone-16-pro-max/article/Apple-iPhone-16-Pro-Fusion-photography-01-240909_big.jpg.large.jpg",
+];
+
+const IPHONE_16E_HERO_IMG =
+  "https://www.apple.com/newsroom/images/2025/02/apple-debuts-iphone-16e-a-powerful-new-member-of-the-iphone-16-family/tile/Apple-iPhone-16e-hero-250219-lp.jpg.og.jpg";
+const IPHONE_16E_GALLERY = [
+  "https://www.apple.com/newsroom/images/2025/02/apple-debuts-iphone-16e-a-powerful-new-member-of-the-iphone-16-family/article/Apple-iPhone-16e-2-up-250219_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/02/apple-debuts-iphone-16e-a-powerful-new-member-of-the-iphone-16-family/article/Apple-iPhone-16e-color-lineup-back-250219_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/02/apple-debuts-iphone-16e-a-powerful-new-member-of-the-iphone-16-family/article/Apple-iPhone-16e-USB-C-250219_inline.jpg.large.jpg",
+];
+
+const IPHONE_17_HERO_IMG =
+  "https://www.apple.com/newsroom/images/2025/09/apple-debuts-iphone-17/tile/Apple-iPhone-17-hero-250909-lp.jpg.og.jpg";
+const IPHONE_17_GALLERY = [
+  "https://www.apple.com/newsroom/images/2025/09/apple-debuts-iphone-17/article/Apple-iPhone-17-color-lineup-250909_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/09/apple-debuts-iphone-17/article/Apple-iPhone-17-lineup-250909_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/09/apple-debuts-iphone-17/article/Apple-iPhone-17-48MP-Fusion-1x-photography-250909_big.jpg.large.jpg",
+];
+
+const IPHONE_17_AIR_HERO_IMG =
+  "https://www.apple.com/newsroom/images/2025/09/introducing-iphone-air-a-powerful-new-iphone-with-a-breakthrough-design/tile/Apple-iPhone-Air-hero-250909-lp.jpg.og.jpg";
+const IPHONE_17_AIR_GALLERY = [
+  "https://www.apple.com/newsroom/images/2025/09/introducing-iphone-air-a-powerful-new-iphone-with-a-breakthrough-design/article/Apple-iPhone-Air-color-lineup-250909_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/09/introducing-iphone-air-a-powerful-new-iphone-with-a-breakthrough-design/article/Apple-iPhone-Air-family-lineup-250909_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/09/introducing-iphone-air-a-powerful-new-iphone-with-a-breakthrough-design/article/Apple-iPhone-Air-profile-250909_big.jpg.large.jpg",
+];
+
+const IPHONE_17_PRO_HERO_IMG =
+  "https://www.apple.com/newsroom/images/2025/09/apple-unveils-iphone-17-pro-and-iphone-17-pro-max/tile/Apple-iPhone-17-Pro-camera-close-up-250909-lp.jpg.og.jpg";
+const IPHONE_17_PRO_GALLERY = [
+  "https://www.apple.com/newsroom/images/2025/09/apple-unveils-iphone-17-pro-and-iphone-17-pro-max/article/Apple-iPhone-17-Pro-color-lineup-250909_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/09/apple-unveils-iphone-17-pro-and-iphone-17-pro-max/article/Apple-iPhone-17-Pro-cosmic-orange-250909_inline.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2025/09/apple-unveils-iphone-17-pro-and-iphone-17-pro-max/article/Apple-iPhone-17-Pro-camera-close-up-250909_big.jpg.large.jpg",
+];
+
+const IPHONE_17E_HERO_IMG =
+  "https://www.apple.com/newsroom/images/2026/03/apple-introduces-iphone-17e/tile/Apple-iPhone-17e-hero-260302-lp.jpg.og.jpg";
+const IPHONE_17E_GALLERY = [
+  "https://www.apple.com/newsroom/images/2026/03/apple-introduces-iphone-17e/article/Apple-iPhone-17e-family-lineup-260302_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2026/03/apple-introduces-iphone-17e/article/Apple-iPhone-17e-photography-48MP-260302_big.jpg.large.jpg",
+  "https://www.apple.com/newsroom/images/2026/03/apple-introduces-iphone-17e/article/Apple-iPhone-17e-accessories-260302_big.jpg.large.jpg",
+];
+
 const placeholder = (text) =>
   `https://placehold.co/800x600/1e1b4b/ffffff?text=${encodeURIComponent(text)}`;
 
@@ -175,7 +383,17 @@ const PRODUCTS = [
     category: "Phones",
     stock: 20,
     sku: "EZW-IPH-001",
-    variants: ["256GB", "512GB", "1TB"],
+    variants: [
+      { sku: "EZW-IPH-001-NAT256", attributes: { color: "Natural Titanium", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-001-NAT512", attributes: { color: "Natural Titanium", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-IPH-001-NAT1T", attributes: { color: "Natural Titanium", storage: "1TB" }, stock: 2 },
+      { sku: "EZW-IPH-001-BLU256", attributes: { color: "Blue Titanium", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-001-BLU512", attributes: { color: "Blue Titanium", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-IPH-001-BLU1T", attributes: { color: "Blue Titanium", storage: "1TB" }, stock: 1 },
+      { sku: "EZW-IPH-001-BLK256", attributes: { color: "Black Titanium", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-IPH-001-BLK512", attributes: { color: "Black Titanium", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-IPH-001-BLK1T", attributes: { color: "Black Titanium", storage: "1TB" }, stock: 2 },
+    ],
     specs: [
       { label: "Display", value: "6.7-inch Super Retina XDR, ProMotion 120Hz" },
       { label: "Chipset", value: "Apple A17 Pro" },
@@ -185,6 +403,12 @@ const PRODUCTS = [
     isActive: true,
   },
   {
+    // Duplicate of EZW-IPH-004 below (identical variant set — same model,
+    // just a separate document from an earlier session). Merged into
+    // EZW-IPH-004 and deactivated in the live DB; kept here (rather than
+    // removed) so a future seed run doesn't accidentally resurrect it as
+    // active — never had any order/review references (checked before
+    // merging; see review.md "Duplicate iPhone 15 Pro merge").
     name: "iPhone 15 Pro (512GB)",
     slug: "iphone-15-pro-512gb",
     description:
@@ -194,10 +418,25 @@ const PRODUCTS = [
     category: "Phones",
     stock: 25,
     sku: "EZW-IPH-002",
-    variants: ["128GB", "256GB", "512GB"],
-    isActive: true,
+    variants: [
+      { sku: "EZW-IPH-002-NAT128", attributes: { color: "Natural Titanium", storage: "128GB" }, stock: 4 },
+      { sku: "EZW-IPH-002-NAT256", attributes: { color: "Natural Titanium", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-IPH-002-NAT512", attributes: { color: "Natural Titanium", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-IPH-002-BLU128", attributes: { color: "Blue Titanium", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-IPH-002-BLU256", attributes: { color: "Blue Titanium", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-002-BLU512", attributes: { color: "Blue Titanium", storage: "512GB" }, stock: 1 },
+      { sku: "EZW-IPH-002-WHT128", attributes: { color: "White Titanium", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-IPH-002-WHT256", attributes: { color: "White Titanium", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-IPH-002-WHT512", attributes: { color: "White Titanium", storage: "512GB" }, stock: 2 },
+    ],
+    isActive: false,
   },
   {
+    // Surviving/canonical iPhone 15 Pro document after the merge — stock
+    // below is the sum of this document's original stock plus the
+    // deactivated EZW-IPH-002 duplicate's stock (both were mock numbers
+    // for the same never-ordered product; summed rather than picked
+    // arbitrarily). See review.md "Duplicate iPhone 15 Pro merge".
     name: "iPhone 15 Pro (256GB)",
     slug: "iphone-15-pro-256gb",
     description:
@@ -205,9 +444,19 @@ const PRODUCTS = [
     price: 949999,
     images: [IPHONE_15_PRO_TILE_IMG],
     category: "Phones",
-    stock: 30,
+    stock: 55,
     sku: "EZW-IPH-004",
-    variants: ["128GB", "256GB", "512GB"],
+    variants: [
+      { sku: "EZW-IPH-004-NAT128", attributes: { color: "Natural Titanium", storage: "128GB" }, stock: 9 },
+      { sku: "EZW-IPH-004-NAT256", attributes: { color: "Natural Titanium", storage: "256GB" }, stock: 7 },
+      { sku: "EZW-IPH-004-NAT512", attributes: { color: "Natural Titanium", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-IPH-004-BLU128", attributes: { color: "Blue Titanium", storage: "128GB" }, stock: 11 },
+      { sku: "EZW-IPH-004-BLU256", attributes: { color: "Blue Titanium", storage: "256GB" }, stock: 7 },
+      { sku: "EZW-IPH-004-BLU512", attributes: { color: "Blue Titanium", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-IPH-004-WHT128", attributes: { color: "White Titanium", storage: "128GB" }, stock: 13 },
+      { sku: "EZW-IPH-004-WHT256", attributes: { color: "White Titanium", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-004-WHT512", attributes: { color: "White Titanium", storage: "512GB" }, stock: 3 },
+    ],
     isActive: true,
   },
   {
@@ -220,7 +469,16 @@ const PRODUCTS = [
     category: "Phones",
     stock: 35,
     sku: "EZW-IPH-003",
-    variants: ["128GB", "256GB"],
+    variants: [
+      { sku: "EZW-IPH-003-BLK128", attributes: { color: "Black", storage: "128GB" }, stock: 7 },
+      { sku: "EZW-IPH-003-BLK256", attributes: { color: "Black", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-003-BLU128", attributes: { color: "Blue", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-IPH-003-BLU256", attributes: { color: "Blue", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-003-GRN128", attributes: { color: "Green", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-IPH-003-GRN256", attributes: { color: "Green", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-IPH-003-PNK128", attributes: { color: "Pink", storage: "128GB" }, stock: 4 },
+      { sku: "EZW-IPH-003-PNK256", attributes: { color: "Pink", storage: "256GB" }, stock: 2 },
+    ],
     isActive: true,
   },
   {
@@ -233,7 +491,17 @@ const PRODUCTS = [
     category: "Phones",
     stock: 30,
     sku: "EZW-SAM-001",
-    variants: ["256GB", "512GB", "1TB"],
+    variants: [
+      { sku: "EZW-SAM-001-TGR256", attributes: { color: "Titanium Gray", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-SAM-001-TGR512", attributes: { color: "Titanium Gray", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-SAM-001-TGR1T", attributes: { color: "Titanium Gray", storage: "1TB" }, stock: 2 },
+      { sku: "EZW-SAM-001-TBK256", attributes: { color: "Titanium Black", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-SAM-001-TBK512", attributes: { color: "Titanium Black", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-SAM-001-TBK1T", attributes: { color: "Titanium Black", storage: "1TB" }, stock: 2 },
+      { sku: "EZW-SAM-001-TV256", attributes: { color: "Titanium Violet", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-SAM-001-TV512", attributes: { color: "Titanium Violet", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-SAM-001-TV1T", attributes: { color: "Titanium Violet", storage: "1TB" }, stock: 1 },
+    ],
     specs: [
       { label: "Display", value: "6.8-inch Dynamic AMOLED 2X, 120Hz" },
       { label: "Chipset", value: "Snapdragon 8 Gen 3" },
@@ -252,7 +520,17 @@ const PRODUCTS = [
     category: "Phones",
     stock: 28,
     sku: "EZW-SAM-002",
-    variants: ["128GB", "256GB", "512GB"],
+    variants: [
+      { sku: "EZW-SAM-002-ONX128", attributes: { color: "Onyx Black", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-SAM-002-ONX256", attributes: { color: "Onyx Black", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-SAM-002-ONX512", attributes: { color: "Onyx Black", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-SAM-002-MGR128", attributes: { color: "Marble Gray", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-SAM-002-MGR256", attributes: { color: "Marble Gray", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-SAM-002-MGR512", attributes: { color: "Marble Gray", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-SAM-002-CVT128", attributes: { color: "Cobalt Violet", storage: "128GB" }, stock: 4 },
+      { sku: "EZW-SAM-002-CVT256", attributes: { color: "Cobalt Violet", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-SAM-002-CVT512", attributes: { color: "Cobalt Violet", storage: "512GB" }, stock: 1 },
+    ],
     isActive: true,
   },
   {
@@ -265,7 +543,14 @@ const PRODUCTS = [
     category: "Phones",
     stock: 40,
     sku: "EZW-SAM-003",
-    variants: ["128GB", "256GB"],
+    variants: [
+      { sku: "EZW-SAM-003-ONX128", attributes: { color: "Onyx Black", storage: "128GB" }, stock: 9 },
+      { sku: "EZW-SAM-003-ONX256", attributes: { color: "Onyx Black", storage: "256GB" }, stock: 7 },
+      { sku: "EZW-SAM-003-MGR128", attributes: { color: "Marble Gray", storage: "128GB" }, stock: 8 },
+      { sku: "EZW-SAM-003-MGR256", attributes: { color: "Marble Gray", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-SAM-003-CVT128", attributes: { color: "Cobalt Violet", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-SAM-003-CVT256", attributes: { color: "Cobalt Violet", storage: "256GB" }, stock: 4 },
+    ],
     isActive: true,
   },
   {
@@ -278,7 +563,17 @@ const PRODUCTS = [
     category: "Phones",
     stock: 45,
     sku: "EZW-SAM-004",
-    variants: ["128GB", "256GB", "512GB"],
+    variants: [
+      { sku: "EZW-SAM-004-GRP128", attributes: { color: "Graphite", storage: "128GB" }, stock: 8 },
+      { sku: "EZW-SAM-004-GRP256", attributes: { color: "Graphite", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-SAM-004-GRP512", attributes: { color: "Graphite", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-SAM-004-CRM128", attributes: { color: "Cream", storage: "128GB" }, stock: 7 },
+      { sku: "EZW-SAM-004-CRM256", attributes: { color: "Cream", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-SAM-004-CRM512", attributes: { color: "Cream", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-SAM-004-MNT128", attributes: { color: "Mint", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-SAM-004-MNT256", attributes: { color: "Mint", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-SAM-004-MNT512", attributes: { color: "Mint", storage: "512GB" }, stock: 2 },
+    ],
     isActive: true,
   },
   {
@@ -291,12 +586,513 @@ const PRODUCTS = [
     category: "Phones",
     stock: 30,
     sku: "EZW-IPH-005",
-    variants: ["128GB", "256GB"],
+    variants: [
+      { sku: "EZW-IPH-005-BLK128", attributes: { color: "Black", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-IPH-005-BLK256", attributes: { color: "Black", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-005-BLU128", attributes: { color: "Blue", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-IPH-005-BLU256", attributes: { color: "Blue", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-IPH-005-GRN128", attributes: { color: "Green", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-IPH-005-GRN256", attributes: { color: "Green", storage: "256GB" }, stock: 2 },
+      { sku: "EZW-IPH-005-PNK128", attributes: { color: "Pink", storage: "128GB" }, stock: 4 },
+      { sku: "EZW-IPH-005-PNK256", attributes: { color: "Pink", storage: "256GB" }, stock: 1 },
+    ],
     specs: [
       { label: "Display", value: "6.7-inch Super Retina XDR (OLED)" },
       { label: "Chipset", value: "Apple A16 Bionic" },
       { label: "Camera", value: "48MP main + 12MP Ultra Wide" },
       { label: "Battery", value: "Up to 26 hours video playback" },
+    ],
+    isActive: true,
+  },
+
+  // ─── iPhone 14/16/17 series, added CATALOG_CLEANUP_TASK.md Phase C ──
+  {
+    name: "iPhone 14 (128GB)",
+    slug: "iphone-14-128gb",
+    description:
+      "Apple iPhone 14 with A15 Bionic, a durable dual-camera system with Photonic Engine, and Crash Detection for added safety.",
+    price: 599999,
+    images: [IPHONE_14_HERO_IMG],
+    category: "Phones",
+    stock: 32,
+    sku: "EZW-IPH-006",
+    gallery: { images: IPHONE_14_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.1-inch Super Retina XDR (OLED)" },
+      { label: "Chipset", value: "Apple A15 Bionic (5-core GPU)" },
+      { label: "Rear Camera", value: "Dual 12MP (Main + Ultra Wide) with Photonic Engine" },
+      { label: "Battery", value: "Up to 20 hours video playback" },
+      { label: "Safety", value: "Crash Detection, Emergency SOS via satellite" },
+      { label: "Connectivity", value: "5G, Lightning port" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-006-RED128", attributes: { color: "(PRODUCT)RED", storage: "128GB" }, stock: 8, images: [IPHONE_14_COLOR_IMG.red] },
+      { sku: "EZW-IPH-006-RED256", attributes: { color: "(PRODUCT)RED", storage: "256GB" }, stock: 7, images: [IPHONE_14_COLOR_IMG.red] },
+      { sku: "EZW-IPH-006-RED512", attributes: { color: "(PRODUCT)RED", storage: "512GB" }, stock: 6, images: [IPHONE_14_COLOR_IMG.red] },
+      { sku: "EZW-IPH-006-BLU128", attributes: { color: "Blue", storage: "128GB" }, stock: 5, images: [IPHONE_14_COLOR_IMG.blue] },
+      { sku: "EZW-IPH-006-BLU256", attributes: { color: "Blue", storage: "256GB" }, stock: 4, images: [IPHONE_14_COLOR_IMG.blue] },
+      { sku: "EZW-IPH-006-BLU512", attributes: { color: "Blue", storage: "512GB" }, stock: 3, images: [IPHONE_14_COLOR_IMG.blue] },
+      { sku: "EZW-IPH-006-MID128", attributes: { color: "Midnight", storage: "128GB" }, stock: 2, images: [IPHONE_14_COLOR_IMG.midnight] },
+      { sku: "EZW-IPH-006-MID256", attributes: { color: "Midnight", storage: "256GB" }, stock: 8, images: [IPHONE_14_COLOR_IMG.midnight] },
+      { sku: "EZW-IPH-006-MID512", attributes: { color: "Midnight", storage: "512GB" }, stock: 7, images: [IPHONE_14_COLOR_IMG.midnight] },
+      { sku: "EZW-IPH-006-PUR128", attributes: { color: "Purple", storage: "128GB" }, stock: 6, images: [IPHONE_14_COLOR_IMG.purple] },
+      { sku: "EZW-IPH-006-PUR256", attributes: { color: "Purple", storage: "256GB" }, stock: 5, images: [IPHONE_14_COLOR_IMG.purple] },
+      { sku: "EZW-IPH-006-PUR512", attributes: { color: "Purple", storage: "512GB" }, stock: 4, images: [IPHONE_14_COLOR_IMG.purple] },
+      { sku: "EZW-IPH-006-STA128", attributes: { color: "Starlight", storage: "128GB" }, stock: 3, images: [IPHONE_14_COLOR_IMG.starlight] },
+      { sku: "EZW-IPH-006-STA256", attributes: { color: "Starlight", storage: "256GB" }, stock: 2, images: [IPHONE_14_COLOR_IMG.starlight] },
+      { sku: "EZW-IPH-006-STA512", attributes: { color: "Starlight", storage: "512GB" }, stock: 8, images: [IPHONE_14_COLOR_IMG.starlight] },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 14 Plus (128GB)",
+    slug: "iphone-14-plus-128gb",
+    description:
+      "Apple iPhone 14 Plus brings the iPhone 14's A15 Bionic power and camera system to a bigger 6.7-inch display with all-day battery life.",
+    price: 649999,
+    images: [IPHONE_14_HERO_IMG],
+    category: "Phones",
+    stock: 28,
+    sku: "EZW-IPH-007",
+    gallery: { images: IPHONE_14_PLUS_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.7-inch Super Retina XDR (OLED)" },
+      { label: "Chipset", value: "Apple A15 Bionic (5-core GPU)" },
+      { label: "Rear Camera", value: "Dual 12MP (Main + Ultra Wide) with Photonic Engine" },
+      { label: "Battery", value: "Up to 26 hours video playback" },
+      { label: "Safety", value: "Crash Detection, Emergency SOS via satellite" },
+      { label: "Connectivity", value: "5G, Lightning port" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-007-RED128", attributes: { color: "(PRODUCT)RED", storage: "128GB" }, stock: 7, images: [IPHONE_14_COLOR_IMG.red] },
+      { sku: "EZW-IPH-007-RED256", attributes: { color: "(PRODUCT)RED", storage: "256GB" }, stock: 6, images: [IPHONE_14_COLOR_IMG.red] },
+      { sku: "EZW-IPH-007-RED512", attributes: { color: "(PRODUCT)RED", storage: "512GB" }, stock: 5, images: [IPHONE_14_COLOR_IMG.red] },
+      { sku: "EZW-IPH-007-BLU128", attributes: { color: "Blue", storage: "128GB" }, stock: 4, images: [IPHONE_14_COLOR_IMG.blue] },
+      { sku: "EZW-IPH-007-BLU256", attributes: { color: "Blue", storage: "256GB" }, stock: 3, images: [IPHONE_14_COLOR_IMG.blue] },
+      { sku: "EZW-IPH-007-BLU512", attributes: { color: "Blue", storage: "512GB" }, stock: 2, images: [IPHONE_14_COLOR_IMG.blue] },
+      { sku: "EZW-IPH-007-MID128", attributes: { color: "Midnight", storage: "128GB" }, stock: 1, images: [IPHONE_14_COLOR_IMG.midnight] },
+      { sku: "EZW-IPH-007-MID256", attributes: { color: "Midnight", storage: "256GB" }, stock: 7, images: [IPHONE_14_COLOR_IMG.midnight] },
+      { sku: "EZW-IPH-007-MID512", attributes: { color: "Midnight", storage: "512GB" }, stock: 6, images: [IPHONE_14_COLOR_IMG.midnight] },
+      { sku: "EZW-IPH-007-PUR128", attributes: { color: "Purple", storage: "128GB" }, stock: 5, images: [IPHONE_14_COLOR_IMG.purple] },
+      { sku: "EZW-IPH-007-PUR256", attributes: { color: "Purple", storage: "256GB" }, stock: 4, images: [IPHONE_14_COLOR_IMG.purple] },
+      { sku: "EZW-IPH-007-PUR512", attributes: { color: "Purple", storage: "512GB" }, stock: 3, images: [IPHONE_14_COLOR_IMG.purple] },
+      { sku: "EZW-IPH-007-STA128", attributes: { color: "Starlight", storage: "128GB" }, stock: 2, images: [IPHONE_14_COLOR_IMG.starlight] },
+      { sku: "EZW-IPH-007-STA256", attributes: { color: "Starlight", storage: "256GB" }, stock: 1, images: [IPHONE_14_COLOR_IMG.starlight] },
+      { sku: "EZW-IPH-007-STA512", attributes: { color: "Starlight", storage: "512GB" }, stock: 7, images: [IPHONE_14_COLOR_IMG.starlight] },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 14 Pro (128GB)",
+    slug: "iphone-14-pro-128gb",
+    description:
+      "Apple iPhone 14 Pro introduces Dynamic Island, an Always-On display, and a 48MP Main camera powered by the A16 Bionic chip.",
+    price: 779999,
+    images: [IPHONE_14_PRO_HERO_IMG],
+    category: "Phones",
+    stock: 24,
+    sku: "EZW-IPH-008",
+    gallery: { images: IPHONE_14_PRO_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.1-inch Super Retina XDR, ProMotion 120Hz, Dynamic Island" },
+      { label: "Chipset", value: "Apple A16 Bionic" },
+      { label: "Rear Camera", value: "48MP Main + 12MP Ultra Wide + 12MP Telephoto (3x)" },
+      { label: "Battery", value: "Up to 23 hours video playback" },
+      { label: "Display Feature", value: "Always-On display" },
+      { label: "Connectivity", value: "5G, Lightning port" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-008-BLK128", attributes: { color: "Space Black", storage: "128GB" }, stock: 6, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-008-BLK256", attributes: { color: "Space Black", storage: "256GB" }, stock: 5, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-008-BLK512", attributes: { color: "Space Black", storage: "512GB" }, stock: 4, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-008-BLK1T", attributes: { color: "Space Black", storage: "1TB" }, stock: 3, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-008-SLV128", attributes: { color: "Silver", storage: "128GB" }, stock: 2, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-008-SLV256", attributes: { color: "Silver", storage: "256GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-008-SLV512", attributes: { color: "Silver", storage: "512GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-008-SLV1T", attributes: { color: "Silver", storage: "1TB" }, stock: 6, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-008-GLD128", attributes: { color: "Gold", storage: "128GB" }, stock: 5, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-008-GLD256", attributes: { color: "Gold", storage: "256GB" }, stock: 4, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-008-GLD512", attributes: { color: "Gold", storage: "512GB" }, stock: 3, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-008-GLD1T", attributes: { color: "Gold", storage: "1TB" }, stock: 2, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-008-PUR128", attributes: { color: "Deep Purple", storage: "128GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+      { sku: "EZW-IPH-008-PUR256", attributes: { color: "Deep Purple", storage: "256GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+      { sku: "EZW-IPH-008-PUR512", attributes: { color: "Deep Purple", storage: "512GB" }, stock: 6, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+      { sku: "EZW-IPH-008-PUR1T", attributes: { color: "Deep Purple", storage: "1TB" }, stock: 5, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 14 Pro Max (128GB)",
+    slug: "iphone-14-pro-max-128gb",
+    description:
+      "Apple iPhone 14 Pro Max pairs the Pro camera system and Dynamic Island with a 6.7-inch display and Apple's longest iPhone battery life.",
+    price: 899999,
+    images: [IPHONE_14_PRO_HERO_IMG],
+    category: "Phones",
+    stock: 22,
+    sku: "EZW-IPH-009",
+    gallery: { images: IPHONE_14_PRO_MAX_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.7-inch Super Retina XDR, ProMotion 120Hz, Dynamic Island" },
+      { label: "Chipset", value: "Apple A16 Bionic" },
+      { label: "Rear Camera", value: "48MP Main + 12MP Ultra Wide + 12MP Telephoto (3x)" },
+      { label: "Battery", value: "Up to 29 hours video playback" },
+      { label: "Display Feature", value: "Always-On display" },
+      { label: "Connectivity", value: "5G, Lightning port" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-009-BLK128", attributes: { color: "Space Black", storage: "128GB" }, stock: 5, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-009-BLK256", attributes: { color: "Space Black", storage: "256GB" }, stock: 4, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-009-BLK512", attributes: { color: "Space Black", storage: "512GB" }, stock: 3, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-009-BLK1T", attributes: { color: "Space Black", storage: "1TB" }, stock: 2, images: [IPHONE_14_PRO_COLOR_IMG.spaceblack] },
+      { sku: "EZW-IPH-009-SLV128", attributes: { color: "Silver", storage: "128GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-009-SLV256", attributes: { color: "Silver", storage: "256GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-009-SLV512", attributes: { color: "Silver", storage: "512GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-009-SLV1T", attributes: { color: "Silver", storage: "1TB" }, stock: 5, images: [IPHONE_14_PRO_COLOR_IMG.silver] },
+      { sku: "EZW-IPH-009-GLD128", attributes: { color: "Gold", storage: "128GB" }, stock: 4, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-009-GLD256", attributes: { color: "Gold", storage: "256GB" }, stock: 3, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-009-GLD512", attributes: { color: "Gold", storage: "512GB" }, stock: 2, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-009-GLD1T", attributes: { color: "Gold", storage: "1TB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.gold] },
+      { sku: "EZW-IPH-009-PUR128", attributes: { color: "Deep Purple", storage: "128GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+      { sku: "EZW-IPH-009-PUR256", attributes: { color: "Deep Purple", storage: "256GB" }, stock: 1, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+      { sku: "EZW-IPH-009-PUR512", attributes: { color: "Deep Purple", storage: "512GB" }, stock: 5, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+      { sku: "EZW-IPH-009-PUR1T", attributes: { color: "Deep Purple", storage: "1TB" }, stock: 4, images: [IPHONE_14_PRO_COLOR_IMG.deeppurple] },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 16 (128GB)",
+    slug: "iphone-16-128gb",
+    description:
+      "Apple iPhone 16 with A18 chip, Camera Control, and a 48MP Fusion camera system, built for Apple Intelligence.",
+    price: 849999,
+    images: [IPHONE_16_HERO_IMG],
+    category: "Phones",
+    stock: 30,
+    sku: "EZW-IPH-010",
+    gallery: { images: IPHONE_16_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.1-inch Super Retina XDR (OLED)" },
+      { label: "Chipset", value: "Apple A18" },
+      { label: "Rear Camera", value: "48MP Fusion + 12MP Ultra Wide with autofocus" },
+      { label: "Controls", value: "Camera Control, Action button" },
+      { label: "Battery", value: "Best all-day battery life of any iPhone 16-size model" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-010-BLK128", attributes: { color: "Black", storage: "128GB" }, stock: 8 },
+      { sku: "EZW-IPH-010-BLK256", attributes: { color: "Black", storage: "256GB" }, stock: 7 },
+      { sku: "EZW-IPH-010-BLK512", attributes: { color: "Black", storage: "512GB" }, stock: 6 },
+      { sku: "EZW-IPH-010-WHT128", attributes: { color: "White", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-IPH-010-WHT256", attributes: { color: "White", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-010-WHT512", attributes: { color: "White", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-IPH-010-PNK128", attributes: { color: "Pink", storage: "128GB" }, stock: 2 },
+      { sku: "EZW-IPH-010-PNK256", attributes: { color: "Pink", storage: "256GB" }, stock: 8 },
+      { sku: "EZW-IPH-010-PNK512", attributes: { color: "Pink", storage: "512GB" }, stock: 7 },
+      { sku: "EZW-IPH-010-TEA128", attributes: { color: "Teal", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-IPH-010-TEA256", attributes: { color: "Teal", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-010-TEA512", attributes: { color: "Teal", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-IPH-010-ULT128", attributes: { color: "Ultramarine", storage: "128GB" }, stock: 3 },
+      { sku: "EZW-IPH-010-ULT256", attributes: { color: "Ultramarine", storage: "256GB" }, stock: 2 },
+      { sku: "EZW-IPH-010-ULT512", attributes: { color: "Ultramarine", storage: "512GB" }, stock: 8 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 16 Plus (128GB)",
+    slug: "iphone-16-plus-128gb",
+    description:
+      "Apple iPhone 16 Plus brings the A18 chip and 48MP Fusion camera system to a bigger 6.7-inch display with all-day battery life.",
+    price: 899999,
+    images: [IPHONE_16_HERO_IMG],
+    category: "Phones",
+    stock: 26,
+    sku: "EZW-IPH-011",
+    gallery: { images: IPHONE_16_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.7-inch Super Retina XDR (OLED)" },
+      { label: "Chipset", value: "Apple A18" },
+      { label: "Rear Camera", value: "48MP Fusion + 12MP Ultra Wide with autofocus" },
+      { label: "Controls", value: "Camera Control, Action button" },
+      { label: "Battery", value: "Best battery life ever in an iPhone" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-011-BLK128", attributes: { color: "Black", storage: "128GB" }, stock: 7 },
+      { sku: "EZW-IPH-011-BLK256", attributes: { color: "Black", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-IPH-011-BLK512", attributes: { color: "Black", storage: "512GB" }, stock: 5 },
+      { sku: "EZW-IPH-011-WHT128", attributes: { color: "White", storage: "128GB" }, stock: 4 },
+      { sku: "EZW-IPH-011-WHT256", attributes: { color: "White", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-IPH-011-WHT512", attributes: { color: "White", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-IPH-011-PNK128", attributes: { color: "Pink", storage: "128GB" }, stock: 1 },
+      { sku: "EZW-IPH-011-PNK256", attributes: { color: "Pink", storage: "256GB" }, stock: 7 },
+      { sku: "EZW-IPH-011-PNK512", attributes: { color: "Pink", storage: "512GB" }, stock: 6 },
+      { sku: "EZW-IPH-011-TEA128", attributes: { color: "Teal", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-IPH-011-TEA256", attributes: { color: "Teal", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-011-TEA512", attributes: { color: "Teal", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-IPH-011-ULT128", attributes: { color: "Ultramarine", storage: "128GB" }, stock: 2 },
+      { sku: "EZW-IPH-011-ULT256", attributes: { color: "Ultramarine", storage: "256GB" }, stock: 1 },
+      { sku: "EZW-IPH-011-ULT512", attributes: { color: "Ultramarine", storage: "512GB" }, stock: 7 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 16 Pro (128GB)",
+    slug: "iphone-16-pro-128gb",
+    description:
+      "Apple iPhone 16 Pro features a larger titanium design, A18 Pro chip, and a pro camera system with a 5x Telephoto camera.",
+    price: 1049999,
+    images: [IPHONE_16_PRO_HERO_IMG],
+    category: "Phones",
+    stock: 22,
+    sku: "EZW-IPH-012",
+    gallery: { images: IPHONE_16_PRO_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.3-inch Super Retina XDR, ProMotion 120Hz, Always-On" },
+      { label: "Chipset", value: "Apple A18 Pro" },
+      { label: "Rear Camera", value: "48MP Fusion + 48MP Ultra Wide + 12MP 5x Telephoto" },
+      { label: "Video", value: "4K120 fps Dolby Vision" },
+      { label: "Build", value: "Titanium design, Ceramic Shield" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-012-BLK128", attributes: { color: "Black Titanium", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-IPH-012-BLK256", attributes: { color: "Black Titanium", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-012-BLK512", attributes: { color: "Black Titanium", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-IPH-012-BLK1T", attributes: { color: "Black Titanium", storage: "1TB" }, stock: 3 },
+      { sku: "EZW-IPH-012-WHT128", attributes: { color: "White Titanium", storage: "128GB" }, stock: 2 },
+      { sku: "EZW-IPH-012-WHT256", attributes: { color: "White Titanium", storage: "256GB" }, stock: 1 },
+      { sku: "EZW-IPH-012-WHT512", attributes: { color: "White Titanium", storage: "512GB" }, stock: 1 },
+      { sku: "EZW-IPH-012-WHT1T", attributes: { color: "White Titanium", storage: "1TB" }, stock: 6 },
+      { sku: "EZW-IPH-012-NAT128", attributes: { color: "Natural Titanium", storage: "128GB" }, stock: 5 },
+      { sku: "EZW-IPH-012-NAT256", attributes: { color: "Natural Titanium", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-012-NAT512", attributes: { color: "Natural Titanium", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-IPH-012-NAT1T", attributes: { color: "Natural Titanium", storage: "1TB" }, stock: 2 },
+      { sku: "EZW-IPH-012-DES128", attributes: { color: "Desert Titanium", storage: "128GB" }, stock: 1 },
+      { sku: "EZW-IPH-012-DES256", attributes: { color: "Desert Titanium", storage: "256GB" }, stock: 1 },
+      { sku: "EZW-IPH-012-DES512", attributes: { color: "Desert Titanium", storage: "512GB" }, stock: 6 },
+      { sku: "EZW-IPH-012-DES1T", attributes: { color: "Desert Titanium", storage: "1TB" }, stock: 5 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 16 Pro Max (128GB)",
+    slug: "iphone-16-pro-max-128gb",
+    description:
+      "Apple iPhone 16 Pro Max pairs the A18 Pro chip and pro camera system with a 6.9-inch display and Apple's longest iPhone battery life.",
+    price: 1399999,
+    images: [IPHONE_16_PRO_HERO_IMG],
+    category: "Phones",
+    stock: 20,
+    sku: "EZW-IPH-013",
+    gallery: { images: IPHONE_16_PRO_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.9-inch Super Retina XDR, ProMotion 120Hz, Always-On" },
+      { label: "Chipset", value: "Apple A18 Pro" },
+      { label: "Rear Camera", value: "48MP Fusion + 48MP Ultra Wide + 12MP 5x Telephoto" },
+      { label: "Video", value: "4K120 fps Dolby Vision" },
+      { label: "Build", value: "Titanium design, Ceramic Shield" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-013-BLK256", attributes: { color: "Black Titanium", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-013-BLK512", attributes: { color: "Black Titanium", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-IPH-013-BLK1T", attributes: { color: "Black Titanium", storage: "1TB" }, stock: 3 },
+      { sku: "EZW-IPH-013-WHT256", attributes: { color: "White Titanium", storage: "256GB" }, stock: 2 },
+      { sku: "EZW-IPH-013-WHT512", attributes: { color: "White Titanium", storage: "512GB" }, stock: 1 },
+      { sku: "EZW-IPH-013-WHT1T", attributes: { color: "White Titanium", storage: "1TB" }, stock: 1 },
+      { sku: "EZW-IPH-013-NAT256", attributes: { color: "Natural Titanium", storage: "256GB" }, stock: 1 },
+      { sku: "EZW-IPH-013-NAT512", attributes: { color: "Natural Titanium", storage: "512GB" }, stock: 5 },
+      { sku: "EZW-IPH-013-NAT1T", attributes: { color: "Natural Titanium", storage: "1TB" }, stock: 4 },
+      { sku: "EZW-IPH-013-DES256", attributes: { color: "Desert Titanium", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-IPH-013-DES512", attributes: { color: "Desert Titanium", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-IPH-013-DES1T", attributes: { color: "Desert Titanium", storage: "1TB" }, stock: 1 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 16e (128GB)",
+    slug: "iphone-16e-128gb",
+    description:
+      "Apple iPhone 16e delivers the A18 chip and the new Apple C1 modem at a more affordable price, with a 48MP Fusion camera and Apple Intelligence support.",
+    price: 649999,
+    images: [IPHONE_16E_HERO_IMG],
+    category: "Phones",
+    stock: 34,
+    sku: "EZW-IPH-014",
+    gallery: { images: IPHONE_16E_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.1-inch OLED" },
+      { label: "Chipset", value: "Apple A18" },
+      { label: "Modem", value: "Apple C1 — Apple's first cellular modem" },
+      { label: "Rear Camera", value: "Single 48MP Fusion camera" },
+      { label: "Battery", value: "Best battery life of any iPhone this size" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-014-BLK128", attributes: { color: "Black", storage: "128GB" }, stock: 9 },
+      { sku: "EZW-IPH-014-BLK256", attributes: { color: "Black", storage: "256GB" }, stock: 8 },
+      { sku: "EZW-IPH-014-BLK512", attributes: { color: "Black", storage: "512GB" }, stock: 7 },
+      { sku: "EZW-IPH-014-WHT128", attributes: { color: "White", storage: "128GB" }, stock: 6 },
+      { sku: "EZW-IPH-014-WHT256", attributes: { color: "White", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-014-WHT512", attributes: { color: "White", storage: "512GB" }, stock: 4 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 17 (256GB)",
+    slug: "iphone-17-256gb",
+    description:
+      "Apple iPhone 17 with A19 chip, a larger 6.3-inch display, an 18MP Center Stage front camera, and a 48MP Fusion camera system with 2x Telephoto.",
+    price: 949999,
+    images: [IPHONE_17_HERO_IMG],
+    category: "Phones",
+    stock: 30,
+    sku: "EZW-IPH-015",
+    gallery: { images: IPHONE_17_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.3-inch Super Retina XDR, Ceramic Shield 2" },
+      { label: "Chipset", value: "Apple A19" },
+      { label: "Rear Camera", value: "48MP Fusion Main (with 2x Telephoto) + 48MP Fusion Ultra Wide" },
+      { label: "Front Camera", value: "18MP Center Stage" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-015-LAV256", attributes: { color: "Lavender", storage: "256GB" }, stock: 8 },
+      { sku: "EZW-IPH-015-LAV512", attributes: { color: "Lavender", storage: "512GB" }, stock: 7 },
+      { sku: "EZW-IPH-015-SAG256", attributes: { color: "Sage", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-IPH-015-SAG512", attributes: { color: "Sage", storage: "512GB" }, stock: 5 },
+      { sku: "EZW-IPH-015-MST256", attributes: { color: "Mist Blue", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-015-MST512", attributes: { color: "Mist Blue", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-IPH-015-WHT256", attributes: { color: "White", storage: "256GB" }, stock: 2 },
+      { sku: "EZW-IPH-015-WHT512", attributes: { color: "White", storage: "512GB" }, stock: 8 },
+      { sku: "EZW-IPH-015-BLK256", attributes: { color: "Black", storage: "256GB" }, stock: 7 },
+      { sku: "EZW-IPH-015-BLK512", attributes: { color: "Black", storage: "512GB" }, stock: 6 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 17 Air (256GB)",
+    slug: "iphone-17-air-256gb",
+    description:
+      "Apple iPhone 17 Air is Apple's thinnest iPhone ever, with an A19 Pro chip, an 18MP Center Stage front camera, and a 48MP Fusion Main camera.",
+    price: 1099999,
+    images: [IPHONE_17_AIR_HERO_IMG],
+    category: "Phones",
+    stock: 20,
+    sku: "EZW-IPH-016",
+    gallery: { images: IPHONE_17_AIR_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.5-inch Super Retina XDR, Ceramic Shield 2" },
+      { label: "Chipset", value: "Apple A19 Pro" },
+      { label: "Build", value: "Titanium unibody — Apple's thinnest iPhone ever" },
+      { label: "Rear Camera", value: "Single 48MP Fusion Main camera" },
+      { label: "Front Camera", value: "18MP Center Stage" },
+      { label: "Connectivity", value: "eSIM only, 5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-016-SKY256", attributes: { color: "Sky Blue", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-IPH-016-SKY512", attributes: { color: "Sky Blue", storage: "512GB" }, stock: 5 },
+      { sku: "EZW-IPH-016-GLD256", attributes: { color: "Light Gold", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-016-GLD512", attributes: { color: "Light Gold", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-IPH-016-CLW256", attributes: { color: "Cloud White", storage: "256GB" }, stock: 2 },
+      { sku: "EZW-IPH-016-CLW512", attributes: { color: "Cloud White", storage: "512GB" }, stock: 1 },
+      { sku: "EZW-IPH-016-BLK256", attributes: { color: "Space Black", storage: "256GB" }, stock: 1 },
+      { sku: "EZW-IPH-016-BLK512", attributes: { color: "Space Black", storage: "512GB" }, stock: 6 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 17 Pro (256GB)",
+    slug: "iphone-17-pro-256gb",
+    description:
+      "Apple iPhone 17 Pro features an Apple-designed vapor chamber, an A19 Pro chip, and three 48MP Fusion cameras with an all-new Telephoto offering 8x optical-quality zoom.",
+    price: 1199999,
+    images: [IPHONE_17_PRO_HERO_IMG],
+    category: "Phones",
+    stock: 20,
+    sku: "EZW-IPH-017",
+    gallery: { images: IPHONE_17_PRO_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.3-inch Super Retina XDR, Ceramic Shield 2" },
+      { label: "Chipset", value: "Apple A19 Pro" },
+      { label: "Rear Camera", value: "Three 48MP Fusion cameras — Main, Ultra Wide, and 8x Telephoto" },
+      { label: "Build", value: "Aluminum unibody with laser-welded vapor chamber cooling" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-017-ORG256", attributes: { color: "Cosmic Orange", storage: "256GB" }, stock: 6 },
+      { sku: "EZW-IPH-017-ORG512", attributes: { color: "Cosmic Orange", storage: "512GB" }, stock: 5 },
+      { sku: "EZW-IPH-017-ORG1T", attributes: { color: "Cosmic Orange", storage: "1TB" }, stock: 4 },
+      { sku: "EZW-IPH-017-BLU256", attributes: { color: "Deep Blue", storage: "256GB" }, stock: 3 },
+      { sku: "EZW-IPH-017-BLU512", attributes: { color: "Deep Blue", storage: "512GB" }, stock: 2 },
+      { sku: "EZW-IPH-017-BLU1T", attributes: { color: "Deep Blue", storage: "1TB" }, stock: 1 },
+      { sku: "EZW-IPH-017-SLV256", attributes: { color: "Silver", storage: "256GB" }, stock: 1 },
+      { sku: "EZW-IPH-017-SLV512", attributes: { color: "Silver", storage: "512GB" }, stock: 6 },
+      { sku: "EZW-IPH-017-SLV1T", attributes: { color: "Silver", storage: "1TB" }, stock: 5 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 17 Pro Max (256GB)",
+    slug: "iphone-17-pro-max-256gb",
+    description:
+      "Apple iPhone 17 Pro Max pairs the vapor-chamber-cooled A19 Pro chip and triple 48MP Fusion camera system with a 6.9-inch display and Apple's biggest battery.",
+    price: 1499999,
+    images: [IPHONE_17_PRO_HERO_IMG],
+    category: "Phones",
+    stock: 18,
+    sku: "EZW-IPH-018",
+    gallery: { images: IPHONE_17_PRO_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.9-inch Super Retina XDR, Ceramic Shield 2" },
+      { label: "Chipset", value: "Apple A19 Pro" },
+      { label: "Rear Camera", value: "Three 48MP Fusion cameras — Main, Ultra Wide, and 8x Telephoto" },
+      { label: "Build", value: "Aluminum unibody with laser-welded vapor chamber cooling" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-018-ORG256", attributes: { color: "Cosmic Orange", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-018-ORG512", attributes: { color: "Cosmic Orange", storage: "512GB" }, stock: 4 },
+      { sku: "EZW-IPH-018-ORG1T", attributes: { color: "Cosmic Orange", storage: "1TB" }, stock: 3 },
+      { sku: "EZW-IPH-018-ORG2T", attributes: { color: "Cosmic Orange", storage: "2TB" }, stock: 2 },
+      { sku: "EZW-IPH-018-BLU256", attributes: { color: "Deep Blue", storage: "256GB" }, stock: 1 },
+      { sku: "EZW-IPH-018-BLU512", attributes: { color: "Deep Blue", storage: "512GB" }, stock: 1 },
+      { sku: "EZW-IPH-018-BLU1T", attributes: { color: "Deep Blue", storage: "1TB" }, stock: 1 },
+      { sku: "EZW-IPH-018-BLU2T", attributes: { color: "Deep Blue", storage: "2TB" }, stock: 5 },
+      { sku: "EZW-IPH-018-SLV256", attributes: { color: "Silver", storage: "256GB" }, stock: 4 },
+      { sku: "EZW-IPH-018-SLV512", attributes: { color: "Silver", storage: "512GB" }, stock: 3 },
+      { sku: "EZW-IPH-018-SLV1T", attributes: { color: "Silver", storage: "1TB" }, stock: 2 },
+      { sku: "EZW-IPH-018-SLV2T", attributes: { color: "Silver", storage: "2TB" }, stock: 1 },
+    ],
+    isActive: true,
+  },
+  {
+    name: "iPhone 17e (256GB)",
+    slug: "iphone-17e-256gb",
+    description:
+      "Apple iPhone 17e delivers the A19 chip, a 48MP Fusion camera with 2x Telephoto, Ceramic Shield 2, and MagSafe, now starting at double the storage.",
+    price: 749999,
+    images: [IPHONE_17E_HERO_IMG],
+    category: "Phones",
+    stock: 32,
+    sku: "EZW-IPH-019",
+    gallery: { images: IPHONE_17E_GALLERY, videos: [] },
+    specs: [
+      { label: "Display", value: "6.1-inch Super Retina XDR, Ceramic Shield 2" },
+      { label: "Chipset", value: "Apple A19" },
+      { label: "Rear Camera", value: "48MP Fusion Main with 2x optical-quality Telephoto" },
+      { label: "Video", value: "4K60 fps Dolby Vision" },
+      { label: "Charging", value: "MagSafe support" },
+      { label: "Connectivity", value: "5G, USB-C, Apple Intelligence" },
+    ],
+    variants: [
+      { sku: "EZW-IPH-019-BLK256", attributes: { color: "Black", storage: "256GB" }, stock: 9 },
+      { sku: "EZW-IPH-019-BLK512", attributes: { color: "Black", storage: "512GB" }, stock: 8 },
+      { sku: "EZW-IPH-019-WHT256", attributes: { color: "White", storage: "256GB" }, stock: 7 },
+      { sku: "EZW-IPH-019-WHT512", attributes: { color: "White", storage: "512GB" }, stock: 6 },
+      { sku: "EZW-IPH-019-PNK256", attributes: { color: "Soft Pink", storage: "256GB" }, stock: 5 },
+      { sku: "EZW-IPH-019-PNK512", attributes: { color: "Soft Pink", storage: "512GB" }, stock: 4 },
     ],
     isActive: true,
   },
@@ -313,13 +1109,18 @@ const PRODUCTS = [
     stock: 150,
     sku: "EZW-SPG-001",
     variants: [
-      { sku: "EZW-SPG-001-BLK", attributes: { color: "Black" }, stock: 60, images: [CLOUD_CASE_BLACK] },
-      { sku: "EZW-SPG-001-BLU", attributes: { color: "Blue" }, stock: 50, images: [CLOUD_CASE_BLUE] },
-      { sku: "EZW-SPG-001-WHT", attributes: { color: "White" }, stock: 40, images: [CLOUD_CASE_WHITE] },
+      { sku: "EZW-SPG-001-BLK", attributes: { color: "Black" }, stock: 60, images: [SPIGEN_TOUGH_ARMOR_VARIANT_IMG] },
+      { sku: "EZW-SPG-001-BLU", attributes: { color: "Blue" }, stock: 50, images: [SPIGEN_TOUGH_ARMOR_VARIANT_IMG] },
+      { sku: "EZW-SPG-001-WHT", attributes: { color: "White" }, stock: 40, images: [SPIGEN_TOUGH_ARMOR_VARIANT_IMG] },
     ],
+    // Gallery fixed in CATALOG_CLEANUP_TASK.md Phase B — was leftover
+    // Cloudinary demo placeholders unrelated to this product; replaced with
+    // real Spigen detail-angle photography (Black is Spigen's only
+    // photographed colorway for this SKU — used as the representative
+    // image for all 3 variants, same as the hero).
     gallery: {
-      images: [CLOUD_CASE_BLACK, CLOUD_CASE_BLUE, CLOUD_CASE_WHITE],
-      videos: [CLOUD_GALLERY_VIDEO],
+      images: SPIGEN_TOUGH_ARMOR_GALLERY,
+      videos: [],
     },
     isActive: true,
   },
@@ -333,7 +1134,12 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 120,
     sku: "EZW-SUP-001",
-    variants: ["Black", "Gray", "Red"],
+    variants: [
+      { sku: "EZW-SUP-001-BLK", attributes: { color: "Black" }, stock: 48 },
+      { sku: "EZW-SUP-001-GRY", attributes: { color: "Gray" }, stock: 40 },
+      { sku: "EZW-SUP-001-RED", attributes: { color: "Red" }, stock: 32 },
+    ],
+    gallery: { images: SUPCASE_UB_PRO_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -367,7 +1173,12 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 100,
     sku: "EZW-NIL-001",
-    variants: ["Black", "White", "Green"],
+    variants: [
+      { sku: "EZW-NIL-001-BLK", attributes: { color: "Black" }, stock: 40 },
+      { sku: "EZW-NIL-001-WHT", attributes: { color: "White" }, stock: 34 },
+      { sku: "EZW-NIL-001-GRN", attributes: { color: "Green" }, stock: 26 },
+    ],
+    gallery: { images: NILLKIN_SHIELD_PRO_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -382,8 +1193,8 @@ const PRODUCTS = [
     sku: "EZW-UAG-001",
     variants: [
       { sku: "EZW-UAG-001-BLK", attributes: { color: "Black" }, stock: 20, images: [CLOUD_CASE_BLACK] },
-      { sku: "EZW-UAG-001-CMO", attributes: { color: "Camouflage" }, stock: 10, images: [CLOUD_CASE_GRAY] },
-      { sku: "EZW-UAG-001-RED", attributes: { color: "Red" }, stock: 10, images: [CLOUD_CASE_WHITE] },
+      { sku: "EZW-UAG-001-CMO", attributes: { color: "Camouflage" }, stock: 12, images: [CLOUD_CASE_GRAY] },
+      { sku: "EZW-UAG-001-RED", attributes: { color: "Red" }, stock: 8, images: [CLOUD_CASE_WHITE] },
     ],
     gallery: {
       images: [CLOUD_CASE_BLACK, CLOUD_CASE_GRAY],
@@ -401,7 +1212,11 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 35,
     sku: "EZW-MOS-001",
-    variants: ["Black", "Gray", "Silver"],
+    variants: [
+      { sku: "EZW-MOS-001-BLK", attributes: { color: "Black" }, stock: 14 },
+      { sku: "EZW-MOS-001-GRY", attributes: { color: "Gray" }, stock: 12 },
+      { sku: "EZW-MOS-001-SLV", attributes: { color: "Silver" }, stock: 9 },
+    ],
     isActive: true,
   },
   {
@@ -414,7 +1229,11 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 140,
     sku: "EZW-SPG-002",
-    variants: ["Black", "Clear", "Blue"],
+    variants: [
+      { sku: "EZW-SPG-002-CLR", attributes: { color: "Clear" }, stock: 60 },
+      { sku: "EZW-SPG-002-BLK", attributes: { color: "Black" }, stock: 48 },
+      { sku: "EZW-SPG-002-BLU", attributes: { color: "Blue" }, stock: 32 },
+    ],
     isActive: true,
   },
   {
@@ -427,7 +1246,11 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 85,
     sku: "EZW-NIL-002",
-    variants: ["Black", "White", "Silver"],
+    variants: [
+      { sku: "EZW-NIL-002-BLK", attributes: { color: "Black" }, stock: 34 },
+      { sku: "EZW-NIL-002-WHT", attributes: { color: "White" }, stock: 28 },
+      { sku: "EZW-NIL-002-SLV", attributes: { color: "Silver" }, stock: 23 },
+    ],
     isActive: true,
   },
   {
@@ -440,7 +1263,12 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 110,
     sku: "EZW-RIN-001",
-    variants: ["Black", "Gray", "Blue"],
+    variants: [
+      { sku: "EZW-RIN-001-BLK", attributes: { color: "Black" }, stock: 44 },
+      { sku: "EZW-RIN-001-GRY", attributes: { color: "Gray" }, stock: 38 },
+      { sku: "EZW-RIN-001-BLU", attributes: { color: "Blue" }, stock: 28 },
+    ],
+    gallery: { images: RINGKE_ONYX_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -453,7 +1281,12 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 95,
     sku: "EZW-ESR-001",
-    variants: ["Black", "Red", "Green"],
+    variants: [
+      { sku: "EZW-ESR-001-BLK", attributes: { color: "Black" }, stock: 40 },
+      { sku: "EZW-ESR-001-RED", attributes: { color: "Red" }, stock: 30 },
+      { sku: "EZW-ESR-001-GRN", attributes: { color: "Green" }, stock: 25 },
+    ],
+    gallery: { images: ESR_SHOCKPROOF_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -466,7 +1299,11 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 75,
     sku: "EZW-LAM-001",
-    variants: ["Black", "Brown", "Navy"],
+    variants: [
+      { sku: "EZW-LAM-001-BLK", attributes: { color: "Black" }, stock: 30 },
+      { sku: "EZW-LAM-001-BRN", attributes: { color: "Brown" }, stock: 25 },
+      { sku: "EZW-LAM-001-NVY", attributes: { color: "Navy" }, stock: 20 },
+    ],
     isActive: true,
   },
   {
@@ -479,13 +1316,18 @@ const PRODUCTS = [
     category: "Phone Cases & Covers",
     stock: 45,
     sku: "EZW-OTT-001",
-    variants: ["Black", "Red", "Blue"],
+    variants: [
+      { sku: "EZW-OTT-001-BLK", attributes: { color: "Black" }, stock: 20 },
+      { sku: "EZW-OTT-001-RED", attributes: { color: "Red" }, stock: 13 },
+      { sku: "EZW-OTT-001-BLU", attributes: { color: "Blue" }, stock: 12 },
+    ],
     specs: [
       { label: "Material", value: "Multi-layer polycarbonate + synthetic rubber" },
       { label: "Compatibility", value: "iPhone 15 Pro Max (order size variant)" },
       { label: "Protection", value: "Drop tested to MIL-STD-810G" },
       { label: "Extras", value: "Belt-clip holster included" },
     ],
+    gallery: { images: OTTERBOX_DEFENDER_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -526,7 +1368,10 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 80,
     sku: "EZW-ANK-001",
-    variants: [],
+    variants: [
+      { sku: "EZW-ANK-001-BLK", attributes: { color: "Black" }, stock: 48 },
+      { sku: "EZW-ANK-001-WHT", attributes: { color: "White" }, stock: 32 },
+    ],
     isActive: true,
   },
   {
@@ -539,7 +1384,11 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 200,
     sku: "EZW-AMZ-001",
-    variants: ["1m", "2m", "3m"],
+    variants: [
+      { sku: "EZW-AMZ-001-M1", attributes: { length: "1m" }, stock: 70 },
+      { sku: "EZW-AMZ-001-M2", attributes: { length: "2m" }, stock: 90 },
+      { sku: "EZW-AMZ-001-M3", attributes: { length: "3m" }, stock: 40 },
+    ],
     isActive: true,
   },
   {
@@ -552,7 +1401,8 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 45,
     sku: "EZW-APP-001",
-    variants: ["White", "Blue", "Pink"],
+    variants: [],
+    gallery: { images: APPLE_MAGSAFE_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -565,7 +1415,11 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 90,
     sku: "EZW-BAS-001",
-    variants: ["Black", "White", "Gray"],
+    variants: [
+      { sku: "EZW-BAS-001-BLK", attributes: { color: "Black" }, stock: 36 },
+      { sku: "EZW-BAS-001-WHT", attributes: { color: "White" }, stock: 30 },
+      { sku: "EZW-BAS-001-GRY", attributes: { color: "Gray" }, stock: 24 },
+    ],
     isActive: true,
   },
   {
@@ -578,7 +1432,11 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 55,
     sku: "EZW-ANK-005",
-    variants: ["Black", "White", "Gray"],
+    variants: [
+      { sku: "EZW-ANK-005-BLK", attributes: { color: "Black" }, stock: 24 },
+      { sku: "EZW-ANK-005-WHT", attributes: { color: "White" }, stock: 18 },
+      { sku: "EZW-ANK-005-GRY", attributes: { color: "Gray" }, stock: 13 },
+    ],
     isActive: true,
   },
   {
@@ -591,7 +1449,11 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 130,
     sku: "EZW-ANK-006",
-    variants: ["White", "Black"],
+    variants: [
+      { sku: "EZW-ANK-006-WHT", attributes: { color: "White" }, stock: 75 },
+      { sku: "EZW-ANK-006-BLK", attributes: { color: "Black" }, stock: 55 },
+    ],
+    gallery: { images: ANKER_NANO_20W_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -604,7 +1466,11 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 160,
     sku: "EZW-BLK-001",
-    variants: ["1m", "2m"],
+    variants: [
+      { sku: "EZW-BLK-001-M1", attributes: { length: "1m" }, stock: 60 },
+      { sku: "EZW-BLK-001-M2", attributes: { length: "2m" }, stock: 100 },
+    ],
+    gallery: { images: BELKIN_BOOSTCHARGE_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -617,7 +1483,10 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 70,
     sku: "EZW-UGR-001",
-    variants: ["Black", "White"],
+    variants: [
+      { sku: "EZW-UGR-001-BLK", attributes: { color: "Black" }, stock: 42 },
+      { sku: "EZW-UGR-001-WHT", attributes: { color: "White" }, stock: 28 },
+    ],
     isActive: true,
   },
   {
@@ -630,7 +1499,10 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 110,
     sku: "EZW-ANK-008",
-    variants: ["White", "Black"],
+    variants: [
+      { sku: "EZW-ANK-008-WHT", attributes: { color: "White" }, stock: 65 },
+      { sku: "EZW-ANK-008-BLK", attributes: { color: "Black" }, stock: 45 },
+    ],
     specs: [
       { label: "Output", value: "20W USB-C Power Delivery" },
       { label: "Compatibility", value: "iPhone and Android USB-C devices" },
@@ -649,13 +1521,17 @@ const PRODUCTS = [
     category: "Chargers & Cables",
     stock: 140,
     sku: "EZW-UGR-002",
-    variants: ["2m", "3m"],
+    variants: [
+      { sku: "EZW-UGR-002-M2", attributes: { length: "2m" }, stock: 80 },
+      { sku: "EZW-UGR-002-M3", attributes: { length: "3m" }, stock: 60 },
+    ],
     specs: [
       { label: "Length", value: "2m / 3m options" },
       { label: "Power", value: "100W (USB PD 3.0 with E-marker chip)" },
       { label: "Data", value: "USB 2.0, 480Mbps" },
       { label: "Material", value: "Nylon braided jacket" },
     ],
+    gallery: { images: UGREEN_100W_GALLERY, videos: [] },
     isActive: true,
   },
 
@@ -670,7 +1546,11 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 60,
     sku: "EZW-ANK-002",
-    variants: ["Black", "White", "Blue"],
+    variants: [
+      { sku: "EZW-ANK-002-BLK", attributes: { color: "Black" }, stock: 28 },
+      { sku: "EZW-ANK-002-WHT", attributes: { color: "White" }, stock: 20 },
+      { sku: "EZW-ANK-002-BLU", attributes: { color: "Blue" }, stock: 12 },
+    ],
     isActive: true,
   },
   {
@@ -683,7 +1563,11 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 40,
     sku: "EZW-ANK-003",
-    variants: ["Black", "White", "Gray"],
+    variants: [
+      { sku: "EZW-ANK-003-BLK", attributes: { color: "Black" }, stock: 18 },
+      { sku: "EZW-ANK-003-WHT", attributes: { color: "White" }, stock: 13 },
+      { sku: "EZW-ANK-003-GRY", attributes: { color: "Gray" }, stock: 9 },
+    ],
     specs: [
       { label: "Capacity", value: "20000 mAh" },
       { label: "Output", value: "Up to 12W dual USB-A" },
@@ -702,7 +1586,11 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 50,
     sku: "EZW-PHI-001",
-    variants: ["Black", "White", "Blue"],
+    variants: [
+      { sku: "EZW-PHI-001-BLK", attributes: { color: "Black" }, stock: 22 },
+      { sku: "EZW-PHI-001-WHT", attributes: { color: "White" }, stock: 17 },
+      { sku: "EZW-PHI-001-BLU", attributes: { color: "Blue" }, stock: 11 },
+    ],
     isActive: true,
   },
   {
@@ -715,7 +1603,10 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 35,
     sku: "EZW-ANK-007",
-    variants: ["Black", "White"],
+    variants: [
+      { sku: "EZW-ANK-007-BLK", attributes: { color: "Black" }, stock: 20 },
+      { sku: "EZW-ANK-007-WHT", attributes: { color: "White" }, stock: 15 },
+    ],
     isActive: true,
   },
   {
@@ -728,7 +1619,11 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 55,
     sku: "EZW-BAS-002",
-    variants: ["Black", "White"],
+    variants: [
+      { sku: "EZW-BAS-002-BLK", attributes: { color: "Black" }, stock: 32 },
+      { sku: "EZW-BAS-002-WHT", attributes: { color: "White" }, stock: 23 },
+    ],
+    gallery: { images: BASEUS_POWERBANK_20000_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -741,7 +1636,11 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 45,
     sku: "EZW-SAM-005",
-    variants: ["Black", "White"],
+    variants: [
+      { sku: "EZW-SAM-005-BLK", attributes: { color: "Black" }, stock: 26 },
+      { sku: "EZW-SAM-005-WHT", attributes: { color: "White" }, stock: 19 },
+    ],
+    gallery: { images: SAMSUNG_POWERBANK_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -754,7 +1653,10 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 70,
     sku: "EZW-ANK-009",
-    variants: ["Black", "White"],
+    variants: [
+      { sku: "EZW-ANK-009-BLK", attributes: { color: "Black" }, stock: 42 },
+      { sku: "EZW-ANK-009-WHT", attributes: { color: "White" }, stock: 28 },
+    ],
     specs: [
       { label: "Capacity", value: "10000 mAh" },
       { label: "Output", value: "Dual USB-A, up to 10.5W total" },
@@ -773,7 +1675,10 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 60,
     sku: "EZW-XIA-001",
-    variants: ["Black", "White"],
+    variants: [
+      { sku: "EZW-XIA-001-BLK", attributes: { color: "Black" }, stock: 34 },
+      { sku: "EZW-XIA-001-WHT", attributes: { color: "White" }, stock: 26 },
+    ],
     specs: [
       { label: "Capacity", value: "20000 mAh" },
       { label: "Output", value: "Dual USB-A, up to 18W fast charge" },
@@ -792,7 +1697,11 @@ const PRODUCTS = [
     category: "Power Banks",
     stock: 85,
     sku: "EZW-BAS-003",
-    variants: ["Black", "White", "Pink"],
+    variants: [
+      { sku: "EZW-BAS-003-BLK", attributes: { color: "Black" }, stock: 42 },
+      { sku: "EZW-BAS-003-WHT", attributes: { color: "White" }, stock: 28 },
+      { sku: "EZW-BAS-003-PNK", attributes: { color: "Pink" }, stock: 15 },
+    ],
     specs: [
       { label: "Capacity", value: "10000 mAh" },
       { label: "Output", value: "22.5W fast charge" },
@@ -813,7 +1722,11 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 35,
     sku: "EZW-SNY-001",
-    variants: ["Black", "White", "Blue"],
+    variants: [
+      { sku: "EZW-SNY-001-BLK", attributes: { color: "Black" }, stock: 20 },
+      { sku: "EZW-SNY-001-WHT", attributes: { color: "White" }, stock: 10 },
+      { sku: "EZW-SNY-001-BLU", attributes: { color: "Blue" }, stock: 5 },
+    ],
     isActive: true,
   },
   {
@@ -826,7 +1739,11 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 70,
     sku: "EZW-SAM-006",
-    variants: ["Black", "Gray", "Pink"],
+    variants: [
+      { sku: "EZW-SAM-006-BLK", attributes: { color: "Black" }, stock: 30 },
+      { sku: "EZW-SAM-006-GRY", attributes: { color: "Gray" }, stock: 24 },
+      { sku: "EZW-SAM-006-PNK", attributes: { color: "Pink" }, stock: 16 },
+    ],
     isActive: true,
   },
   {
@@ -839,7 +1756,15 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 65,
     sku: "EZW-JBL-001",
-    variants: ["Black", "White", "Red"],
+    variants: [
+      { sku: "EZW-JBL-001-BLK", attributes: { color: "Black" }, stock: 30 },
+      { sku: "EZW-JBL-001-WHT", attributes: { color: "White" }, stock: 22 },
+      { sku: "EZW-JBL-001-RED", attributes: { color: "Red" }, stock: 13 },
+    ],
+    // jbl.com only exposed Black colorway photography for this product's
+    // gallery — hero is Blue, so this is a representative (not exact-color)
+    // match. Logged in review.md.
+    gallery: { images: JBL_230NC_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -852,7 +1777,11 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 45,
     sku: "EZW-ANK-004",
-    variants: ["Black", "Blue", "White"],
+    variants: [
+      { sku: "EZW-ANK-004-BLK", attributes: { color: "Black" }, stock: 20 },
+      { sku: "EZW-ANK-004-BLU", attributes: { color: "Blue" }, stock: 15 },
+      { sku: "EZW-ANK-004-WHT", attributes: { color: "White" }, stock: 10 },
+    ],
     isActive: true,
   },
   {
@@ -865,7 +1794,7 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 25,
     sku: "EZW-APP-002",
-    variants: ["White"],
+    variants: [],
     isActive: true,
   },
   {
@@ -878,7 +1807,14 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 60,
     sku: "EZW-JBL-002",
-    variants: ["Black", "Blue", "White"],
+    variants: [
+      { sku: "EZW-JBL-002-BLK", attributes: { color: "Black" }, stock: 28 },
+      { sku: "EZW-JBL-002-BLU", attributes: { color: "Blue" }, stock: 20 },
+      { sku: "EZW-JBL-002-WHT", attributes: { color: "White" }, stock: 12 },
+    ],
+    // jbl.com only exposed White colorway photography for this product's
+    // gallery — hero is Black, same representative-match caveat as 230NC.
+    gallery: { images: JBL_510BT_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -911,13 +1847,18 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 40,
     sku: "EZW-JBL-003",
-    variants: ["Black", "White", "Blue"],
+    variants: [
+      { sku: "EZW-JBL-003-BLK", attributes: { color: "Black" }, stock: 18 },
+      { sku: "EZW-JBL-003-WHT", attributes: { color: "White" }, stock: 14 },
+      { sku: "EZW-JBL-003-BLU", attributes: { color: "Blue" }, stock: 8 },
+    ],
     specs: [
       { label: "Battery", value: "Up to 70 hours (ANC off)" },
       { label: "Connectivity", value: "Bluetooth 5.3, multipoint pairing" },
       { label: "Noise Cancelling", value: "Adaptive ANC" },
       { label: "Drivers", value: "40mm dynamic" },
     ],
+    gallery: { images: JBL_770NC_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -930,7 +1871,10 @@ const PRODUCTS = [
     category: "Earphones & Headphones",
     stock: 50,
     sku: "EZW-ANK-010",
-    variants: ["Black", "White"],
+    variants: [
+      { sku: "EZW-ANK-010-BLK", attributes: { color: "Black" }, stock: 30 },
+      { sku: "EZW-ANK-010-WHT", attributes: { color: "White" }, stock: 20 },
+    ],
     specs: [
       { label: "Battery", value: "50 hours total (with charging case)" },
       { label: "Connectivity", value: "Bluetooth 5.2 with LDAC support" },
@@ -951,13 +1895,18 @@ const PRODUCTS = [
     category: "Screen Protectors",
     stock: 250,
     sku: "EZW-SPG-003",
-    variants: ["iPhone 15 Pro", "iPhone 15 Pro Max", "Galaxy S24"],
+    variants: [
+      { sku: "EZW-SPG-003-IP15P", attributes: { model: "iPhone 15 Pro" }, stock: 100 },
+      { sku: "EZW-SPG-003-IP15PM", attributes: { model: "iPhone 15 Pro Max" }, stock: 85 },
+      { sku: "EZW-SPG-003-GS24", attributes: { model: "Galaxy S24" }, stock: 65 },
+    ],
     specs: [
       { label: "Hardness", value: "9H tempered glass" },
       { label: "Thickness", value: "0.33 mm" },
       { label: "Compatibility", value: "iPhone 15 / Galaxy S24 (model specific)" },
       { label: "Extras", value: "Oleophobic coating + easy-install kit" },
     ],
+    gallery: { images: SPIGEN_TEMPERED_GLASS_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -970,7 +1919,11 @@ const PRODUCTS = [
     category: "Screen Protectors",
     stock: 300,
     sku: "EZW-SUP-002",
-    variants: ["iPhone 15", "iPhone 14", "Galaxy S24"],
+    variants: [
+      { sku: "EZW-SUP-002-IP15", attributes: { model: "iPhone 15" }, stock: 120 },
+      { sku: "EZW-SUP-002-IP14", attributes: { model: "iPhone 14" }, stock: 105 },
+      { sku: "EZW-SUP-002-GS24", attributes: { model: "Galaxy S24" }, stock: 75 },
+    ],
     isActive: true,
   },
   {
@@ -983,7 +1936,11 @@ const PRODUCTS = [
     category: "Screen Protectors",
     stock: 180,
     sku: "EZW-ESR-002",
-    variants: ["iPhone 15 Pro", "Galaxy S24 Ultra"],
+    variants: [
+      { sku: "EZW-ESR-002-IP15P", attributes: { model: "iPhone 15 Pro" }, stock: 100 },
+      { sku: "EZW-ESR-002-GS24U", attributes: { model: "Galaxy S24 Ultra" }, stock: 80 },
+    ],
+    gallery: { images: ESR_PROTECTOR_GALLERY, videos: [] },
     isActive: true,
   },
   {
@@ -996,7 +1953,11 @@ const PRODUCTS = [
     category: "Screen Protectors",
     stock: 220,
     sku: "EZW-ICA-001",
-    variants: ["iPhone 15", "iPhone 15 Pro", "iPhone 15 Pro Max"],
+    variants: [
+      { sku: "EZW-ICA-001-IP15", attributes: { model: "iPhone 15" }, stock: 85 },
+      { sku: "EZW-ICA-001-IP15P", attributes: { model: "iPhone 15 Pro" }, stock: 75 },
+      { sku: "EZW-ICA-001-IP15PM", attributes: { model: "iPhone 15 Pro Max" }, stock: 60 },
+    ],
     specs: [
       { label: "Hardness", value: "9H tempered glass" },
       { label: "Thickness", value: "0.33 mm" },
@@ -1015,7 +1976,11 @@ const PRODUCTS = [
     category: "Screen Protectors",
     stock: 210,
     sku: "EZW-FLA-001",
-    variants: ["Galaxy S24", "Galaxy S24+", "Galaxy S24 Ultra"],
+    variants: [
+      { sku: "EZW-FLA-001-GS24", attributes: { model: "Galaxy S24" }, stock: 85 },
+      { sku: "EZW-FLA-001-GS24P", attributes: { model: "Galaxy S24+" }, stock: 70 },
+      { sku: "EZW-FLA-001-GS24U", attributes: { model: "Galaxy S24 Ultra" }, stock: 55 },
+    ],
     specs: [
       { label: "Hardness", value: "9H tempered glass" },
       { label: "Compatibility", value: "Galaxy S24 series (model specific)" },
@@ -1034,7 +1999,7 @@ const PRODUCTS = [
     category: "Screen Protectors",
     stock: 40,
     sku: "EZW-WHI-001",
-    variants: ["iPhone 15 Pro Max"],
+    variants: [],
     specs: [
       { label: "Technology", value: "UV-cured LOCA adhesive" },
       { label: "Coverage", value: "Edge-to-edge, no black border" },
@@ -1053,7 +2018,11 @@ const PRODUCTS = [
     category: "Screen Protectors",
     stock: 150,
     sku: "EZW-BLK-002",
-    variants: ["iPhone 15", "iPhone 14", "Galaxy S24"],
+    variants: [
+      { sku: "EZW-BLK-002-IP15", attributes: { model: "iPhone 15" }, stock: 60 },
+      { sku: "EZW-BLK-002-IP14", attributes: { model: "iPhone 14" }, stock: 50 },
+      { sku: "EZW-BLK-002-GS24", attributes: { model: "Galaxy S24" }, stock: 40 },
+    ],
     specs: [
       { label: "Material", value: "Chemically strengthened glass" },
       { label: "Drop Protection", value: "2x stronger than standard glass" },
@@ -1063,69 +2032,6 @@ const PRODUCTS = [
     isActive: true,
   },
 ];
-
-// Legacy `variants: ["Black","Blue"]` label arrays → structured variants
-// (Decision #1). Each label becomes its own SKU with a share of the product's
-// stock; the attribute key is per product (storage/color/length/model). Kept
-// as a transform so the seed stays readable — PRODUCTS is exported and seeded
-// already-structured, so the DB rows, tests and API all see the new shape.
-// Products whose variants are already structured (the Phase 4 showcase) pass
-// through untouched.
-const VARIANT_ATTR = {
-  "iphone-15-pro-max-1tb": "storage",
-  "iphone-15-pro-512gb": "storage",
-  "iphone-15-pro-256gb": "storage",
-  "iphone-15-256gb": "storage",
-  "samsung-galaxy-s24-ultra-512gb": "storage",
-  "samsung-galaxy-s24-256gb": "storage",
-  "samsung-galaxy-s24-128gb": "storage",
-  "samsung-galaxy-s23-fe-128gb": "storage",
-  "iphone-15-plus-256gb": "storage",
-  "amazonbasics-usbc-cable": "length",
-  "belkin-boostcharge-braided-cable": "length",
-  "ugreen-100w-braided-usb-c-cable": "length",
-  "spigen-tempered-glass-screen-protector": "model",
-  "supershieldz-tempered-glass-screen-protector": "model",
-  "esr-screen-protector-2-pack": "model",
-  "icarez-screen-protector-iphone-15": "model",
-  "flasfit-tempered-glass-samsung-s24": "model",
-  "whitestone-dome-glass-iphone-15-pro-max": "model",
-  "belkin-ultraglass-screen-protector": "model",
-};
-
-const variantCode = (label) =>
-  String(label)
-    .replace(/[^a-zA-Z0-9]+/g, "")
-    .toUpperCase() || "VAR";
-
-const splitStock = (total, n, i) => {
-  const base = Math.floor(total / n);
-  return i === n - 1 ? base + (total - base * n) : base;
-};
-
-const toStructuredVariants = (product) => {
-  if (!Array.isArray(product.variants) || product.variants.length === 0) return;
-  if (product.variants[0] && typeof product.variants[0] === "object") return;
-  const attr = VARIANT_ATTR[product.slug] || "color";
-  const labels = product.variants;
-  const total = Number(product.stock) || 0;
-  const used = new Set();
-  product.variants = labels.map((label, i) => {
-    // Normalizing labels can collide (e.g. "Galaxy S24" vs "Galaxy S24+") —
-    // append an index to any repeat so variant SKUs stay unique per product.
-    let code = variantCode(label);
-    if (used.has(code)) code = `${code}-${i + 1}`;
-    used.add(code);
-    return {
-      sku: `${product.sku || "EZW"}-${code}`,
-      attributes: { [attr]: label },
-      stock: splitStock(total, labels.length, i),
-      images: [],
-    };
-  });
-};
-
-PRODUCTS.forEach(toStructuredVariants);
 
 const DELIVERY_ZONES = [
   {

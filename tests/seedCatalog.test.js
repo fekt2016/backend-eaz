@@ -53,6 +53,10 @@ describe("Seeded catalog + product reviews", () => {
     }
   });
 
+  // Bumped from the 30s default: seedCatalog() now bulk-upserts 71 products
+  // (was 57 before CATALOG_CLEANUP_TASK.md Phase C added 14 iPhones), and
+  // this test makes ~18 sequential API round-trips on top of that — fine
+  // in isolation but can cross 30s under full-suite parallel load.
   it("seeds structured specs for new + spot-check products and serves them via the API", async () => {
     await seedCatalog();
 
@@ -69,7 +73,7 @@ describe("Seeded catalog + product reviews", () => {
         expect(spec.value.length).toBeGreaterThan(0);
       }
     }
-  });
+  }, 60000);
 
   it("seeds the catalog and computes correct rating summaries via the API", async () => {
     await seedCatalog();
@@ -79,13 +83,16 @@ describe("Seeded catalog + product reviews", () => {
       acc[p.category] = (acc[p.category] || 0) + 1;
       return acc;
     }, {});
-    expect(counts["Phones"]).toBe(9);
+    // Phones went from 9 to 22 (CATALOG_CLEANUP_TASK.md Phase C: 14 new
+    // iPhone 14/16/17-series models added, 1 pre-existing duplicate iPhone
+    // 15 Pro document deactivated). Other categories unchanged.
+    expect(counts["Phones"]).toBe(22);
     expect(counts["Phone Cases & Covers"]).toBe(13);
     expect(counts["Chargers & Cables"]).toBe(10);
     expect(counts["Power Banks"]).toBe(9);
     expect(counts["Earphones & Headphones"]).toBe(9);
     expect(counts["Screen Protectors"]).toBe(7);
-    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(57);
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(70);
 
     // Every new product must expose the seeded reviews' rating summary.
     for (const slug of NEW_PRODUCT_SLUGS) {
@@ -100,7 +107,7 @@ describe("Seeded catalog + product reviews", () => {
     expect(list.status).toBe(200);
     expect(list.body.total).toBe(expectedSummary(NEW_PRODUCT_SLUGS[0]).count);
     expect(list.body.data[0].userName).toBeTruthy();
-  });
+  }, 60000);
 
   it("seeds idempotently and enforces one review per user per product", async () => {
     await seedCatalog();
