@@ -162,6 +162,101 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
     (see `frontend-eaz/tasks.md` → T19).
 
+- [ ] **T45 · `expenseController`: unescaped supplier regex + no activity logs**
+  - **Issue:** `getSuppliers` uses `{ $regex: q }` with no `escapeRegex` (vs.
+    `customerController.getCustomers` which escapes it) — a `q` with regex metacharacters
+    can match unintended rows. Also `createExpense`, `updateExpense`, `deleteExpense`,
+    supplier create/update/delete never call `logFromRequest`, so POS expense/supplier
+    mutations are invisible in activity logs (unlike customer/job mutations).
+  - **Location:** `controllers/pos/expenseController.js` (supplier search ~lines 88–92;
+    no `logFromRequest` anywhere in the file).
+  - **Fix:** Use `escapeRegex(q)` in the supplier `$or`, and add `logFromRequest` entries
+    for expense + supplier mutations (actions `EXPENSE_CREATED`/`UPDATED`/`DELETED`,
+    `SUPPLIER_CREATED`/`UPDATED`/`DELETED` — add to `services/activityLogService.js` if
+    the ACTIONS enum lacks them).
+  - **Frontend part:** n/a.
+
+- [ ] **T44 · Hosting/domain/service amounts stored as major-GHS floats — align to pesewas**
+  - **Issue:** The integer-pesewas money rule applies to POS/shop, but hosting, domain, and
+    service orders still store **major GHS floats** (`hostingOrderController.js` computes
+    `Math.round(priceUSD * usdRate * markup * years * 100) / 100`; the webhook then
+    converts with `Math.round(field * 100)` to compare against Paystack pesewas). T8 covers
+    POS field *names* only — this unit mismatch is a separate, broader deviation from the
+    golden rule ("money is integer pesewas, never floats").
+  - **Location:** `controllers/hostingOrderController.js` (amount calc ~line 95),
+    `controllers/webhookController.js` (`amountMismatch` callers for hosting/domain/service
+    ~lines 120, 217, 483), hosting/domain/service `checkout` order creation.
+  - **Fix (decision needed):** Either migrate these to integer pesewas end-to-end (model +
+    controllers + webhook + frontend display) or explicitly document the float-GHS exception
+    as intentional. If migrating, mirror the T8/POS migration approach with a one-time script
+    and update the frontend `GH₵{order.amount}` displays (see `frontend-eaz/tasks.md` → T44).
+  - **Frontend part:** `frontend-eaz/tasks.md` → T44.
+
+- [ ] **T43 · Money display bypasses the single `formatGhs` formatter**
+  - **Issue:** The frontend convention (STYLE_GUIDE/CLAUDE.md) is to render money via
+    `formatGhs(pesewas)` from `lib/shop.js`. Many pages instead hand-roll `GH₵{...toFixed(2)}`
+    or `GH₵{...toLocaleString()}` — raw concatenation that is inconsistent and error-prone.
+  - **Location:** backend side n/a — see `frontend-eaz/tasks.md` → T43 for the full file list.
+  - **Fix:** None on the backend (data already arrives in pesewas; the display conversion
+    happens client-side). Verify any backend money fields these pages consume are integer
+    pesewas as the pages expect.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T43.
+
+- [ ] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk**
+  - **Issue:** Blog post content from `GET /api/v1/posts/:slug` is converted markdown→HTML
+    with regex and injected via `dangerouslySetInnerHTML` with **no escaping/sanitization**.
+    If an admin-authored (or compromised) post body contains HTML/JS, it executes for every
+    reader. (`JsonLd`/theme-init uses are static-safe; this one is dynamic content.)
+  - **Location:** backend side — `controllers/` post create/update should sanitize the
+    `content` field on write (`sanitizeText`/strip script/iframe) as a defense-in-depth
+    measure, since the frontend cannot fully trust rendered HTML.
+  - **Fix:** Sanitize blog `content` server-side on create/update (strip `<script>`, event
+    handlers, `javascript:` URLs). The primary render fix lives in the frontend
+    (`frontend-eaz/tasks.md` → T42) — escape HTML before the markdown regex, or use a
+    safe renderer.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T42.
+
+- [ ] **T41 · Public track page part-order cart mixes float-GHS and pesewas**
+  - **Issue:** On the `/track/:token` page, `addToCart` stores `unitPriceGhs: sellingPrice / 100`
+    (float GHS) then recomputes `totalPesewas = partsSubtotalGhs * 100 + shippingPesewas`
+    (float × 100), while `addPartToShopCart` stores integer pesewas directly. Two cart paths,
+    two money conventions — float-rounding risk and inconsistent with the pesewas rule.
+  - **Location:** backend side n/a (server recomputes totals from the Part price; the cart
+    money is client-local) — see `frontend-eaz/tasks.md` → T41 for the fix.
+  - **Fix:** None on the backend. Optionally confirm `POST /track/:token/orders` ignores the
+    client's price and re-prices from the `Part` model (it does — items carry only
+    `partId`+`quantity`).
+  - **Frontend part:** `frontend-eaz/tasks.md` → T41.
+
+- [ ] **T40 · `authController.logout` calls `jwt.decode` but never imports `jsonwebtoken`**
+  - **Issue:** `logout()` (line ~283) runs `jwt.decode(token)` to resolve the actor identity
+    for the activity log, but `jsonwebtoken` is **not required** in `authController.js`. The
+    ReferenceError is swallowed by the surrounding try/catch, so logout "works" — but the
+    actor is always `null` and the logout activity entry never records who logged out.
+  - **Location:** `controllers/authController.js` (imports lines 1–6; logout ~lines 276–303).
+  - **Fix:** Add `const jwt = require('jsonwebtoken');` to the imports (verified: no other
+    `jwt` reference exists in the file). Optionally add a test asserting logout logs the
+    actor identity when a valid token cookie is present.
+  - **Frontend part:** n/a.
+
+- [ ] **T39 · Product detail tabs (Description / Reviews) — no backend change**
+  - **Issue:** The frontend product detail page (`/shop/[slug]`) should show **tabs** for
+    Description and Reviews instead of stacking them as one long page. This is a
+    **frontend-only** UI change; no API/model/route work required.
+  - **Location:** n/a (backend) — see `frontend-eaz/tasks.md` → T39 for the fix.
+  - **Fix:** None on the backend. Verify the endpoints backing the tabs still work:
+    `GET /api/v1/products/:slug` (description + specs), `GET /api/v1/products/:productId/reviews`
+    (public review list), and the review submit/eligibility routes.
+
+- [ ] **T38 · Cart overlay viewport fit — no backend change**
+  - **Issue:** The cart overlay that opens on **Add to Cart** from a product detail page
+    (frontend `CartDrawer`) should fit all content within one viewport. This is a
+    **frontend-only** layout fix; no API/model/route work required.
+  - **Location:** n/a (backend) — see `frontend-eaz/tasks.md` → T38 for the fix.
+  - **Fix:** None on the backend. After the frontend drawer change, verify cart flow
+    endpoints used from the drawer still work: `POST /api/v1/cart/sync` (if present),
+    `GET /api/v1/products`, and checkout `POST /api/v1/orders`.
+
 - [ ] **T37 · POS inventory search: return product images**
   - **Issue:** When the sell page searches with `includeProducts=true`, the shop product
     query does `.select('name sku price stock category')` — **no `images`** — so product
