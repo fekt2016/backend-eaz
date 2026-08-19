@@ -12,6 +12,7 @@ const {
   submitProductReview,
   getProductReviews,
   getMyProductReview,
+  getReviewEligibility,
   updateMyProductReview
 } = require('../controllers/productReviewController');
 
@@ -29,6 +30,7 @@ router.delete('/:id', protect, restrictTo('admin', 'staff'), deleteProduct);
 // Product reviews — parallel system to the service Review (see PRODUCT_REVIEW_TASK.md)
 router.post('/:productId/reviews', protect, submitProductReview);
 router.get('/:productId/reviews/mine', protect, getMyProductReview);
+router.get('/:productId/reviews/eligibility', protect, getReviewEligibility);
 router.patch('/:productId/reviews/mine', protect, updateMyProductReview);
 router.get('/:productId/reviews', getProductReviews);
 

@@ -40,6 +40,7 @@ const app = express();
 
 const ENV  = process.env.NODE_ENV || 'development';
 const PROD = ENV === 'production';
+const IS_TEST = ENV === 'test';
 
 // Trust the first proxy (Nginx in prod, Next.js dev server locally)
 // Required for express-rate-limit to correctly read X-Forwarded-For
@@ -142,7 +143,7 @@ function makeLimit(windowMinutes, max, message) {
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, error: message },
-    skip: (req) => !PROD && req.ip === '::1', // skip localhost in dev
+    skip: (req) => IS_TEST || (!PROD && req.ip === '::1'), // skip in tests + localhost in dev
   });
 }
 
@@ -165,7 +166,7 @@ app.use('/api/v1/products/:productId/reviews', rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many reviews submitted. Please try again later.' },
-  skip: (req) => req.method !== 'POST' || (!PROD && req.ip === '::1'),
+  skip: (req) => req.method !== 'POST' || IS_TEST || (!PROD && req.ip === '::1'),
 }));
 
 // Chat — public and unbounded by default, so lock it down

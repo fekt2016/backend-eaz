@@ -4,6 +4,7 @@ const app = require("../app");
 const Product = require("../models/Product");
 const User = require("../models/User");
 const ProductReview = require("../models/ProductReview");
+const Order = require("../models/Order");
 
 let slugCounter = 0;
 function makeProduct(overrides = {}) {
@@ -30,6 +31,21 @@ async function makeUser(role = "user") {
   return { user, token };
 }
 
+let orderCounter = 0;
+// A verified-purchase fixture: a paid order for `email` containing `product`.
+// Reviews now require this — see productReviewController.hasVerifiedPurchase.
+async function makeVerifyingOrder({ product, email, status = "paid" }) {
+  orderCounter += 1;
+  return Order.create({
+    orderNumber: `EZW-TEST-${Date.now()}-${orderCounter}`,
+    items: [{ product: product._id, name: product.name, price: product.price, qty: 1 }],
+    subtotal: product.price,
+    total: product.price,
+    customer: { name: "Reviewer", phone: "0500000000", email },
+    status,
+  });
+}
+
 describe("Product reviews — create", () => {
   it("rejects unauthenticated submission with 401", async () => {
     const product = await Product.create(makeProduct());
@@ -38,9 +54,10 @@ describe("Product reviews — create", () => {
     expect(res.status).toBe(401);
   });
 
-  it("creates an approved review for an authenticated user", async () => {
+  it("creates an approved review for an authenticated verified purchaser", async () => {
     const product = await Product.create(makeProduct());
-    const { token } = await makeUser();
+    const { user, token } = await makeUser();
+    await makeVerifyingOrder({ product, email: user.email });
 
     const res = await request(app).post(`/api/v1/products/${product._id}/reviews`)
       .set("Authorization", `Bearer ${token}`)
@@ -50,6 +67,66 @@ describe("Product reviews — create", () => {
     expect(res.body.data.rating).toBe(5);
     expect(res.body.data.approved).toBe(true);
     expect(res.body.data.user.toString()).toBeTruthy();
+  });
+
+  it("rejects submission from a logged-in user with no verified purchase (403)", async () => {
+    const product = await Product.create(makeProduct());
+    const { token } = await makeUser();
+
+    const res = await request(app).post(`/api/v1/products/${product._id}/reviews`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ rating: 5, comment: "Great product, exactly as described." });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("PURCHASE_NOT_VERIFIED");
+  });
+
+  it("rejects submission when the user's only order for this product is still pending", async () => {
+    const product = await Product.create(makeProduct());
+    const { user, token } = await makeUser();
+    await makeVerifyingOrder({ product, email: user.email, status: "pending" });
+
+    const res = await request(app).post(`/api/v1/products/${product._id}/reviews`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ rating: 5, comment: "Great product, exactly as described." });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects submission when the user's paid order is for a different product", async () => {
+    const product = await Product.create(makeProduct());
+    const otherProduct = await Product.create(makeProduct());
+    const { user, token } = await makeUser();
+    await makeVerifyingOrder({ product: otherProduct, email: user.email });
+
+    const res = await request(app).post(`/api/v1/products/${product._id}/reviews`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ rating: 5, comment: "Great product, exactly as described." });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("verifies a purchase by phone match when the account has no matching email order", async () => {
+    const product = await Product.create(makeProduct());
+    const { user, token } = await makeUser();
+    // Give the user a phone; the order is placed under that phone with a
+    // different/blank checkout email — same match logic as getMyOrders.
+    user.phone = "0244123456";
+    await user.save();
+    await Order.create({
+      orderNumber: `EZW-TEST-PHONE-${Date.now()}`,
+      items: [{ product: product._id, name: product.name, price: product.price, qty: 1 }],
+      subtotal: product.price,
+      total: product.price,
+      customer: { name: "Reviewer", phone: "0244123456", email: "" },
+      status: "delivered",
+    });
+
+    const res = await request(app).post(`/api/v1/products/${product._id}/reviews`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ rating: 5, comment: "Great product, exactly as described." });
+
+    expect(res.status).toBe(201);
   });
 
   it("rejects a rating outside 1-5 and a too-short comment", async () => {
@@ -69,7 +146,8 @@ describe("Product reviews — create", () => {
 
   it("blocks a second review from the same user with 409", async () => {
     const product = await Product.create(makeProduct());
-    const { token } = await makeUser();
+    const { user, token } = await makeUser();
+    await makeVerifyingOrder({ product, email: user.email });
     const body = { rating: 5, comment: "Great product, exactly as described." };
 
     await request(app).post(`/api/v1/products/${product._id}/reviews`)
@@ -231,6 +309,10 @@ describe("End-to-end — real logged-in user flow (register → verify → submi
     expect(verify.status).toBe(200);
     const cookie = verify.headers["set-cookie"][0].split(";")[0];
     expect(cookie.startsWith("token=")).toBe(true);
+
+    // 2b. A real paid order under this email — reviews require a verified
+    // purchase (CATALOG_CLEANUP_TASK.md follow-up: purchase-verified reviews).
+    await makeVerifyingOrder({ product, email });
 
     // 3. Submit a review while logged in via the httpOnly cookie
     const submit = await request(app).post(`/api/v1/products/${product._id}/reviews`)

@@ -552,5 +552,6 @@ module.exports = {
   getOrders,
   getOrder,
   updateOrderStatus,
-  addTrackingEvent
+  addTrackingEvent,
+  normalizePhone
 };
