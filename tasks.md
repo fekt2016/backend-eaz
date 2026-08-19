@@ -155,6 +155,27 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+- [ ] **T53 · POS `updateJob` allows backward / terminal-to-live status transitions**
+  - **Issue:** `jobController.updateJob` (`controllers/pos/jobController.js:318`) does
+    `if (status) job.status = status;` with no transition validation — unlike
+    `orderController.canTransition` (`controllers/orderController.js:390-401`), which enforces
+    forward-only moves and treats `delivered`/`cancelled` as terminal. As written, a
+    staff/technician can move a repair job backwards (`collected`→`received`,
+    `ready`→`diagnosing`) or out of a terminal state (`cancelled`→`repairing`). Worse,
+    `completedAt` is set when a job reaches `collected` (line 373) but is **never cleared** on a
+    backward move, and `warrantyExpires` (set at collection when `warrantyDays > 0`) goes stale
+    the same way — corrupting warranty + uncollected-reminder logic.
+  - **Location:** `controllers/pos/jobController.js` — `updateJob` (~lines 318, 373-381);
+    `models/RepairJob.js` — `status` enum (line 44-48), `completedAt` (line 59),
+    `warrantyExpires` (line 64).
+  - **Fix:** Mirror `orderController.canTransition`: a `STATUS_RANK` order over
+    `['received','diagnosing','waiting_for_parts','repairing','ready','collected']`, reject
+    moves to lower rank, treat `cancelled` as terminal (only reachable from a live state, per the
+    existing T18 cancel guard), and allow same-status no-op. When a job is moved off `collected`
+    (backwards), clear `completedAt`/`warrantyExpires`; set them only on `collected`. Add a test:
+    `collected`→`received` is rejected with 400; `cancelled`→`repairing` is rejected.
+  - **Frontend part:** n/a (see `frontend-eaz/tasks.md` → T53 for the UI side of the cancel guard).
+
 - [ ] **T52 · Frontend dashboard admin gates exclude superadmin**
   - **Issue:** Admin pages gate on `user?.role === "admin"` (or `!== "admin"`), so a superadmin
     (site owner) is redirected to `/dashboard` or the admin data never loads.
