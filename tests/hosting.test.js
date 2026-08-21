@@ -22,12 +22,15 @@ jest.mock("../services/namecheap", () => ({
   registerDomain: jest.fn(async () => ({ success: true })),
   setEazWorldNameservers: jest.fn(async () => ({ success: true })),
   hasConfig: jest.fn(() => false),
+  // Pre-marked-up GHS prices, dot-prefixed keys — matches the real getPricing() shape.
+  getPricing: jest.fn(async () => ({ ".com": 85, ".net": 75 })),
 }));
 
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const whm = require("../services/whm");
+const namecheap = require("../services/namecheap");
 const HostingOrder = require("../models/HostingOrder");
 const User = require("../models/User");
 const { provisionHostingAccount } = require("../utils/provisionHosting");
@@ -169,5 +172,222 @@ describe("hosting lifecycle endpoints", () => {
       .set("Authorization", `Bearer ${otherToken}`);
 
     expect(res.status).toBe(403);
+  });
+});
+
+describe("superadmin ownership-or-admin parity (T51)", () => {
+  it("returns every user's orders, not just its own, from GET /orders", async () => {
+    const { user } = await makeUser();
+    const { token: superadminToken } = await makeUser("superadmin");
+    await HostingOrder.create(orderData(user));
+
+    const res = await request(app)
+      .get("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${superadminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("lets a superadmin read another customer's order by id", async () => {
+    const { user } = await makeUser();
+    const { token: superadminToken } = await makeUser("superadmin");
+    const order = await HostingOrder.create(orderData(user));
+
+    const res = await request(app)
+      .get(`/api/v1/hosting/orders/${order._id}`)
+      .set("Authorization", `Bearer ${superadminToken}`);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("lets a superadmin read another customer's invoice", async () => {
+    const { user } = await makeUser();
+    const { token: superadminToken } = await makeUser("superadmin");
+    const order = await HostingOrder.create(orderData(user));
+
+    const res = await request(app)
+      .get(`/api/v1/hosting/orders/${order._id}/invoice`)
+      .set("Authorization", `Bearer ${superadminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/pdf/);
+  });
+
+  it("lets a superadmin read another customer's service status", async () => {
+    const { user } = await makeUser();
+    const { token: superadminToken } = await makeUser("superadmin");
+    const order = await HostingOrder.create(
+      orderData(user, { status: "active", cpanelUsername: "testusr" })
+    );
+
+    const res = await request(app)
+      .get(`/api/v1/hosting/orders/${order._id}/status`)
+      .set("Authorization", `Bearer ${superadminToken}`);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("lets a superadmin open another customer's cPanel SSO session", async () => {
+    const { user } = await makeUser();
+    const { token: superadminToken } = await makeUser("superadmin");
+    const order = await HostingOrder.create(
+      orderData(user, { status: "active", cpanelUsername: "testusr" })
+    );
+
+    const res = await request(app)
+      .get(`/api/v1/hosting/orders/${order._id}/cpanel-login`)
+      .set("Authorization", `Bearer ${superadminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(whm.createSession).toHaveBeenCalledWith("testusr");
+  });
+
+  it("lets a superadmin reset another customer's cPanel password", async () => {
+    const { user } = await makeUser();
+    const { token: superadminToken } = await makeUser("superadmin");
+    const order = await HostingOrder.create(
+      orderData(user, { status: "active", cpanelUsername: "testusr" })
+    );
+
+    const res = await request(app)
+      .post(`/api/v1/hosting/orders/${order._id}/password`)
+      .set("Authorization", `Bearer ${superadminToken}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(whm.changePassword).toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/v1/hosting/orders — invalid plan/tier (T60)", () => {
+  it("returns 400, not 500, for an unknown planType", async () => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "bogus",
+        tier: "deluxe",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("returns 400, not 500, for an unknown tier on a known planType", async () => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "shared",
+        tier: "bogus-tier",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+});
+
+describe("POST /api/v1/hosting/orders — domain fee is server-computed, not client-trusted (T54)", () => {
+  it("uses the Namecheap price for a known TLD and ignores a client-supplied domainRegistrationFee", async () => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "shared",
+        tier: "deluxe",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+        domainMode: "new",
+        domain: "mybusiness.com",
+        domainRegistrationFee: 0, // client tries to get the domain for free
+        domainRegistrationYears: 1,
+      });
+
+    expect(res.status).toBe(200);
+    const order = await HostingOrder.findById(res.body.data.orderId);
+    expect(order.domainRegistrationFee).toBe(85); // server price for ".com", not the client's 0
+  });
+
+  it("multiplies the server price by domainRegistrationYears", async () => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "shared",
+        tier: "deluxe",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+        domainMode: "new",
+        domain: "mybusiness.net",
+        domainRegistrationYears: 2,
+      });
+
+    expect(res.status).toBe(200);
+    const order = await HostingOrder.findById(res.body.data.orderId);
+    expect(order.domainRegistrationFee).toBe(150); // 75 * 2 years, not USD-rate-multiplied again
+  });
+
+  it("falls back to the capped client value for an unknown TLD", async () => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "shared",
+        tier: "deluxe",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+        domainMode: "new",
+        domain: "mybusiness.zzz", // not in the mocked pricing map
+        domainRegistrationFee: 9999, // above the 500 cap
+        domainRegistrationYears: 1,
+      });
+
+    expect(res.status).toBe(200);
+    const order = await HostingOrder.findById(res.body.data.orderId);
+    expect(order.domainRegistrationFee).toBe(500); // capped, not the raw 9999
+  });
+
+  it("falls back to the capped client value when Namecheap is unavailable", async () => {
+    namecheap.getPricing.mockRejectedValueOnce(new Error("Namecheap down"));
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "shared",
+        tier: "deluxe",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+        domainMode: "new",
+        domain: "mybusiness.com",
+        domainRegistrationFee: 42,
+        domainRegistrationYears: 1,
+      });
+
+    expect(res.status).toBe(200);
+    const order = await HostingOrder.findById(res.body.data.orderId);
+    expect(order.domainRegistrationFee).toBe(42);
   });
 });

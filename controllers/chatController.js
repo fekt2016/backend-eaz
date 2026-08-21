@@ -1,5 +1,6 @@
 const ChatSession = require('../models/ChatSession');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeMessage } = require('../utils/sanitize');
+const { getBusinessProfile } = require('../utils/businessProfile');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI HOOK — swap this function when you're ready to plug in OpenAI / Claude
@@ -13,34 +14,21 @@ async function getAIResponse(messages, userMessage) {
   return null; // returning null falls through to rule-based engine
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EAZWORLD KNOWLEDGE BASE
-// ─────────────────────────────────────────────────────────────────────────────
-const KNOWLEDGE = {
-  services: [
-    { name: 'Web Design & Development', price: 'Starting from GHS 1,500', path: '/services/web-design' },
-    { name: 'SEO', price: 'GHS 800 – 2,000/month', path: '/services/seo' },
-    { name: 'Paid Advertising', price: 'GHS 800 – 2,000/month (management fee)', path: '/services/paid-ads' },
-    { name: 'Branding', price: 'GHS 500 – 3,500 (one-time)', path: '/services/branding' },
-    { name: 'Social Media Management', price: 'GHS 600 – 1,500/month', path: '/services/social-media' },
-    { name: 'Email Marketing', price: 'GHS 500 – 1,200/month', path: '/services/email' },
-    { name: 'Phone Repair', price: 'Varies by device — walk-ins welcome', path: '/services/phone-repair' },
-    { name: 'Web Hosting', price: 'Starting from GHS 150/year', path: '/hosting' },
-    { name: 'Domain Registration', price: 'Starting from GHS 80/year', path: '/domains' },
-  ],
-  contact: {
-    whatsapp: '233244388190',
-    email: 'hello@eazworld.com',
-    location: 'Accra, Ghana',
-    hours: 'Monday – Friday, 8am – 6pm GMT',
-  },
-  consultation: '/book-consultation',
-};
+// Digits-only WhatsApp number (e.g. "233244388190") → display format "+233 244 388 190"
+function _formatWhatsapp(digits) {
+  const d = String(digits || '').replace(/\D/g, '');
+  if (d.startsWith('233') && d.length === 12) {
+    return `+233 ${d.slice(3, 6)} ${d.slice(6, 9)} ${d.slice(9, 12)}`;
+  }
+  return `+${d}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RULE-BASED ENGINE
+// Service list, pricing, and contact info come from `Settings.business`
+// (admin-editable) via `getBusinessProfile()` — see utils/businessProfile.js.
 // ─────────────────────────────────────────────────────────────────────────────
-function ruleBasedResponse(message) {
+function ruleBasedResponse(message, knowledge) {
   const msg = message.toLowerCase().trim();
 
   // Greetings
@@ -53,7 +41,7 @@ function ruleBasedResponse(message) {
 
   // Services overview
   if (/\b(services?|what do you (do|offer)|what can you do|offerings?)\b/.test(msg)) {
-    const list = KNOWLEDGE.services.map(s => `• **${s.name}**`).join('\n');
+    const list = knowledge.services.map(s => `• **${s.name}**`).join('\n');
     return {
       text: `Here's what EazWorld offers:\n\n${list}\n\nWhich service would you like to know more about?`,
       suggestions: ['Web Design', 'SEO', 'Branding', 'Phone Repair'],
@@ -62,7 +50,7 @@ function ruleBasedResponse(message) {
 
   // Pricing
   if (/\b(pric(e|ing|es)|cost|how much|fee|rates?|charges?|package)\b/.test(msg)) {
-    const list = KNOWLEDGE.services.map(s => `• **${s.name}** — ${s.price}`).join('\n');
+    const list = knowledge.services.map(s => `• **${s.name}** — ${s.price}`).join('\n');
     return {
       text: `Here's a summary of our pricing:\n\n${list}\n\nAll prices are in Ghana Cedis. Want a custom quote for your project?`,
       suggestions: ['Get a Custom Quote', 'Book Free Consultation', 'Web Design Pricing', 'SEO Pricing'],
@@ -144,7 +132,7 @@ function ruleBasedResponse(message) {
   // Location / where are you
   if (/\b(where|location|address|accra|ghana|visit|find you|office)\b/.test(msg)) {
     return {
-      text: `📍 We're based in **Accra, Ghana**.\n\nYou can visit us in person — walk-ins are welcome for phone repairs.\n\nFor digital services, we work with clients across Ghana and beyond — all remotely.\n\n🕐 Hours: Monday – Friday, 8am – 6pm GMT`,
+      text: `📍 We're based in **${knowledge.location}**.\n\nYou can visit us in person — walk-ins are welcome for phone repairs.\n\nFor digital services, we work with clients across Ghana and beyond — all remotely.\n\n🕐 Hours: ${knowledge.hours}`,
       suggestions: ['Get Directions', 'WhatsApp Us', 'Book Consultation'],
     };
   }
@@ -152,7 +140,7 @@ function ruleBasedResponse(message) {
   // Contact
   if (/\b(contact|reach|talk|speak|call|whatsapp|email|get in touch)\b/.test(msg)) {
     return {
-      text: `You can reach us through:\n\n📱 **WhatsApp:** +233 244 388 190\n📧 **Email:** hello@eazworld.com\n📍 **Location:** Accra, Ghana\n🕐 **Hours:** Mon–Fri, 8am–6pm GMT\n\nOr book a free consultation and we'll call you back!`,
+      text: `You can reach us through:\n\n📱 **WhatsApp:** ${_formatWhatsapp(knowledge.whatsapp)}\n📧 **Email:** ${knowledge.email}\n📍 **Location:** ${knowledge.location}\n🕐 **Hours:** ${knowledge.hours}\n\nOr book a free consultation and we'll call you back!`,
       suggestions: ['Book Free Consultation', 'WhatsApp Now', 'Send a Message'],
     };
   }
@@ -183,7 +171,7 @@ function ruleBasedResponse(message) {
 
   // Default fallback
   return {
-    text: `Thanks for your message! I'm not quite sure about that, but I'd love to connect you with the right person.\n\nYou can:\n• 📱 WhatsApp us at +233 244 388 190\n• 📅 Book a free consultation\n• 📧 Email hello@eazworld.com`,
+    text: `Thanks for your message! I'm not quite sure about that, but I'd love to connect you with the right person.\n\nYou can:\n• 📱 WhatsApp us at ${_formatWhatsapp(knowledge.whatsapp)}\n• 📅 Book a free consultation\n• 📧 Email ${knowledge.email}`,
     suggestions: ['Book Consultation', 'WhatsApp Us', 'Our Services', 'Pricing'],
   };
 }
@@ -264,7 +252,8 @@ const sendMessage = async (req, res, next) => {
     if (aiText) {
       botResponse = aiText;
     } else {
-      const result = ruleBasedResponse(trimmedMsg);
+      const knowledge = await getBusinessProfile();
+      const result = ruleBasedResponse(trimmedMsg, knowledge);
       botResponse  = result.text;
       suggestions  = result.suggestions || [];
     }

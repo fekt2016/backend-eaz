@@ -281,7 +281,7 @@ async function sendContactAutoReply(contact) {
 async function sendTwoFactorPin(user, pin) {
   await send({
     to: user.email,
-    type: 'other',
+    type: 'two_factor',
     subject: 'EazWorld — Your login verification code',
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">

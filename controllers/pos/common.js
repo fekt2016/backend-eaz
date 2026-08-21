@@ -45,6 +45,41 @@ const ACTIVE_JOB_STATUSES = ['received', 'diagnosing', 'waiting_for_parts', 'rep
 const REVENUE_ORDER_STATUSES = ['paid', 'processing', 'shipped', 'delivered'];
 const EXPENSE_CATEGORIES = ['rent','utilities','tools','parts','salaries','marketing','transport','maintenance','other'];
 const MOMO_PROVIDERS = { mtn: 'mtn', vod: 'vod', atl: 'atl', tgo: 'tgo' };
+const PART_REPAIR_ORDER_STATUSES = ['pending', 'paid', 'cancelled'];
+
+// Shared by PartOrder/RepairOrder status updates (inventoryController.updatePartOrder,
+// jobController.updateRepairOrder). Only `pending` may move — to `paid` (normally set by
+// the Paystack webhook, but staff can also confirm manually) or `cancelled` (abandon an
+// unpaid order). Once `paid` or `cancelled`, the order is terminal: no un-paying and no
+// cancelling a paid order (that needs a refund process, out of scope here).
+function canTransitionPartRepairOrder(from, to) {
+  if (from === to) return true; // no-op
+  return from === 'pending';
+}
+
+// Forward-only status flow for repair jobs (T53; mirrors orderController.canTransition).
+// received → diagnosing → waiting_for_parts → repairing → ready → collected, skips
+// allowed (e.g. received → ready). `collected` and `cancelled` are both terminal — no
+// moves out of either, same precedent as orderController's delivered/cancelled (a
+// mis-marked collection needs a new job, not a backward status flip). `cancelled` is
+// reachable from any live status except `ready` (T18: once a job is staged for pickup
+// it must be collected, not cancelled).
+//
+// One deliberate exception: waiting_for_parts → diagnosing. This is the manual
+// correction path T58 relies on — cancelling a *paid* PartOrder/RepairOrder leaves the
+// linked job stuck at `waiting_for_parts` (T58 explicitly stopped short of an automatic
+// reset, since nothing on RepairJob distinguishes "webhook set this" from "staff set
+// this for an unrelated reason"), so staff need a manual way back to `diagnosing`.
+// Without this carve-out, T53's forward-only rule would silently close off that
+// fallback along with the bug it's meant to fix.
+const JOB_STATUS_RANK = { received: 0, diagnosing: 1, waiting_for_parts: 2, repairing: 3, ready: 4, collected: 5 };
+function canTransitionJobStatus(from, to) {
+  if (from === to) return true;                                     // no-op
+  if (from === 'waiting_for_parts' && to === 'diagnosing') return true; // T58 manual-reset fallback
+  if (from === 'collected' || from === 'cancelled') return false;   // terminal
+  if (to === 'cancelled') return from !== 'ready';                  // T18 guard
+  return (JOB_STATUS_RANK[to] ?? -1) > (JOB_STATUS_RANK[from] ?? -1); // forward only
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,7 +189,9 @@ module.exports = {
   paystack, FRONTEND_URL,
   // constants
   ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS,
+  PART_REPAIR_ORDER_STATUSES,
   // helpers
   computeJobBalancePesewas, deductJobPartsOnce, generatePassword,
   findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange,
+  canTransitionPartRepairOrder, canTransitionJobStatus,
 };

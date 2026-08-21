@@ -13,6 +13,19 @@ if (paystackSecret && paystackSecret.startsWith('sk_')) {
   console.warn('⚠️  Paystack not configured — service order payments will not work.');
 }
 
+const SERVICE_ORDER_STATUSES = ['pending', 'paid', 'in_progress', 'completed', 'cancelled'];
+
+// Forward-only status flow (mirrors orderController.js's ORDER_STATUSES/canTransition).
+// An order may move to any *later* stage, or be cancelled while still live. Same-status
+// is a no-op. `completed` and `cancelled` are terminal.
+const STATUS_RANK = { pending: 0, paid: 1, in_progress: 2, completed: 3 };
+function canTransition(from, to) {
+  if (from === to) return true;                                     // no-op
+  if (from === 'completed' || from === 'cancelled') return false;   // terminal
+  if (to === 'cancelled') return true;                              // cancel any live order
+  return (STATUS_RANK[to] ?? -1) > (STATUS_RANK[from] ?? -1);        // forward only
+}
+
 // Deposit amounts per package (GHS)
 const PACKAGES = {
   'Landing Page':       { deposit: 400,   total: 800   },
@@ -132,12 +145,14 @@ const createServicePayment = async (req, res, next) => {
  */
 const getServiceOrders = async (req, res, next) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
-    const query = status ? { status } : {};
+    const { status } = req.query;
+    const query = status && SERVICE_ORDER_STATUSES.includes(status) ? { status } : {};
+    const page  = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     const orders = await ServiceOrder.find(query)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(Number(limit));
+      .limit(limit);
     const total = await ServiceOrder.countDocuments(query);
     res.status(200).json({ success: true, data: orders, total });
   } catch (err) {
@@ -151,11 +166,28 @@ const getServiceOrders = async (req, res, next) => {
 const updateServiceOrder = async (req, res, next) => {
   try {
     const { status, adminNote } = req.body;
-    const update = {};
-    if (status)    update.status    = status;
-    if (adminNote) update.adminNote = sanitizeText(adminNote, 500);
-    const order = await ServiceOrder.findByIdAndUpdate(req.params.id, update, { new: true });
+
+    if (status && !SERVICE_ORDER_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Valid status required: ${SERVICE_ORDER_STATUSES.join(', ')}`,
+      });
+    }
+
+    const order = await ServiceOrder.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
+
+    if (status && !canTransition(order.status, status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot change status from ${order.status} to ${status}.`,
+      });
+    }
+
+    if (status)    order.status    = status;
+    if (adminNote) order.adminNote = sanitizeText(adminNote, 500);
+    await order.save();
+
     res.status(200).json({ success: true, data: order });
   } catch (err) {
     next(err);

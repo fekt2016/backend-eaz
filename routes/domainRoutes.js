@@ -8,6 +8,7 @@ const {
   createDomainPayment,
   getDomainOrders,
   getDomainOrder,
+  getMyRegisteredDomains,
   updateOrderStatus,
   retryDomainRegistration,
 } = require('../controllers/domainController');
@@ -34,6 +35,7 @@ router.post('/check-bulk', checkDomainBulk);
 
 router.post('/payment', protect, createDomainPayment);
 
+router.get('/my', protect, getMyRegisteredDomains);
 router.get('/orders', protect, getDomainOrders);
 router.get('/orders/:id', protect, getDomainOrder);
 router.patch('/orders/:id/status', protect, restrictTo('admin'), updateOrderStatus);

@@ -6,8 +6,10 @@
  * Covered collections/fields (Group A in PHASE7_MONEY_MIGRATION_PLAN.md):
  *   repairjobs : laborCost, diagnosisFee, depositPaid, parts[].priceAtTime, parts[].costAtTime
  *   sales      : subtotal, discount, total, amountPaid, changeDue, items[].unitPrice, items[].subtotal
- *   partorders : unitPriceGhs, amountGhs                (NOT subtotalPesewas — already pesewas)
- *   repairorders: items[].unitPriceGhs                  (NOT *Pesewas fields — already pesewas)
+ *   partorders : unitPriceGhs → unitPricePesewas, amountGhs → amountPesewas
+ *                (NOT subtotalPesewas — already pesewas)
+ *   repairorders: items[].unitPriceGhs → items[].unitPricePesewas
+ *                (NOT *Pesewas fields — already pesewas)
  *   pospayments: amount
  *   expenses   : amount
  *
@@ -15,7 +17,10 @@
  * RepairJob.balancePayments[].amountPesewas. Out of scope: hosting/domain/service.
  *
  * Idempotent: each migrated document is stamped `moneyUnit: 'pesewas'` and
- * skipped on re-run. Safe to run twice. Non-destructive (no deletes).
+ * skipped on re-run. Safe to run twice. Non-destructive (no deletes; old
+ * `unitPriceGhs`/`amountGhs` fields are left in place, just no longer read by
+ * the app after the T8 rename — PartOrder/RepairOrder now use
+ * `unitPricePesewas`/`amountPesewas`).
  *
  * Run manually — never wired into app startup:
  *   npm run migrate:pos-money
@@ -72,8 +77,11 @@ const PIPELINES = {
   partorders: [
     {
       $set: {
-        unitPriceGhs: toPesewas("$unitPriceGhs"),
-        amountGhs: toPesewas("$amountGhs"),
+        // Legacy docs (pre-T8 rename) hold the raw GHS value under the old
+        // `unitPriceGhs`/`amountGhs` names; write the converted pesewas value
+        // to the current schema's field names.
+        unitPricePesewas: toPesewas("$unitPriceGhs"),
+        amountPesewas: toPesewas("$amountGhs"),
         moneyUnit: "pesewas",
       },
     },
@@ -81,7 +89,18 @@ const PIPELINES = {
   repairorders: [
     {
       $set: {
-        items: mapItems("$items", ["unitPriceGhs"]),
+        items: {
+          $map: {
+            input: { $ifNull: ["$items", []] },
+            as: "it",
+            in: {
+              $mergeObjects: [
+                "$$it",
+                { unitPricePesewas: toPesewas("$$it.unitPriceGhs") },
+              ],
+            },
+          },
+        },
         moneyUnit: "pesewas",
       },
     },

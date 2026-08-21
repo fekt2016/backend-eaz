@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const Paystack = require("@paystack/paystack-sdk");
 const DomainOrder = require("../models/DomainOrder");
+const User = require("../models/User");
 const {
   validateDomain,
   extractTLD,
@@ -351,7 +352,7 @@ const createDomainPayment = async (req, res, next) => {
 const getDomainOrders = async (req, res, next) => {
   try {
     const { status } = req.query;
-    const isAdmin = req.user?.role === "admin";
+    const isAdmin = ["admin", "superadmin"].includes(req.user?.role);
 
     const query = {};
     if (!isAdmin) {
@@ -375,6 +376,25 @@ const getDomainOrders = async (req, res, next) => {
 };
 
 /**
+ * GET /api/v1/domain/my
+ * The caller's actually-registered domains (not order records) — pushed to
+ * `User.domains` by the Paystack webhook once Namecheap registration
+ * succeeds. Sorted soonest-expiring first so renewals due surface at the top.
+ */
+const getMyRegisteredDomains = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select("domains").lean();
+    const domains = (user?.domains || [])
+      .slice()
+      .sort((a, b) => new Date(a.expiresAt) - new Date(b.expiresAt));
+
+    res.status(200).json({ success: true, count: domains.length, data: domains });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get single domain order by ID
  */
 const getDomainOrder = async (req, res, next) => {
@@ -385,7 +405,7 @@ const getDomainOrder = async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Order not found" });
     }
 
-    const isAdmin = req.user?.role === "admin";
+    const isAdmin = ["admin", "superadmin"].includes(req.user?.role);
     const isOwner = order.user?.toString() === req.user._id.toString();
 
     if (!isAdmin && !isOwner) {
@@ -596,6 +616,7 @@ module.exports = {
   createDomainPayment,
   getDomainOrders,
   getDomainOrder,
+  getMyRegisteredDomains,
   updateOrderStatus,
   retryDomainRegistration,
 };

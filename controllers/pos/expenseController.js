@@ -49,6 +49,13 @@ const createExpense = async (req, res, next) => {
       createdBy:   req.user._id,
     });
     await expense.populate('createdBy', 'name');
+    await logFromRequest(req, {
+      action: ACTIONS.EXPENSE_CREATED,
+      resourceType: RESOURCES.EXPENSE,
+      resourceId: expense._id,
+      resourceName: expense.description,
+      description: `Recorded expense: ${expense.description} (${expense.category})`,
+    });
     res.status(201).json({ success: true, data: expense });
   } catch (err) { next(err); }
 };
@@ -57,6 +64,11 @@ const updateExpense = async (req, res, next) => {
   try {
     const expense = await Expense.findById(req.params.id);
     if (!expense) return res.status(404).json({ success: false, error: 'Expense not found.' });
+    const before = {
+      amount: expense.amount, category: expense.category,
+      description: expense.description, notes: expense.notes,
+      date: expense.date,
+    };
     const { amount, category, description, date, notes } = req.body;
     if (amount      !== undefined) expense.amount      = Number(amount);
     if (category    !== undefined) expense.category    = EXPENSE_CATEGORIES.includes(category) ? category : 'other';
@@ -65,6 +77,22 @@ const updateExpense = async (req, res, next) => {
     if (date        !== undefined) expense.date        = new Date(date);
     await expense.save();
     await expense.populate('createdBy', 'name');
+    const changes = buildChanges(before, {
+      amount: expense.amount, category: expense.category,
+      description: expense.description, notes: expense.notes,
+      date: expense.date,
+    }, {
+      amount: 'Amount', category: 'Category', description: 'Description',
+      notes: 'Notes', date: 'Date',
+    });
+    await logFromRequest(req, {
+      action: ACTIONS.EXPENSE_UPDATED,
+      resourceType: RESOURCES.EXPENSE,
+      resourceId: expense._id,
+      resourceName: expense.description,
+      description: `Updated expense: ${expense.description}`,
+      changes,
+    });
     res.json({ success: true, data: expense });
   } catch (err) { next(err); }
 };
@@ -73,6 +101,13 @@ const deleteExpense = async (req, res, next) => {
   try {
     const expense = await Expense.findByIdAndDelete(req.params.id);
     if (!expense) return res.status(404).json({ success: false, error: 'Expense not found.' });
+    await logFromRequest(req, {
+      action: ACTIONS.EXPENSE_DELETED,
+      resourceType: RESOURCES.EXPENSE,
+      resourceId: expense._id,
+      resourceName: expense.description,
+      description: `Deleted expense: ${expense.description}`,
+    });
     res.json({ success: true });
   } catch (err) { next(err); }
 };
@@ -86,9 +121,9 @@ const getSuppliers = async (req, res, next) => {
     if (active === 'true')  query.isActive = true;
     if (active === 'false') query.isActive = false;
     if (q) query.$or = [
-      { name:          { $regex: q, $options: 'i' } },
-      { contactPerson: { $regex: q, $options: 'i' } },
-      { phone:         { $regex: q, $options: 'i' } },
+      { name:          { $regex: escapeRegex(q), $options: 'i' } },
+      { contactPerson: { $regex: escapeRegex(q), $options: 'i' } },
+      { phone:         { $regex: escapeRegex(q), $options: 'i' } },
     ];
     const suppliers = await Supplier.find(query).sort({ name: 1 });
     res.json({ success: true, data: suppliers, total: suppliers.length });
@@ -122,6 +157,13 @@ const createSupplier = async (req, res, next) => {
       notes:         notes    ? sanitizeText(notes, 500)      : undefined,
       createdBy:     req.user._id,
     });
+    await logFromRequest(req, {
+      action: ACTIONS.SUPPLIER_CREATED,
+      resourceType: RESOURCES.SUPPLIER,
+      resourceId: supplier._id,
+      resourceName: supplier.name,
+      description: `Added supplier ${supplier.name}`,
+    });
     res.status(201).json({ success: true, data: supplier });
   } catch (err) { next(err); }
 };
@@ -130,6 +172,10 @@ const updateSupplier = async (req, res, next) => {
   try {
     const supplier = await Supplier.findById(req.params.id);
     if (!supplier) return res.status(404).json({ success: false, error: 'Supplier not found.' });
+    const before = {
+      name: supplier.name, contactPerson: supplier.contactPerson, phone: supplier.phone,
+      email: supplier.email, address: supplier.address, notes: supplier.notes, isActive: supplier.isActive,
+    };
     const { name, contactPerson, phone, email, address, notes, isActive } = req.body;
     if (name          !== undefined) supplier.name          = sanitizeName(name, 100);
     if (contactPerson !== undefined) supplier.contactPerson = sanitizeName(contactPerson, 100);
@@ -139,6 +185,21 @@ const updateSupplier = async (req, res, next) => {
     if (notes         !== undefined) supplier.notes         = sanitizeText(notes, 500);
     if (isActive      !== undefined) supplier.isActive      = Boolean(isActive);
     await supplier.save();
+    const changes = buildChanges(before, {
+      name: supplier.name, contactPerson: supplier.contactPerson, phone: supplier.phone,
+      email: supplier.email, address: supplier.address, notes: supplier.notes, isActive: supplier.isActive,
+    }, {
+      name: 'Name', contactPerson: 'Contact Person', phone: 'Phone',
+      email: 'Email', address: 'Address', notes: 'Notes', isActive: 'Active',
+    });
+    await logFromRequest(req, {
+      action: ACTIONS.SUPPLIER_UPDATED,
+      resourceType: RESOURCES.SUPPLIER,
+      resourceId: supplier._id,
+      resourceName: supplier.name,
+      description: `Updated supplier ${supplier.name}`,
+      changes,
+    });
     res.json({ success: true, data: supplier });
   } catch (err) { next(err); }
 };
@@ -149,6 +210,13 @@ const deleteSupplier = async (req, res, next) => {
     await Part.updateMany({ supplier: req.params.id }, { $unset: { supplier: '' } });
     const supplier = await Supplier.findByIdAndDelete(req.params.id);
     if (!supplier) return res.status(404).json({ success: false, error: 'Supplier not found.' });
+    await logFromRequest(req, {
+      action: ACTIONS.SUPPLIER_DELETED,
+      resourceType: RESOURCES.SUPPLIER,
+      resourceId: supplier._id,
+      resourceName: supplier.name,
+      description: `Deleted supplier ${supplier.name}`,
+    });
     res.json({ success: true });
   } catch (err) { next(err); }
 };

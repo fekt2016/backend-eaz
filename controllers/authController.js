@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { protect, restrictTo } = require('../middleware/auth');
 const { sendWelcomeEmail, sendPasswordResetEmail, sendVerificationPin, sendTwoFactorPin } = require('../utils/email');
@@ -7,8 +8,28 @@ const { log, logFromRequest, ACTIONS, RESOURCES } = require('../services/activit
 
 const ALLOWED_ROLES = ['user', 'admin', 'staff', 'technician', 'superadmin'];
 
-// Generate a 6-digit PIN
-const generatePin = () => String(Math.floor(100000 + Math.random() * 900000));
+// Shared by login/resetPassword/verifyPin — a blocked account must not obtain a
+// fresh session token through any of these flows, not just login.
+const blockedAccountError = (user) =>
+  user.blockedReason
+    ? `Your account has been suspended: ${user.blockedReason}`
+    : 'Your account has been suspended. Please contact support.';
+
+// Generate a 6-digit PIN (crypto.randomInt — Math.random is a PRNG, not a CSPRNG)
+const generatePin = () => String(crypto.randomInt(100000, 1000000));
+
+// verifyPin/twoFactorPin are stored hashed, same pattern as resetPasswordToken —
+// a DB read must not expose a usable code. Unsalted SHA-256 (not bcrypt): these
+// are short-lived, low-entropy codes, and hashing here defends against exposure
+// at rest, not online brute force (that's the still-open T46 rate-limit gap).
+const hashPin = (pin) => crypto.createHash('sha256').update(pin).digest('hex');
+const pinMatches = (storedHash, candidate) => {
+  if (!storedHash || !candidate) return false;
+  const candidateHash = hashPin(candidate);
+  const a = Buffer.from(storedHash, 'hex');
+  const b = Buffer.from(candidateHash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
 
 const getCookieMaxAge = () => {
   const val = process.env.JWT_COOKIE_EXPIRES_IN || '7d';
@@ -92,7 +113,7 @@ const register = async (req, res, next) => {
       ...(phone ? { phone } : {}),
       password,
       isVerified: false,
-      verifyPin: pin,
+      verifyPin: hashPin(pin),
       verifyPinExpires: pinExpires,
     });
 
@@ -219,9 +240,7 @@ const login = async (req, res, next) => {
       });
       return res.status(403).json({
         success: false,
-        error: user.blockedReason
-          ? `Your account has been suspended: ${user.blockedReason}`
-          : 'Your account has been suspended. Please contact support.',
+        error: blockedAccountError(user),
       });
     }
 
@@ -241,7 +260,7 @@ const login = async (req, res, next) => {
     // If 2FA is enabled, send OTP instead of logging in
     if (user.twoFactorEnabled) {
       const pin = generatePin();
-      user.twoFactorPin = pin;
+      user.twoFactorPin = hashPin(pin);
       user.twoFactorPinExpires = new Date(Date.now() + 10 * 60 * 1000);
       await user.save({ validateBeforeSave: false });
       await sendTwoFactorPin(user, pin).catch(() => {});
@@ -363,6 +382,10 @@ const resetPassword = async (req, res, next) => {
       });
     }
 
+    if (user.isBlocked) {
+      return res.status(403).json({ success: false, error: blockedAccountError(user) });
+    }
+
     const { password } = req.body;
     if (!password || password.length < 8) {
       return res.status(400).json({
@@ -409,6 +432,10 @@ const verifyPin = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Account not found.' });
     }
 
+    if (user.isBlocked) {
+      return res.status(403).json({ success: false, error: blockedAccountError(user) });
+    }
+
     if (user.isVerified) {
       return res.status(400).json({ success: false, error: 'Account is already verified. Please log in.' });
     }
@@ -421,7 +448,7 @@ const verifyPin = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Verification code has expired. Please request a new one.' });
     }
 
-    if (user.verifyPin !== pin.trim()) {
+    if (!pinMatches(user.verifyPin, pin.trim())) {
       return res.status(400).json({ success: false, error: 'Incorrect verification code.' });
     }
 
@@ -462,7 +489,7 @@ const resendPin = async (req, res, next) => {
     }
 
     const pin = generatePin();
-    user.verifyPin = pin;
+    user.verifyPin = hashPin(pin);
     user.verifyPinExpires = new Date(Date.now() + 15 * 60 * 1000);
     await user.save({ validateBeforeSave: false });
 
@@ -501,6 +528,16 @@ const updateProfile = async (req, res, next) => {
     if (!name) {
       return res.status(400).json({ success: false, error: 'Name is required.' });
     }
+
+    // When setting a non-empty phone, it must not belong to another account
+    // (clearing the phone to '' is always allowed). The unique index backstops races.
+    if (phone) {
+      const phoneOwner = await User.findOne({ phone, _id: { $ne: req.user._id } });
+      if (phoneOwner) {
+        return res.status(409).json({ success: false, error: 'Phone number already in use by another account.' });
+      }
+    }
+
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { name, phone: phone || '' },
@@ -551,7 +588,7 @@ const enableTwoFactor = async (req, res, next) => {
     }
     // Send confirmation PIN to verify it's really them
     const pin = generatePin();
-    user.twoFactorPin = pin;
+    user.twoFactorPin = hashPin(pin);
     user.twoFactorPinExpires = new Date(Date.now() + 10 * 60 * 1000);
     await user.save({ validateBeforeSave: false });
     await sendTwoFactorPin(user, pin).catch(() => {});
@@ -567,7 +604,7 @@ const confirmTwoFactor = async (req, res, next) => {
     if (!user.twoFactorPin || new Date() > user.twoFactorPinExpires) {
       return res.status(400).json({ success: false, error: 'Code expired. Please request a new one.' });
     }
-    if (user.twoFactorPin !== pin?.trim()) {
+    if (!pinMatches(user.twoFactorPin, pin?.trim())) {
       return res.status(400).json({ success: false, error: 'Incorrect code.' });
     }
     user.twoFactorEnabled = true;
@@ -614,7 +651,7 @@ const verifyTwoFactor = async (req, res, next) => {
     if (!user.twoFactorPin || new Date() > user.twoFactorPinExpires) {
       return res.status(400).json({ success: false, error: 'Code expired. Please log in again.' });
     }
-    if (user.twoFactorPin !== pin.trim()) {
+    if (!pinMatches(user.twoFactorPin, pin.trim())) {
       return res.status(400).json({ success: false, error: 'Incorrect code.' });
     }
     user.twoFactorPin = undefined;
@@ -962,4 +999,7 @@ module.exports = {
   getMyAddresses,
   saveAddress,
   deleteAddress,
+  generatePin,
+  hashPin,
+  pinMatches,
 };

@@ -27,7 +27,7 @@ const getStaff = async (req, res, next) => {
 
 const createStaff = async (req, res, next) => {
   try {
-    const { validatePassword } = require('../utils/sanitize');
+    const { validatePassword } = require('../../utils/sanitize');
     const name  = sanitizeName(req.body.name);
     const email = sanitizeEmail(req.body.email);
     const phone = sanitizePhone(req.body.phone || '');
