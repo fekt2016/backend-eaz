@@ -21,7 +21,7 @@ const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
 
 /**
  * Ensure a paid part is on the job, snapshot its real cost, and reserve stock
- * exactly once. `item` = { part, partName, quantity, unitPriceGhs } (pesewas).
+ * exactly once. `item` = { part, partName, quantity, unitPricePesewas }.
  *
  * - New line: priceAtTime = the paid unit price; costAtTime = the live
  *   Part.costPrice (not the sale price — fixes profit reporting).
@@ -49,7 +49,7 @@ async function applyPaidPartToJob(job, item) {
       part:        item.part || undefined,
       name:        item.partName,
       quantity:    item.quantity,
-      priceAtTime: item.unitPriceGhs,
+      priceAtTime: item.unitPricePesewas,
       costAtTime,
       stockDeducted: false,
     });
@@ -146,6 +146,10 @@ const handlePaystackWebhook = async (req, res) => {
 
       if (hostingOrder.parentOrderId) {
         const parent = await HostingOrder.findById(hostingOrder.parentOrderId);
+        // Set only when `parent` was found and actually renewed — used below to
+        // report the new expiry (was previously read out of the `if (parent)`
+        // block's scope, so this line always threw `base is not defined`).
+        let base = null;
         if (parent) {
           if (parent.user?.toString() !== hostingOrder.user?.toString()) {
             console.error(
@@ -153,7 +157,7 @@ const handlePaystackWebhook = async (req, res) => {
             );
             return res.status(200).json({ received: true });
           }
-          const base =
+          base =
             parent.expiresAt && parent.expiresAt > new Date()
               ? new Date(parent.expiresAt)
               : new Date();
@@ -174,6 +178,10 @@ const handlePaystackWebhook = async (req, res) => {
           console.log(
             `[webhook] Renewal processed for order ${parent._id} — new expiry: ${base}`
           );
+        } else {
+          console.error(
+            `[webhook] Renewal parent order ${hostingOrder.parentOrderId} not found for hosting order ${hostingOrder._id}`
+          );
         }
 
         hostingOrder.status = 'active';
@@ -183,8 +191,10 @@ const handlePaystackWebhook = async (req, res) => {
           action: ACTIONS.PAYMENT_VERIFIED,
           resourceType: RESOURCES.PAYMENT,
           resourceId: reference,
-          resourceName: `Hosting renewal ${hostingOrder._id}`,
-          description: `Renewal payment verified for hosting order ${parent._id} — new expiry ${base.toISOString().slice(0, 10)}`,
+          resourceName: `Hosting renewal ${hostingOrder.parentOrderId}`,
+          description: base
+            ? `Renewal payment verified for hosting order ${hostingOrder.parentOrderId} — new expiry ${base.toISOString().slice(0, 10)}`
+            : `Renewal payment verified for hosting order ${hostingOrder.parentOrderId} — parent order not found, expiry not updated`,
           metadata: { reference, type: 'hosting_renewal' },
         });
         return res.status(200).json({ received: true });
@@ -550,7 +560,7 @@ async function fulfilPartOrder(partOrder) {
     if (receivedBy) {
       await PosPayment.create({
         job:        job._id,
-        amount:     partOrder.amountGhs,
+        amount:     partOrder.amountPesewas,
         method:     'card',
         reference:  partOrder.paystackReference,
         receivedBy,
@@ -565,7 +575,7 @@ async function fulfilPartOrder(partOrder) {
     part:        partOrder.part,
     partName:    partOrder.partName,
     quantity:    partOrder.quantity,
-    unitPriceGhs: partOrder.unitPriceGhs,
+    unitPricePesewas: partOrder.unitPricePesewas,
   });
 
   const before = job.status;
@@ -622,7 +632,7 @@ async function fulfilRepairOrder(repairOrder) {
       part:        item.part,
       partName:    item.partName,
       quantity:    item.quantity,
-      unitPriceGhs: item.unitPriceGhs,
+      unitPricePesewas: item.unitPricePesewas,
     });
   }
 

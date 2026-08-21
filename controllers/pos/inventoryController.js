@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder
 } = require('./common');
 
 const getParts = async (req, res, next) => {
@@ -224,12 +224,10 @@ const createPartOrder = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'This part has no price yet. Please contact the shop.' });
     }
 
-    const qty          = Math.max(1, Math.min(10, Math.floor(Number(quantity) || 1)));
-    // priceAtTime is already integer pesewas; the *Ghs field names are kept for
-    // compatibility but now carry pesewas (see PHASE7 money standardization).
-    const unitPriceGhs = Math.max(0, Math.round(Number(partLine.priceAtTime)));
-    const amountGhs    = unitPriceGhs * qty;
-    const subtotalPesewas = amountGhs;
+    const qty              = Math.max(1, Math.min(10, Math.floor(Number(quantity) || 1)));
+    const unitPricePesewas = Math.max(0, Math.round(Number(partLine.priceAtTime)));
+    const amountPesewas    = unitPricePesewas * qty;
+    const subtotalPesewas  = amountPesewas;
 
     const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
     const reference = `PRT_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
@@ -253,9 +251,9 @@ const createPartOrder = async (req, res, next) => {
       part:           partLine.part || undefined,
       partName:       partLine.name,
       quantity:       qty,
-      unitPriceGhs,
+      unitPricePesewas,
       subtotalPesewas,
-      amountGhs,
+      amountPesewas,
       customerName:   sanitizeName(name, 100),
       customerPhone:  cleanPhone,
       status:         'pending',
@@ -308,12 +306,15 @@ const getPartOrders = async (req, res, next) => {
 const updatePartOrder = async (req, res, next) => {
   try {
     const { status } = req.body;
-    if (!['pending', 'paid', 'cancelled'].includes(status)) {
+    if (!PART_REPAIR_ORDER_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: 'Status must be pending, paid, or cancelled.' });
     }
     const partOrder = await PartOrder.findById(req.params.id);
     if (!partOrder) return res.status(404).json({ success: false, error: 'Part order not found.' });
     const prevStatus = partOrder.status;
+    if (!canTransitionPartRepairOrder(prevStatus, status)) {
+      return res.status(400).json({ success: false, error: `Cannot change status from ${prevStatus} to ${status}.` });
+    }
     partOrder.status = status;
     if (status === 'paid' && !partOrder.paidAt) partOrder.paidAt = new Date();
     await partOrder.save();

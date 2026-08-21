@@ -54,6 +54,8 @@ async function _sendSms(to, content) {
   if (!clientId || !clientSecret) return false;
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  // See services/notify.js's identical fetch() call for why this is disabled.
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins
   const res = await fetch('https://smsc.hubtel.com/v1/messages/send', {
     method:  'POST',
     headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/json' },

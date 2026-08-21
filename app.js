@@ -155,7 +155,9 @@ app.use('/api/', makeLimit(15, 150, 'Too many requests. Please try again later.'
 app.use('/api/v1/auth/login',           makeLimit(15, 10,  'Too many login attempts. Try again in 15 minutes.'));
 app.use('/api/v1/auth/register',        makeLimit(60, 5,   'Too many accounts created from this IP.'));
 app.use('/api/v1/auth/forgot-password', makeLimit(60, 5,   'Too many password reset requests. Try again in 1 hour.'));
-app.use('/api/v1/auth/verify',          makeLimit(15, 10,  'Too many verification attempts.'));
+app.use('/api/v1/auth/verify-pin',      makeLimit(15, 10,  'Too many verification attempts.'));
+app.use('/api/v1/auth/2fa/verify',      makeLimit(15, 10,  'Too many verification attempts.'));
+app.use('/api/v1/auth/resend-pin',      makeLimit(60, 5,   'Too many code requests. Try again in 1 hour.'));
 
 // Public submission endpoints — prevent spam
 app.use('/api/v1/contacts',             makeLimit(60, 10,  'Too many messages sent. Please try again later.'));

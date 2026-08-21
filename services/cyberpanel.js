@@ -19,11 +19,12 @@ function generateUsername(email) {
   return (base.slice(0, 5) + suffix).slice(0, 8);
 }
 
+// crypto.randomInt — Math.random is a PRNG, not a CSPRNG.
 function generatePassword() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%";
   return Array.from(
     { length: 16 },
-    () => chars[Math.floor(Math.random() * chars.length)],
+    () => chars[crypto.randomInt(chars.length)],
   ).join("");
 }
 // this gets package name

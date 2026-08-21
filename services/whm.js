@@ -19,15 +19,23 @@ function generateUsername(email) {
   return (base.slice(0, 5) + suffix).slice(0, 8);
 }
 
+// crypto.randomInt (not Math.random — a PRNG, not a CSPRNG) + Fisher–Yates shuffle
+// so the guaranteed character classes aren't always at fixed positions. Mirrors
+// controllers/pos/common.js's generatePassword.
 function generatePassword() {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const lower = 'abcdefghjkmnpqrstuvwxyz';
   const digits = '23456789';
   const special = '!@#$%^&*';
   const all = upper + lower + digits + special;
-  const rand = (set) => set[Math.floor(Math.random() * set.length)];
-  const base = Array.from({ length: 12 }, () => rand(all)).join('');
-  return rand(upper) + rand(lower) + rand(digits) + rand(special) + base;
+  const rand = (set) => set[crypto.randomInt(set.length)];
+  const chars = [rand(upper), rand(lower), rand(digits), rand(special)];
+  for (let i = chars.length; i < 16; i++) chars.push(rand(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
 }
 
 // WHM packages are owned by — and prefixed with — the reseller username.

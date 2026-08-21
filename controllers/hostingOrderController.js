@@ -11,6 +11,7 @@ const { sendOrderConfirmation, sendPaymentReceived } = require('../utils/hosting
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const { buildInvoiceBuffer } = require('../utils/hostingInvoice');
 const { escapeRegex } = require('../utils/regex');
+const { extractTLD } = require('../utils/domainHelper');
 const whm = require('../services/whm');
 const { logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
 
@@ -81,18 +82,18 @@ const createOrder = async (req, res, next) => {
 
     const addonsTotal = computeAddonsTotal(addons);
 
-    // Re-compute domain fee server-side — never trust client-supplied price
+    // Re-compute domain fee server-side — never trust client-supplied price.
+    // getPricing() keys are dot-prefixed (e.g. ".com") and already in GHS
+    // (rate + markup applied) — see services/namecheap.js's usdToGhs.
     let domainFee = 0;
     if (domainMode === 'new' && domain_s) {
       try {
-        const tld = domain_s.split('.').slice(1).join('.');
+        const tld = extractTLD(domain_s);
         const prices = await namecheap.getPricing();
-        const priceUSD = prices[tld] ?? null;
-        if (priceUSD != null) {
-          const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
-          const markup  = parseFloat(process.env.DOMAIN_MARKUP)   || 1.2;
-          const years   = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
-          domainFee = Math.round(priceUSD * usdRate * markup * years * 100) / 100;
+        const priceGHS = prices[tld] ?? null;
+        if (priceGHS != null) {
+          const years = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
+          domainFee = Math.round(priceGHS * years * 100) / 100;
         } else {
           // Unknown TLD — use client value with sanity cap (≤ GHS 500)
           domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
@@ -201,7 +202,7 @@ const createOrder = async (req, res, next) => {
  */
 const getOrders = async (req, res, next) => {
   try {
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role);
     const filter = isAdmin ? {} : { user: req.user._id };
     if (req.query?.status) {
       filter.status = req.query.status;
@@ -422,7 +423,7 @@ const getOrder = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
     const isOwner = order.user && order.user.toString() === req.user._id.toString();
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role);
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ success: false, error: 'Not allowed to view this order' });
     }
@@ -443,7 +444,7 @@ const getInvoice = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
     const isOwner = order.user && order.user.toString() === req.user._id.toString();
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role);
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ success: false, error: 'Not allowed to view this order' });
     }
@@ -581,7 +582,7 @@ const getCpanelLoginUrl = async (req, res, next) => {
     }
 
     const isOwner = order.user && order.user.toString() === req.user._id.toString();
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role);
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ success: false, error: 'Not allowed' });
     }
@@ -738,7 +739,7 @@ const getServiceStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
     const isOwner = order.user && order.user.toString() === req.user._id.toString();
-    if (!isOwner && req.user?.role !== 'admin') {
+    if (!isOwner && !['admin', 'superadmin'].includes(req.user?.role)) {
       return res.status(403).json({ success: false, error: 'Not allowed' });
     }
     if (!order.cpanelUsername) {
@@ -778,7 +779,7 @@ const changeHostingPassword = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
     const isOwner = order.user && order.user.toString() === req.user._id.toString();
-    if (!isOwner && req.user?.role !== 'admin') {
+    if (!isOwner && !['admin', 'superadmin'].includes(req.user?.role)) {
       return res.status(403).json({ success: false, error: 'Not allowed' });
     }
     if (order.status !== 'active' || !order.cpanelUsername) {
@@ -879,17 +880,17 @@ const staffCreateHostingAccount = async (req, res, next) => {
     const addonsTotal = computeAddonsTotal(addons);
 
     // Domain fee (register-new mode) — recomputed server-side, never trusted from the client.
+    // getPricing() keys are dot-prefixed (e.g. ".com") and already in GHS
+    // (rate + markup applied) — see services/namecheap.js's usdToGhs.
     let domainFee = 0;
     if (domainMode === 'new' && domain_s) {
       try {
-        const tld = domain_s.split('.').slice(1).join('.');
+        const tld = extractTLD(domain_s);
         const prices = await namecheap.getPricing();
-        const priceUSD = prices[tld] ?? null;
-        if (priceUSD != null) {
-          const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
-          const markup  = parseFloat(process.env.DOMAIN_MARKUP)   || 1.2;
-          const years   = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
-          domainFee = Math.round(priceUSD * usdRate * markup * years * 100) / 100;
+        const priceGHS = prices[tld] ?? null;
+        if (priceGHS != null) {
+          const years = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
+          domainFee = Math.round(priceGHS * years * 100) / 100;
         }
       } catch { /* Namecheap unavailable — no domain fee added */ }
     }

@@ -7,8 +7,8 @@ const mongoose = require('mongoose');
  * device is being collected/delivered by a rider (job.dropoff === 'rider').
  *
  * Money units:
- *   - item.unitPriceGhs      → Part.sellingPrice (major GHS)
- *   - item.subtotalPesewas   → unitPriceGhs × qty × 100
+ *   - item.unitPricePesewas  → Part.sellingPrice (integer pesewas)
+ *   - item.subtotalPesewas   → unitPricePesewas × qty
  *   - subtotalPesewas        → sum of item subtotals
  *   - shippingFeePesewas     → DeliveryZone.fee (already in pesewas)
  *   - totalPesewas           → subtotal + shipping (Paystack amount)
@@ -25,9 +25,9 @@ const repairOrderSchema = new mongoose.Schema(
       {
         part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' },
         partName:    { type: String, required: true, trim: true, maxlength: 150 },
-        quantity:    { type: Number, default: 1, min: 1, max: 10 },
-        unitPriceGhs:{ type: Number, required: true, min: 0 },
-        subtotalPesewas: { type: Number, required: true, min: 0 },
+        quantity:         { type: Number, default: 1, min: 1, max: 10 },
+        unitPricePesewas: { type: Number, required: true, min: 0 },
+        subtotalPesewas:  { type: Number, required: true, min: 0 },
       },
     ],
 

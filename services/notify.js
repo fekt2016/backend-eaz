@@ -14,33 +14,33 @@
  *   NOTIFY_CHANNEL       — currently only 'sms' supported via Hubtel (default: sms)
  */
 
-const SHOP_NAME    = process.env.SHOP_NAME    || 'EazWorld Repair';
-const SHOP_PHONE   = process.env.SHOP_PHONE   || '0244388190';
 const FRONTEND_URL = require('../utils/frontendUrl')();
 const logger = require("../utils/logger");
+const { getBusinessProfile } = require('../utils/businessProfile');
 
 // ── Status messages — keep under 160 chars for a single SMS segment ──────────
+// Each takes (job, biz) where biz = { shopName, shopPhone, ... } from getBusinessProfile().
 const STATUS_MESSAGES = {
-  received: (job) =>
-    `Hi! We've received your ${_device(job)} for repair. Job #${job.jobNumber}. Track your repair: ${FRONTEND_URL}/track/${job.trackingToken} – ${SHOP_NAME}`,
+  received: (job, biz) =>
+    `Hi! We've received your ${_device(job)} for repair. Job #${job.jobNumber}. Track your repair: ${FRONTEND_URL}/track/${job.trackingToken} – ${biz.shopName}`,
 
-  diagnosing: (job) =>
-    `Update on Job #${job.jobNumber}: We're now diagnosing your ${_device(job)}. We'll be in touch soon. – ${SHOP_NAME}`,
+  diagnosing: (job, biz) =>
+    `Update on Job #${job.jobNumber}: We're now diagnosing your ${_device(job)}. We'll be in touch soon. – ${biz.shopName}`,
 
-  waiting_for_parts: (job) =>
-    `Update on Job #${job.jobNumber}: We're waiting for parts for your ${_device(job)}. We'll notify you when repair begins. – ${SHOP_NAME}`,
+  waiting_for_parts: (job, biz) =>
+    `Update on Job #${job.jobNumber}: We're waiting for parts for your ${_device(job)}. We'll notify you when repair begins. – ${biz.shopName}`,
 
-  repairing: (job) =>
-    `Great news! We've started repairing your ${_device(job)} (Job #${job.jobNumber}). – ${SHOP_NAME}`,
+  repairing: (job, biz) =>
+    `Great news! We've started repairing your ${_device(job)} (Job #${job.jobNumber}). – ${biz.shopName}`,
 
-  ready: (job) =>
-    `Your ${_device(job)} is READY for collection! Job #${job.jobNumber}. Please visit us or call ${SHOP_PHONE}. – ${SHOP_NAME}`,
+  ready: (job, biz) =>
+    `Your ${_device(job)} is READY for collection! Job #${job.jobNumber}. Please visit us or call ${biz.shopPhone}. – ${biz.shopName}`,
 
-  collected: (job) =>
-    `Thank you for choosing ${SHOP_NAME}! Your ${_device(job)} has been collected. We hope to see you again.`,
+  collected: (job, biz) =>
+    `Thank you for choosing ${biz.shopName}! Your ${_device(job)} has been collected. We hope to see you again.`,
 
-  cancelled: (job) =>
-    `Job #${job.jobNumber} for your ${_device(job)} has been cancelled. Contact us at ${SHOP_PHONE} if you have questions. – ${SHOP_NAME}`,
+  cancelled: (job, biz) =>
+    `Job #${job.jobNumber} for your ${_device(job)} has been cancelled. Contact us at ${biz.shopPhone} if you have questions. – ${biz.shopName}`,
 };
 
 // Statuses that trigger a notification
@@ -48,40 +48,40 @@ const NOTIFY_ON = ['received', 'diagnosing', 'waiting_for_parts', 'repairing', '
 
 // ── Email content (Resend) — mirrors the SMS messages, with the track link ───
 const EMAIL_MESSAGES = {
-  received: (job, url) => ({
-    subject:  `We've received your ${_device(job)} for repair — ${SHOP_NAME}`,
+  received: (job, url, biz) => ({
+    subject:  `We've received your ${_device(job)} for repair — ${biz.shopName}`,
     headline: 'Device received',
     body: `Your ${_device(job)} is safely with us. Job #${job.jobNumber}. We'll diagnose it and keep you posted — track the progress anytime with the button below.`,
   }),
-  diagnosing: (job, url) => ({
-    subject:  `Update: diagnosing your ${_device(job)} — ${SHOP_NAME}`,
+  diagnosing: (job, url, biz) => ({
+    subject:  `Update: diagnosing your ${_device(job)} — ${biz.shopName}`,
     headline: 'Diagnosing your device',
     body: `We're now diagnosing your ${_device(job)} (Job #${job.jobNumber}). We'll be in touch soon with our findings.`,
   }),
-  waiting_for_parts: (job, url) => ({
+  waiting_for_parts: (job, url, biz) => ({
     subject:  `Waiting for parts — ${_device(job)} (Job #${job.jobNumber})`,
     headline: 'Waiting for parts',
     body: `We're waiting for parts for your ${_device(job)}. You can order the parts for this repair online now — tap the button below and pay securely with card or mobile money.`,
   }),
-  repairing: (job, url) => ({
+  repairing: (job, url, biz) => ({
     subject:  `Repair started — your ${_device(job)}`,
     headline: 'Repair in progress',
     body: `Great news! We've started repairing your ${_device(job)} (Job #${job.jobNumber}).`,
   }),
-  ready: (job, url) => ({
-    subject:  `Your ${_device(job)} is READY — ${SHOP_NAME}`,
+  ready: (job, url, biz) => ({
+    subject:  `Your ${_device(job)} is READY — ${biz.shopName}`,
     headline: 'Ready for collection',
-    body: `Your ${_device(job)} is READY for collection! Job #${job.jobNumber}. Please visit us or call ${SHOP_PHONE}.`,
+    body: `Your ${_device(job)} is READY for collection! Job #${job.jobNumber}. Please visit us or call ${biz.shopPhone}.`,
   }),
-  collected: (job, url) => ({
-    subject:  `Device collected — thank you, ${SHOP_NAME}`,
+  collected: (job, url, biz) => ({
+    subject:  `Device collected — thank you, ${biz.shopName}`,
     headline: 'Device collected',
-    body: `Thank you for choosing ${SHOP_NAME}! Your ${_device(job)} has been collected. We hope to see you again.`,
+    body: `Thank you for choosing ${biz.shopName}! Your ${_device(job)} has been collected. We hope to see you again.`,
   }),
-  cancelled: (job, url) => ({
-    subject:  `Job #${job.jobNumber} cancelled — ${SHOP_NAME}`,
+  cancelled: (job, url, biz) => ({
+    subject:  `Job #${job.jobNumber} cancelled — ${biz.shopName}`,
     headline: 'Job cancelled',
-    body: `Job #${job.jobNumber} for your ${_device(job)} has been cancelled. Contact us at ${SHOP_PHONE} if you have questions.`,
+    body: `Job #${job.jobNumber} for your ${_device(job)} has been cancelled. Contact us at ${biz.shopPhone} if you have questions.`,
   }),
 };
 
@@ -91,11 +91,11 @@ function _wa(phone) {
   return digits;
 }
 
-function _renderRepairEmail({ headline, body, trackUrl, job }) {
+function _renderRepairEmail({ headline, body, trackUrl, job, biz }) {
   return `
     <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:580px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">
       <div style="background:#111827;padding:28px 40px;text-align:center;">
-        <p style="margin:0 0 6px 0;font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#f59e0b;">EazWorld Repair</p>
+        <p style="margin:0 0 6px 0;font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#f59e0b;">${biz.shopName}</p>
         <h1 style="margin:0;font-size:22px;font-weight:800;color:#ffffff;">${headline}</h1>
       </div>
       <div style="padding:32px 40px;">
@@ -109,8 +109,8 @@ function _renderRepairEmail({ headline, body, trackUrl, job }) {
       </div>
       <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
         <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">
-          Questions? Call <a href="tel:${SHOP_PHONE}" style="color:#9ca3af;">${SHOP_PHONE}</a> or
-          WhatsApp <a href="https://wa.me/${_wa(SHOP_PHONE)}" style="color:#9ca3af;">+233 ${SHOP_PHONE}</a>
+          Questions? Call <a href="tel:${biz.shopPhone}" style="color:#9ca3af;">${biz.shopPhone}</a> or
+          WhatsApp <a href="https://wa.me/${_wa(biz.shopPhone)}" style="color:#9ca3af;">+233 ${biz.shopPhone}</a>
         </p>
         <p style="margin:0;font-size:12px;color:#9ca3af;">EazWorld · Nima, Accra, Ghana</p>
       </div>
@@ -123,14 +123,15 @@ async function notifyByEmail(job, newStatus, email) {
   if (!config) return false;
 
   const { send } = require('../utils/email');
+  const biz = await getBusinessProfile();
   const trackUrl = `${FRONTEND_URL}/track/${job.trackingToken}`;
-  const { subject, headline, body } = config(job, trackUrl);
+  const { subject, headline, body } = config(job, trackUrl, biz);
 
   return send({
     to: email,
     type: `repair_${newStatus}`,
     subject,
-    html: _renderRepairEmail({ headline, body, trackUrl, job }),
+    html: _renderRepairEmail({ headline, body, trackUrl, job, biz }),
     meta: { jobId: String(job._id), jobNumber: job.jobNumber },
   });
 }
@@ -145,11 +146,12 @@ async function notifyReminder(job, count) {
   const email = job.customer?.email;
   if (!email) return false;
 
+  const biz = await getBusinessProfile();
   const trackUrl = `${FRONTEND_URL}/track/${job.trackingToken}`;
   const headline = count === 1 ? 'Ready for collection' : 'Still waiting for you';
   const body = count === 1
-    ? `Your ${_device(job)} is ready for collection! Job #${job.jobNumber}. Please visit us or call ${SHOP_PHONE}.`
-    : `Your ${_device(job)} (Job #${job.jobNumber}) is still waiting for collection. Please contact us at ${SHOP_PHONE}.`;
+    ? `Your ${_device(job)} is ready for collection! Job #${job.jobNumber}. Please visit us or call ${biz.shopPhone}.`
+    : `Your ${_device(job)} (Job #${job.jobNumber}) is still waiting for collection. Please contact us at ${biz.shopPhone}.`;
 
   try {
     const { send } = require('../utils/email');
@@ -157,7 +159,7 @@ async function notifyReminder(job, count) {
       to: email,
       type: 'repair_reminder',
       subject: `${headline} — ${_device(job)} (Job #${job.jobNumber})`,
-      html: _renderRepairEmail({ headline, body, trackUrl, job }),
+      html: _renderRepairEmail({ headline, body, trackUrl, job, biz }),
       meta: { jobId: String(job._id), jobNumber: job.jobNumber, reminderCount: count },
     });
   } catch (err) {
@@ -193,10 +195,10 @@ function _toHubtelNumber(phone) {
  * @param {string} to      — recipient in 233XXXXXXXXX format
  * @param {string} content — message body
  */
-async function _sendHubtelSms(to, content) {
+async function _sendHubtelSms(to, content, shopName) {
   const clientId     = process.env.HUBTEL_CLIENT_ID;
   const clientSecret = process.env.HUBTEL_CLIENT_SECRET;
-  const from         = process.env.HUBTEL_SENDER_ID || SHOP_NAME;
+  const from         = process.env.HUBTEL_SENDER_ID || shopName;
 
   if (!clientId || !clientSecret) return false;
 
@@ -204,6 +206,10 @@ async function _sendHubtelSms(to, content) {
 
   const url = 'https://smsc.hubtel.com/v1/messages/send';
 
+  // Global fetch is stable/unflagged since Node 18, though eslint-plugin-n's
+  // compat data (keyed off Node's own stability index) still marks it
+  // "Experimental" pre-v21 — safe to use given this app's real deployment target.
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins
   const res = await fetch(url, {
     method:  'POST',
     headers: {
@@ -247,7 +253,8 @@ async function sendCredentialsSms(phone, name, password) {
   }
 
   try {
-    await _sendHubtelSms(to, content);
+    const biz = await getBusinessProfile();
+    await _sendHubtelSms(to, content, biz.shopName);
     logger.info(`[notify] Credentials SMS sent to ${to}`);
     return true;
   } catch (err) {
@@ -293,7 +300,8 @@ async function notifyCustomer(job, newStatus) {
     return;
   }
 
-  const content = msgFn(job);
+  const biz = await getBusinessProfile();
+  const content = msgFn(job, biz);
 
   // If Hubtel not configured — log in dev, silent in prod
   if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
@@ -304,7 +312,7 @@ async function notifyCustomer(job, newStatus) {
   }
 
   try {
-    await _sendHubtelSms(to, content);
+    await _sendHubtelSms(to, content, biz.shopName);
     logger.info(`[notify] SMS sent to ${to} — status: ${newStatus}`);
   } catch (err) {
     // Never crash the main flow — just log

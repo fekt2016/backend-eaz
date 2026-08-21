@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder, canTransitionJobStatus
 } = require('./common');
 
 const createJob = async (req, res, next) => {
@@ -297,6 +297,31 @@ const updateJob = async (req, res, next) => {
     const job = await RepairJob.findById(req.params.id);
     if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
 
+    // Snapshot parts as-deducted before any reassignment below (the parts[]
+    // update further down replaces job.parts wholesale) — restock needs to
+    // know what inventory was actually taken, not what the client resubmits.
+    const deductedParts = job.parts
+      .filter(p => p.part && p.stockDeducted)
+      .map(p => ({ part: p.part, quantity: p.quantity || 1 }));
+
+    // Snapshot existing custom (non-inventory) part prices by name, so a
+    // technician editing the job (e.g. changing a quantity) can't also alter a
+    // custom part's price via the same wholesale parts[] replacement — see the
+    // isMoneyRole guard below.
+    const existingCustomPriceByName = new Map(
+      job.parts
+        .filter(p => !p.part)
+        .map(p => [p.name, { priceAtTime: p.priceAtTime || 0, costAtTime: p.costAtTime || 0 }])
+    );
+
+    // Money-bearing fields (laborCost, diagnosisFee, depositPaid, custom-part
+    // pricing) can understate or fabricate a customer's bill, so only staff who
+    // handle billing may set them — technicians can update diagnosis, repair
+    // notes, status, part quantities, etc., but never job money. Mirrors
+    // `POST /jobs/:id/payments` (routes/posRoutes.js), which already excludes
+    // technician for the same reason.
+    const isMoneyRole = ['superadmin', 'admin', 'staff'].includes(req.user?.role);
+
     const {
       status, diagnosis, repairWork, notes, laborCost, priority,
       assignedTo, parts, deviceBrand, deviceModel, imei, color, depositPaid,
@@ -315,6 +340,9 @@ const updateJob = async (req, res, next) => {
       assignedTo: job.assignedTo ? job.assignedTo.toString() : '',
       warrantyDays: job.warrantyDays,
     };
+    if (status && status !== prevStatus && !canTransitionJobStatus(prevStatus, status)) {
+      return res.status(400).json({ success: false, error: `Cannot change status from ${prevStatus} to ${status}.` });
+    }
     if (status)      job.status      = status;
     if (priority)    job.priority    = priority;
     // Technicians re-route jobs; an empty value keeps the current assignee so a
@@ -324,12 +352,12 @@ const updateJob = async (req, res, next) => {
     if (repairWork           !== undefined) job.repairWork           = sanitizeText(repairWork,  1000);
     if (notes                !== undefined) job.notes                = sanitizeText(notes,       1000);
     if (estimatedCompletion  !== undefined) job.estimatedCompletion  = estimatedCompletion ? new Date(estimatedCompletion) : undefined;
-    if (laborCost !== undefined)       job.laborCost       = Number(laborCost) || 0;
-    if (depositPaid !== undefined)     job.depositPaid     = Number(depositPaid) || 0;
+    if (isMoneyRole && laborCost !== undefined)   job.laborCost   = Number(laborCost) || 0;
+    if (isMoneyRole && depositPaid !== undefined) job.depositPaid = Number(depositPaid) || 0;
     if (requiresDiagnosis !== undefined) {
       job.requiresDiagnosis = !!requiresDiagnosis;
-      job.diagnosisFee      = requiresDiagnosis ? (Number(diagnosisFee) || 0) : 0;
-    } else if (diagnosisFee !== undefined && job.requiresDiagnosis) {
+      if (isMoneyRole) job.diagnosisFee = requiresDiagnosis ? (Number(diagnosisFee) || 0) : 0;
+    } else if (isMoneyRole && diagnosisFee !== undefined && job.requiresDiagnosis) {
       job.diagnosisFee = Number(diagnosisFee) || 0;
     }
     if (deviceBrand !== undefined) job.deviceBrand = sanitizeText(deviceBrand, 60);
@@ -351,19 +379,32 @@ const updateJob = async (req, res, next) => {
 
       job.parts = parts
         .filter(p => p.name && String(p.name).trim())
-        .map(p => ({
-          part:        p.partId || undefined,
-          name:        sanitizeText(String(p.name), 100),
-          quantity:    Math.max(1, Number(p.quantity) || 1),
-          // Snapshots stored in integer pesewas — same unit as Part. Custom
-          // (non-inventory) prices arrive from the client already in pesewas.
-          priceAtTime: p.partId && priceMap[p.partId] != null
-            ? Math.round(Number(priceMap[p.partId].sell))
-            : Math.max(0, Math.round(Number(p.cost || p.priceAtTime) || 0)),
-          costAtTime: p.partId && priceMap[p.partId] != null
-            ? Math.round(Number(priceMap[p.partId].cost))
-            : Math.max(0, Math.round(Number(p.costAtTime) || 0)),
-        }));
+        .map(p => {
+          const name = sanitizeText(String(p.name), 100);
+          // Custom (non-inventory) part price/cost is client-supplied — only a
+          // money role may set or change it. A non-money role (technician) gets
+          // the part's existing price if it's already on the job (so they can
+          // still edit quantity etc.), or 0 for a brand-new custom line (staff
+          // must price it in a follow-up edit).
+          const existingCustom = existingCustomPriceByName.get(name);
+          return {
+            part:        p.partId || undefined,
+            name,
+            quantity:    Math.max(1, Number(p.quantity) || 1),
+            // Snapshots stored in integer pesewas — same unit as Part. Custom
+            // (non-inventory) prices arrive from the client already in pesewas.
+            priceAtTime: p.partId && priceMap[p.partId] != null
+              ? Math.round(Number(priceMap[p.partId].sell))
+              : isMoneyRole
+                ? Math.max(0, Math.round(Number(p.cost || p.priceAtTime) || 0))
+                : (existingCustom?.priceAtTime ?? 0),
+            costAtTime: p.partId && priceMap[p.partId] != null
+              ? Math.round(Number(priceMap[p.partId].cost))
+              : isMoneyRole
+                ? Math.max(0, Math.round(Number(p.costAtTime) || 0))
+                : (existingCustom?.costAtTime ?? 0),
+          };
+        });
     }
 
     // Warranty fields
@@ -378,6 +419,15 @@ const updateJob = async (req, res, next) => {
         exp.setDate(exp.getDate() + job.warrantyDays);
         job.warrantyExpires = exp;
       }
+    }
+
+    // Restore inventory once, when a job that already had parts deducted is
+    // cancelled — mirrors the shop-order restock in orderController.js.
+    if (status === 'cancelled' && prevStatus !== 'cancelled' && job.stockDeducted && !job.stockRestored) {
+      for (const p of deductedParts) {
+        await Part.findByIdAndUpdate(p.part, { $inc: { quantity: p.quantity } });
+      }
+      job.stockRestored = true;
     }
 
     await job.save();
@@ -485,7 +535,7 @@ const getJobByToken = async (req, res, next) => {
 
     const [partOrders, repairOrders, payments] = await Promise.all([
       PartOrder.find({ job: job._id })
-        .select('partName quantity unitPriceGhs amountGhs status createdAt paystackReference')
+        .select('partName quantity unitPricePesewas amountPesewas status createdAt paystackReference')
         .sort({ createdAt: -1 }),
       RepairOrder.find({ job: job._id })
         .select('items shippingFeePesewas subtotalPesewas totalPesewas status createdAt paystackReference deliveryZone')
@@ -522,14 +572,14 @@ const getJobByToken = async (req, res, next) => {
           id:        p._id,
           name:      p.name,
           quantity:  p.quantity,
-          priceGhs:  p.priceAtTime || 0,
+          pricePesewas: p.priceAtTime || 0,
           isLinked:  Boolean(p.part),
         })),
         partOrders: partOrders.map(o => ({
           id:             o._id,
           partName:       o.partName,
           quantity:       o.quantity,
-          amountGhs:      o.amountGhs,
+          amountPesewas:  o.amountPesewas,
           status:         o.status,
           reference:      o.paystackReference || null,
           createdAt:      o.createdAt,
@@ -539,7 +589,7 @@ const getJobByToken = async (req, res, next) => {
           items:           (o.items || []).map(i => ({
             partName:    i.partName,
             quantity:    i.quantity,
-            unitPriceGhs: i.unitPriceGhs,
+            unitPricePesewas: i.unitPricePesewas,
           })),
           shippingFeePesewas: o.shippingFeePesewas,
           subtotalPesewas:    o.subtotalPesewas,
@@ -646,7 +696,7 @@ const getMyRepairs = async (req, res, next) => {
 
 const triggerReminders = async (req, res, next) => {
   try {
-    const { runReminderJob } = require('../services/reminderJob');
+    const { runReminderJob } = require('../../services/reminderJob');
     // Run async — don't wait for it to finish
     runReminderJob().catch(err => console.error('[reminders] manual trigger error:', err.message));
     res.json({ success: true, message: 'Reminder job triggered. Check server logs.' });
@@ -729,8 +779,7 @@ const createRepairOrder = async (req, res, next) => {
         part:           part._id,
         partName:       part.name,
         quantity:       qty,
-        // Stored in integer pesewas (field name kept for compatibility).
-        unitPriceGhs:   Math.round(Number(part.sellingPrice)),
+        unitPricePesewas: Math.round(Number(part.sellingPrice)),
         subtotalPesewas: subtotal,
       });
       subtotalPesewas += subtotal;
@@ -802,12 +851,15 @@ const createRepairOrder = async (req, res, next) => {
 const updateRepairOrder = async (req, res, next) => {
   try {
     const { status } = req.body;
-    if (!['pending', 'paid', 'cancelled'].includes(status)) {
+    if (!PART_REPAIR_ORDER_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: 'Status must be pending, paid, or cancelled.' });
     }
     const repairOrder = await RepairOrder.findById(req.params.id);
     if (!repairOrder) return res.status(404).json({ success: false, error: 'Repair order not found.' });
     const prevStatus = repairOrder.status;
+    if (!canTransitionPartRepairOrder(prevStatus, status)) {
+      return res.status(400).json({ success: false, error: `Cannot change status from ${prevStatus} to ${status}.` });
+    }
     repairOrder.status = status;
     if (status === 'paid' && !repairOrder.paidAt) repairOrder.paidAt = new Date();
     await repairOrder.save();

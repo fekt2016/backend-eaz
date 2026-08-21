@@ -58,6 +58,9 @@ const repairJobSchema = new mongoose.Schema(
     estimatedCompletion: { type: Date },
     completedAt:         { type: Date },
     stockDeducted:       { type: Boolean, default: false },
+    // Set once inventory is restored after a cancellation, so a job can never
+    // be double-restocked (e.g. re-saving with status already 'cancelled').
+    stockRestored:       { type: Boolean, default: false },
 
     // ── Warranty ──────────────────────────────────────────
     warrantyDays:    { type: Number, default: 0, min: 0 },
