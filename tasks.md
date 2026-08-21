@@ -1309,7 +1309,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Frontend-only removal of the Overview "New Job" button and empty-state create link;
     **no backend change required** (see `frontend-eaz/tasks.md` → T23).
 
-- [ ] **T22 · Integrate "My Repairs" and "My Jobs" into one page**
+- [x] **T22 · Integrate "My Repairs" and "My Jobs" into one page** ✅ done 2026-08-21 — frontend-only, see `frontend-eaz/tasks.md` → T22 for the full Shipped/Verified notes
   - **Issue:** Two overlapping views of repair jobs exist — customer "My Repairs"
     (`/dashboard/repairs`, `useMyRepairs`) and technician "My Jobs" (`/dashboard/pos`,
     `useJobs`). They should be one integrated page.
@@ -1318,6 +1318,12 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Primarily a frontend merge (see `frontend-eaz/tasks.md` → T22). Confirm the backend
     endpoints backing each (`GET /api/v1/pos/jobs?assignedTo=me` vs the repairs endpoint) and
     whether a single unified endpoint/hook is needed.
+  - **Confirmed no backend unification needed:** the two endpoints have genuinely different
+    scoping semantics — `GET /track/mine` matches by the caller's own phone/email (customer
+    ownership), `GET /pos/jobs?assignedTo=me` matches by technician assignment. Collapsing
+    them into one endpoint would conflate two different authorization models for no benefit;
+    the frontend fix routes each role to the correctly-scoped one instead of showing a
+    redundant third view.
 
 - [ ] **T21 · Technicians have NO hosting/domain access — backend + audit**
   - **Issue:** Technicians must have **zero** access to anything hosting- or domain-related.
