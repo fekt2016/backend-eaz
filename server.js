@@ -108,6 +108,17 @@ const startServer = async () => {
       console.warn('⚠️  Reminder job could not be loaded:', err.message);
     }
 
+    // Scheduled blog publishing — runs shortly after startup then hourly, so a
+    // post scheduledFor a given time goes live within the hour.
+    try {
+      const { runScheduledPublishJob } = require('./utils/scheduledPublishJob');
+      setTimeout(() => runScheduledPublishJob().catch(() => {}), 15_000);
+      setInterval(() => runScheduledPublishJob().catch(() => {}), 60 * 60 * 1000);
+      console.log('🗓️  Scheduled blog publish job scheduled (runs hourly)');
+    } catch (err) {
+      console.warn('⚠️  Scheduled publish job could not be loaded:', err.message);
+    }
+
     // Initialize Socket.io (optional - only if socket server exists)
     try {
       // Optional module — guarded by the MODULE_NOT_FOUND check below; doesn't exist yet.

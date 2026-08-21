@@ -64,6 +64,13 @@ const createPost = async (req, res, next) => {
     if (!title || !excerpt || !content || !category) {
       return res.status(400).json({ success: false, error: 'title, excerpt, content and category are required' });
     }
+    let scheduledFor;
+    if (req.body.scheduledFor) {
+      scheduledFor = new Date(req.body.scheduledFor);
+      if (Number.isNaN(scheduledFor.getTime())) {
+        return res.status(400).json({ success: false, error: 'scheduledFor must be a valid date' });
+      }
+    }
     let slug = generateSlug(title);
     // Ensure unique slug
     const exists = await Post.findOne({ slug });
@@ -76,6 +83,7 @@ const createPost = async (req, res, next) => {
       readTime:  estimateReadTime(content),
       featured:  featured  || false,
       published: published || false,
+      scheduledFor,
     });
     res.status(201).json({ success: true, data: post });
   } catch (err) { next(err); }
@@ -98,6 +106,17 @@ const updatePost = async (req, res, next) => {
     if (author    !== undefined)   update.author    = author;
     if (featured  !== undefined)   update.featured  = featured;
     if (published !== undefined)   update.published = published;
+    if (req.body.scheduledFor !== undefined) {
+      if (req.body.scheduledFor === null || req.body.scheduledFor === '') {
+        update.scheduledFor = null; // clear a schedule
+      } else {
+        const when = new Date(req.body.scheduledFor);
+        if (Number.isNaN(when.getTime())) {
+          return res.status(400).json({ success: false, error: 'scheduledFor must be a valid date' });
+        }
+        update.scheduledFor = when;
+      }
+    }
 
     const post = await Post.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
     if (!post) return res.status(404).json({ success: false, error: 'Post not found' });

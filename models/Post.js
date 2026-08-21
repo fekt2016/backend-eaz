@@ -48,6 +48,12 @@ const postSchema = new mongoose.Schema({
   publishedAt: {
     type: Date,
   },
+  // When set on an unpublished post, the scheduled-publish job (utils/
+  // scheduledPublishJob.js) auto-publishes it once this time is reached.
+  // Ignored once published is true.
+  scheduledFor: {
+    type: Date,
+  },
 }, {
   timestamps: true,
 });
@@ -55,6 +61,8 @@ const postSchema = new mongoose.Schema({
 // slug index is created automatically by unique:true on the field
 postSchema.index({ published: 1, publishedAt: -1 });
 postSchema.index({ category: 1, published: 1 });
+// Supports the scheduled-publish job's due-posts query.
+postSchema.index({ published: 1, scheduledFor: 1 });
 
 // Auto-set publishedAt when published
 postSchema.pre('save', function (next) {
