@@ -49,12 +49,12 @@ describe("migratePosMoneyToPesewas", () => {
     expect(doc.laborCost).toBe(1200); // not multiplied twice
   });
 
-  it("converts part orders but leaves *Pesewas fields alone", async () => {
+  it("converts a legacy part order (old unitPriceGhs/amountGhs field names) into the current unitPricePesewas/amountPesewas fields, leaving *Pesewas alone", async () => {
     const partorders = mongoose.connection.db.collection("partorders");
     await partorders.insertOne({
       partName: "Battery",
       quantity: 2,
-      unitPriceGhs: 45.5,
+      unitPriceGhs: 45.5, // legacy field name/unit (pre-T8 rename, pre-PHASE7 unit)
       amountGhs: 91,
       subtotalPesewas: 9100, // already pesewas — must not change
     });
@@ -62,9 +62,24 @@ describe("migratePosMoneyToPesewas", () => {
     await migrate("partorders");
     const doc = await partorders.findOne({});
 
-    expect(doc.unitPriceGhs).toBe(4550);
-    expect(doc.amountGhs).toBe(9100);
+    expect(doc.unitPricePesewas).toBe(4550);
+    expect(doc.amountPesewas).toBe(9100);
     expect(doc.subtotalPesewas).toBe(9100); // untouched
+    expect(doc.moneyUnit).toBe("pesewas");
+  });
+
+  it("converts a legacy repair order item (old unitPriceGhs) into unitPricePesewas", async () => {
+    const repairorders = mongoose.connection.db.collection("repairorders");
+    await repairorders.insertOne({
+      items: [{ partName: "Screen", quantity: 1, unitPriceGhs: 350 }],
+      subtotalPesewas: 35000,
+      totalPesewas: 35000,
+    });
+
+    await migrate("repairorders");
+    const doc = await repairorders.findOne({});
+
+    expect(doc.items[0].unitPricePesewas).toBe(35000);
     expect(doc.moneyUnit).toBe("pesewas");
   });
 

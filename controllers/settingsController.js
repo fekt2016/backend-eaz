@@ -1,6 +1,7 @@
 const Settings = require('../models/Settings');
 const { sanitizeMessage } = require('../utils/sanitize');
 const { logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
+const { clearBusinessProfileCache } = require('../utils/businessProfile');
 
 /**
  * GET /api/v1/settings
@@ -21,6 +22,7 @@ const getSettings = async (req, res, next) => {
         maintenanceMessage:        settings.maintenanceMessage,
         maintenanceScheduledStart: settings.maintenanceScheduledStart,
         maintenanceScheduledEnd:   settings.maintenanceScheduledEnd,
+        business:                  settings.business,
         updatedAt:                 settings.updatedAt,
       },
     });
@@ -40,13 +42,33 @@ const updateSettings = async (req, res, next) => {
       'maintenanceMessage',
       'maintenanceScheduledStart',
       'maintenanceScheduledEnd',
+      'business',
     ];
 
     const updates = {};
+    let touchedBusiness = false;
     for (const key of allowed) {
       if (key in req.body) {
         if (key === 'maintenanceMessage') {
           updates[key] = sanitizeMessage(req.body[key], 500) ?? null;
+        } else if (key === 'business' && req.body.business && typeof req.body.business === 'object') {
+          // Dot-path each field so an admin can PATCH one business field without
+          // wiping the rest — `$set: { business: {...} }` would replace the whole
+          // embedded subdocument instead of merging.
+          const b = req.body.business;
+          for (const f of ['shopName', 'shopPhone', 'whatsapp', 'email', 'location', 'hours', 'consultationPath']) {
+            if (f in b) updates[`business.${f}`] = sanitizeMessage(String(b[f] ?? ''), 200) ?? '';
+          }
+          if (Array.isArray(b.services)) {
+            updates['business.services'] = b.services
+              .filter((s) => s && s.name && s.price && s.path)
+              .map((s) => ({
+                name:  sanitizeMessage(String(s.name), 100)  ?? '',
+                price: sanitizeMessage(String(s.price), 100) ?? '',
+                path:  sanitizeMessage(String(s.path), 200)  ?? '',
+              }));
+          }
+          touchedBusiness = true;
         } else {
           // Allow explicit null to clear date fields
           updates[key] = req.body[key] === '' ? null : req.body[key];
@@ -59,6 +81,8 @@ const updateSettings = async (req, res, next) => {
       { $set: updates },
       { new: true, upsert: true, runValidators: true }
     );
+
+    if (touchedBusiness) clearBusinessProfileCache();
 
     await logFromRequest(req, {
       action: ACTIONS.SETTINGS_UPDATED,
@@ -77,6 +101,7 @@ const updateSettings = async (req, res, next) => {
         maintenanceMessage:        settings.maintenanceMessage,
         maintenanceScheduledStart: settings.maintenanceScheduledStart,
         maintenanceScheduledEnd:   settings.maintenanceScheduledEnd,
+        business:                  settings.business,
         updatedAt:                 settings.updatedAt,
       },
     });

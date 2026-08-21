@@ -73,7 +73,33 @@ async function fulfilShopOrder(reference) {
     }
   }
 
+  await Order.updateOne({ _id: paid._id }, { $set: { stockDeducted: true } });
+
   return paid;
 }
 
-module.exports = { fulfilShopOrder };
+/**
+ * Restore stock for every item on an order whose stock was previously
+ * decremented (paid → cancelled). Mirrors the decrement loop in
+ * fulfilShopOrder. Idempotent at the call site — callers must guard with
+ * `order.stockDeducted && !order.stockRestored` and set `stockRestored`.
+ */
+async function restockOrderItems(order) {
+  for (const item of order.items) {
+    if (item.part) {
+      await Part.findByIdAndUpdate(item.part, { $inc: { quantity: item.qty } });
+      continue;
+    }
+
+    if (item.variant && item.variant.sku) {
+      await Product.findOneAndUpdate(
+        { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku } } },
+        { $inc: { "variants.$.stock": item.qty } }
+      );
+    } else if (item.product) {
+      await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.qty } });
+    }
+  }
+}
+
+module.exports = { fulfilShopOrder, restockOrderItems };

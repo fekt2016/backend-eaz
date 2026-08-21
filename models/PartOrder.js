@@ -3,9 +3,10 @@ const mongoose = require('mongoose');
 /**
  * Customer-facing part order for a repair job.
  *
- * Money units:
- *   - unitPriceGhs / amountGhs  → POS convention (major GHS, e.g. 50 = GH₵50)
- *   - subtotalPesewas           → Paystack convention (× 100), used for webhook checks
+ * Money units: all three fields are integer pesewas (matches `subtotalPesewas`,
+ * used for Paystack checks). `unitPricePesewas`/`amountPesewas` are separate
+ * from `subtotalPesewas` only because the latter is the authoritative charge
+ * amount sent to Paystack; the other two are a display-friendly breakdown.
  *
  * Created via the public /track/:token page; fulfilled idempotently by the
  * Paystack webhook, which records a PosPayment and flags the job as
@@ -19,10 +20,10 @@ const partOrderSchema = new mongoose.Schema(
     part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' },
     partName:    { type: String, required: true, trim: true, maxlength: 150 },
 
-    quantity:      { type: Number, default: 1, min: 1, max: 10 },
-    unitPriceGhs:  { type: Number, required: true, min: 0 },
-    subtotalPesewas: { type: Number, required: true, min: 0 }, // unitPriceGhs × qty × 100
-    amountGhs:     { type: Number, required: true, min: 0 },   // unitPriceGhs × qty
+    quantity:         { type: Number, default: 1, min: 1, max: 10 },
+    unitPricePesewas: { type: Number, required: true, min: 0 },
+    subtotalPesewas:  { type: Number, required: true, min: 0 }, // == amountPesewas (Paystack charge amount)
+    amountPesewas:    { type: Number, required: true, min: 0 }, // unitPricePesewas × qty
 
     customerName:  { type: String, trim: true, maxlength: 100 },
     customerPhone: { type: String, required: true, trim: true },

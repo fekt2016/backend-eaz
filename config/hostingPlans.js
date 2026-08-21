@@ -326,13 +326,17 @@ const HOSTING_PLANS = {
 };
 
 function getPlanPrice(planType, tier, billingCycle) {
+  // Unknown type/tier (e.g. a bad client request, or a stale frontend sending a
+  // removed tier) is a 400-worthy input error, not a server fault — return the
+  // same null-total shape callers already use for the cloud/enterprise custom
+  // tier, rather than throwing (which propagated as a 500).
   const typeGroup = HOSTING_PLANS[planType];
   if (!typeGroup) {
-    throw new Error(`Unknown hosting plan type: ${planType}`);
+    return { basePrice: null, total: null, billingCycle };
   }
   const plan = typeGroup[tier];
   if (!plan) {
-    throw new Error(`Unknown hosting plan tier: ${tier} for type ${planType}`);
+    return { basePrice: null, total: null, billingCycle };
   }
 
   const basePrice = billingCycle === 'annual' ? plan.annualPrice : plan.monthlyPrice;

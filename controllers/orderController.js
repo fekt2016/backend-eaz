@@ -4,7 +4,7 @@ const Order = require("../models/Order");
 const Product = require("../models/Product");
 const Part = require("../models/Part");
 const DeliveryZone = require("../models/DeliveryZone");
-const { fulfilShopOrder } = require("../utils/fulfilShopOrder");
+const { fulfilShopOrder, restockOrderItems } = require("../utils/fulfilShopOrder");
 const { formatGhs } = require("../utils/money");
 const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 const { normalizePhone } = require("../utils/phone");
@@ -492,6 +492,10 @@ const updateOrderStatus = async (req, res, next) => {
     if (status === 'paid' && !order.paidAt) {
       order.paidAt = new Date();
     }
+    if (status === 'cancelled' && order.stockDeducted && !order.stockRestored) {
+      await restockOrderItems(order);
+      order.stockRestored = true;
+    }
     order.trackingHistory.push({
       status,
       note: `Status updated to ${status}.`,
@@ -556,6 +560,10 @@ const addTrackingEvent = async (req, res, next) => {
       order.status = status;
       if (status === 'paid' && !order.paidAt) {
         order.paidAt = new Date();
+      }
+      if (status === 'cancelled' && order.stockDeducted && !order.stockRestored) {
+        await restockOrderItems(order);
+        order.stockRestored = true;
       }
     }
 

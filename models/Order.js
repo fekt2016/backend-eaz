@@ -75,6 +75,18 @@ const orderSchema = new mongoose.Schema({
     enum: ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'],
     default: 'pending'
   },
+  // Whether stock was decremented for this order (set by fulfilShopOrder on
+  // pending → paid) and whether it's since been restored (set on cancel).
+  // Guards against restocking an order that never had stock deducted, and
+  // against double-restocking one that's already been reversed.
+  stockDeducted: {
+    type: Boolean,
+    default: false
+  },
+  stockRestored: {
+    type: Boolean,
+    default: false
+  },
   paystackReference: {
     type: String,
     trim: true

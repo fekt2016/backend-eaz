@@ -1,3 +1,11 @@
+// verifyPin is stored hashed (T49), so the E2E flow below can no longer read
+// the code straight off the DB record — capture it the way the real emailed
+// code would arrive, via the (mocked) send call.
+jest.mock("../utils/email", () => {
+  const actual = jest.requireActual("../utils/email");
+  return { ...actual, sendVerificationPin: jest.fn(async () => {}) };
+});
+
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
@@ -5,6 +13,7 @@ const Product = require("../models/Product");
 const User = require("../models/User");
 const ProductReview = require("../models/ProductReview");
 const Order = require("../models/Order");
+const { sendVerificationPin } = require("../utils/email");
 
 let slugCounter = 0;
 function makeProduct(overrides = {}) {
@@ -302,10 +311,11 @@ describe("End-to-end — real logged-in user flow (register → verify → submi
     expect(reg.body.data.requiresVerification).toBe(true);
 
     // 2. Verify the PIN the way the emailed code would be entered
-    const unverified = await User.findOne({ email }).select("+verifyPin");
-    expect(unverified.verifyPin).toBeTruthy();
+    expect(sendVerificationPin).toHaveBeenCalledTimes(1);
+    const [, pin] = sendVerificationPin.mock.calls[0];
+    expect(pin).toMatch(/^\d{6}$/);
     const verify = await request(app).post("/api/v1/auth/verify-pin")
-      .send({ email, pin: unverified.verifyPin });
+      .send({ email, pin });
     expect(verify.status).toBe(200);
     const cookie = verify.headers["set-cookie"][0].split(";")[0];
     expect(cookie.startsWith("token=")).toBe(true);

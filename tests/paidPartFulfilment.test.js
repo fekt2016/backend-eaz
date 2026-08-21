@@ -20,7 +20,7 @@ describe("applyPaidPartToJob — online part fulfilment (#9 cost, #10 reserve)",
     const { part, job } = await seedJobWithPart();
 
     await applyPaidPartToJob(job, {
-      part: part._id, partName: part.name, quantity: 2, unitPriceGhs: 55000,
+      part: part._id, partName: part.name, quantity: 2, unitPricePesewas: 55000,
     });
     await job.save({ validateBeforeSave: false });
 
@@ -36,7 +36,7 @@ describe("applyPaidPartToJob — online part fulfilment (#9 cost, #10 reserve)",
   it("does not double-deduct when the same order is applied twice", async () => {
     const { part, job } = await seedJobWithPart();
 
-    const item = { part: part._id, partName: part.name, quantity: 2, unitPriceGhs: 55000 };
+    const item = { part: part._id, partName: part.name, quantity: 2, unitPricePesewas: 55000 };
     await applyPaidPartToJob(job, item);
     await applyPaidPartToJob(job, item); // e.g. duplicate/replayed webhook
     await job.save({ validateBeforeSave: false });
@@ -53,7 +53,7 @@ describe("applyPaidPartToJob — online part fulfilment (#9 cost, #10 reserve)",
     await job.save();
 
     await applyPaidPartToJob(job, {
-      part: part._id, partName: part.name, quantity: 2, unitPriceGhs: 55000,
+      part: part._id, partName: part.name, quantity: 2, unitPricePesewas: 55000,
     });
     await job.save({ validateBeforeSave: false });
 
@@ -69,7 +69,7 @@ describe("applyPaidPartToJob — online part fulfilment (#9 cost, #10 reserve)",
     const { part, job } = await seedJobWithPart({ quantity: 1 });
 
     await applyPaidPartToJob(job, {
-      part: part._id, partName: part.name, quantity: 4, unitPriceGhs: 55000,
+      part: part._id, partName: part.name, quantity: 4, unitPricePesewas: 55000,
     });
     await job.save({ validateBeforeSave: false });
 

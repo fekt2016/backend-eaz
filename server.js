@@ -110,6 +110,8 @@ const startServer = async () => {
 
     // Initialize Socket.io (optional - only if socket server exists)
     try {
+      // Optional module — guarded by the MODULE_NOT_FOUND check below; doesn't exist yet.
+      // eslint-disable-next-line n/no-missing-require
       const { initializeSocket } = require("./socket/socketServer");
       const io = initializeSocket(server);
       app.set("io", io); // Make io available to routes/controllers
@@ -127,6 +129,8 @@ const startServer = async () => {
     let memoryMonitorInterval = null;
     if (process.env.NODE_ENV === "production") {
       try {
+        // Optional module — guarded by the MODULE_NOT_FOUND check below; doesn't exist yet.
+        // eslint-disable-next-line n/no-missing-require
         const { startMemoryMonitoring } = require("./utils/memoryMonitor");
         // Monitor every 10 minutes, log only when heap exceeds 1.5GB
         // This reduces log noise and memory overhead from frequent monitoring
