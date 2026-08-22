@@ -423,7 +423,44 @@ Not defects; product features that don't exist yet. Scope separately before buil
     with the job/order suites this touches: 6 suites / 44 tests passed. Frontend:
     `useNotifications.test.jsx` (7 tests); full `vitest run`: 27 files / 126 tests passed.
     Lint clean both sides; `next build` succeeded.
-- [ ] **T13 · AI chat responses** — `getAIResponse` is a stub returning `null`; only rule-based replies today. — AUDIT.md §23, §24 (#2)
+- [x] **T13 · AI chat responses** — `getAIResponse` is a stub returning `null`; only rule-based replies today. — AUDIT.md §23, §24 (#2)
+  - **v1 scope (agreed with product owner before implementation):** filled in the existing
+    `getAIResponse(messages, userMessage)` hook in `controllers/chatController.js` — no other
+    part of the chat system (model, session lifecycle, human-handoff flow) changed. Model:
+    `claude-sonnet-5` (explicit choice — Opus 5 is the tool's own default, but flagged the
+    cost tradeoff for this low-stakes FAQ bot and the user picked Sonnet 5 over Opus
+    5/Haiku 4.5). New dependency: `@anthropic-ai/sdk`. `ANTHROPIC_API_KEY` added to
+    `.env.example` and to `validateEnv.js`'s *recommended* (not required) list — unset key
+    means `getAIResponse` returns `null` immediately, same "optional integration, degrade
+    gracefully" pattern as `namecheap.hasConfig()`/`whm.hasConfig()`.
+  - **Design:** system prompt built from `getBusinessProfile()` — the same knowledge object
+    the rule-based engine already uses — with an explicit "only quote what's in this list,
+    otherwise say you'll connect them with a human" instruction (hallucination guardrail on
+    real pricing). History (`session.messages`, roles `user`/`bot`/`admin`) mapped to
+    Anthropic's `user`/`assistant` and truncated to the last 12 messages sent per call (full
+    history stays in Mongo). Non-streaming call, `max_tokens: 500`. Any SDK error (rate
+    limit, timeout, auth) is caught and returns `null` — falls straight through to the
+    existing rule-based engine, never breaks the request.
+  - **Explicitly out of scope this pass** (agreed up front): no changes to General Business
+    Settings (T14) — reads the profile as-is, adds no settings fields or admin toggle beyond
+    "is the API key set"; no refund logic (T15); no tool use/function calling — the AI only
+    answers in text, cannot book consultations or touch real orders/accounts; no
+    AI-generated quick-reply suggestion chips (still rule-based-engine-only; `suggestions: []`
+    on the AI path, and the frontend widget already renders that correctly); no streaming,
+    voice, or image input; no usage/cost dashboard or per-session spend caps — the existing
+    `/api/v1/chat` IP rate limit (60 req/15 min, `app.js`) plus the `max_tokens` cap and
+    history truncation are the v1 cost controls.
+  - **Frontend:** none required — checked `ChatWidget.jsx`; it already does
+    `json.data.suggestions || []` and only renders the suggestion-chip row when non-empty, so
+    the AI path's empty `suggestions` needed no widget change. `frontend-eaz`'s
+    `task-t13-ai-chat-responses` branch was created (chained correctly off T12) but carries no
+    commits — genuinely nothing to change there.
+  - **Tests:** `tests/chatAI.test.js` (7 tests) — falls back to rule-based with no API key;
+    uses the AI response when configured; falls back to rule-based on an API error; system
+    prompt is grounded in business-profile services; bot/admin history maps to `assistant`
+    with the latest user message last; history truncates to 12; AI is never called once a
+    human agent has taken over (`humanRequested`). Full backend suite run afterward to confirm
+    no regressions from the new dependency. Lint clean.
 - [ ] **T14 · General business settings** — `Settings` holds only maintenance fields (no shop profile, tax/VAT, currency, hours). — AUDIT.md §24 (#3)
 - [ ] **T15 · Refunds** — no refund endpoint or Paystack refund call anywhere. — AUDIT.md §24 (#4)
 
