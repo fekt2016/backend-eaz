@@ -12,7 +12,7 @@ const {
   updateOrderStatus,
   retryDomainRegistration,
 } = require('../controllers/domainController');
-const { protect, restrictTo } = require('../middleware/auth');
+const { protect, restrictTo, denyRoles } = require('../middleware/auth');
 const namecheap = require('../services/namecheap');
 
 const router = express.Router();
@@ -33,11 +33,11 @@ router.get('/suggest', suggestDomain);
 router.post('/check/batch', checkDomainBatch);
 router.post('/check-bulk', checkDomainBulk);
 
-router.post('/payment', protect, createDomainPayment);
+router.post('/payment', protect, denyRoles('technician'), createDomainPayment);
 
-router.get('/my', protect, getMyRegisteredDomains);
-router.get('/orders', protect, getDomainOrders);
-router.get('/orders/:id', protect, getDomainOrder);
+router.get('/my', protect, denyRoles('technician'), getMyRegisteredDomains);
+router.get('/orders', protect, denyRoles('technician'), getDomainOrders);
+router.get('/orders/:id', protect, denyRoles('technician'), getDomainOrder);
 router.patch('/orders/:id/status', protect, restrictTo('admin'), updateOrderStatus);
 router.post('/orders/:id/retry-registration', protect, restrictTo('admin'), retryDomainRegistration);
 

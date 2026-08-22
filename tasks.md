@@ -1325,14 +1325,30 @@ Not defects; product features that don't exist yet. Scope separately before buil
     the frontend fix routes each role to the correctly-scoped one instead of showing a
     redundant third view.
 
-- [ ] **T21 · Technicians have NO hosting/domain access — backend + audit**
+- [x] **T21 · Technicians have NO hosting/domain access — backend + audit**
   - **Issue:** Technicians must have **zero** access to anything hosting- or domain-related.
     Confirm the backend routes (`/api/v1/hosting/*`, `/api/v1/domains/*`) return 401/403 for
     technicians, and that no technician-facing endpoint leaks hosting/domain data.
-  - **Location:** `routes/hostingRoutes.js`, `routes/domainRoutes.js`, `controllers/*`
-  - **Fix:** Audit and enforce role guards on every hosting/domain endpoint; add
-    `restrictTo('admin')`/staff where missing. Frontend nav/widget hiding for technicians
-    lives in `frontend-eaz/tasks.md` → T21.
+  - **Location:** `routes/hostingOrderRoutes.js`, `routes/domainRoutes.js`, `middleware/auth.js`
+  - **Fix:** Audited every route in both files. `restrictTo(...)` routes already excluded
+    technician. The `protect`-only routes (any logged-in role, including technician —
+    customer-self-service endpoints) now also get a new `denyRoles('technician')` middleware
+    added to `middleware/auth.js`, applied on: `domainRoutes.js` (`/payment`, `/my`, `/orders`,
+    `/orders/:id`) and `hostingOrderRoutes.js` (`/orders` POST+GET, `/orders/by-reference/:reference`,
+    `/orders/:id/invoice`, `/orders/:id/cpanel-login`, `/orders/:id/status`, `/orders/:id`,
+    `/orders/:id/proof`, `/orders/:id/renew`, `/orders/:id/password`). Public lookup routes
+    (`/check`, `/search`, `/suggest`, `/plans`) return no user data, left as-is. No other
+    controllers reference `HostingOrder`/`DomainOrder`. Frontend nav/widget hiding for
+    technicians lives in `frontend-eaz/tasks.md` → T21.
+  - **Test verification:** initial `mongodb-memory-server` failures were a red herring — the
+    `dyld: Symbol not found: __ZTVNSt3__13pmr25monotonic_buffer_resourceE` came from an ad-hoc
+    diagnostic script that let the package default to mongod 8.x (needs macOS 14+; host is
+    12.7.6). `tests/setup.js` already correctly pins to 7.0.14, which starts fine standalone —
+    the real failure was 5 jest workers each launching mongod concurrently and timing out
+    under sandbox resource contention. `--runInBand` fixed it. Added
+    `tests/technicianHostingDomainAccess.test.js` (14 tests: 403 for technician on every
+    newly-guarded route in both files, + 2 regression checks that a plain `user` still gets
+    200). Full run: 6 suites / 52 tests passed.
 
 - [ ] **T20 · Hide repair/technician form when job is done or cancelled**
   - **Issue:** The Technician Update + Parts forms on the repair job detail page remain editable
