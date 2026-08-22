@@ -787,12 +787,12 @@ Not defects; product features that don't exist yet. Scope separately before buil
     workers) — confirmed pre-existing and unrelated: that file passes 19/19 standalone, and
     all T51/T53/T58 status-guard tests together (49 tests, 4 suites) pass clean.
 
-- [ ] **T19 · "Customer will bring device in" → "Device received" when diagnosing starts**
+- [x] **T19 · "Customer will bring device in" → "Device received" when diagnosing starts**
   - **Issue:** Once a repair job leaves the `received` stage, the customer/device card label
     should read "Device received" instead of the dropoff-based "Customer will bring device in".
   - **Location:** frontend — `frontend-eaz/src/app/dashboard/pos/jobs/[id]/_components/CustomerDeviceCard.jsx`
   - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
-    (see `frontend-eaz/tasks.md` → T19).
+    (see `frontend-eaz/tasks.md` → T19, implemented there).
 
 - [x] **T50 · `resetPassword` / `verifyPin` don't check `isBlocked`** ✅ done 2026-08-21
   - **Issue:** `login` rejects blocked accounts, but `resetPassword` (~line 350) and
