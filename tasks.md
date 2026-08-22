@@ -1350,12 +1350,12 @@ Not defects; product features that don't exist yet. Scope separately before buil
     newly-guarded route in both files, + 2 regression checks that a plain `user` still gets
     200). Full run: 6 suites / 52 tests passed.
 
-- [ ] **T20 · Hide repair/technician form when job is done or cancelled**
+- [x] **T20 · Hide repair/technician form when job is done or cancelled**
   - **Issue:** The Technician Update + Parts forms on the repair job detail page remain editable
     after the job is finished or cancelled.
   - **Location:** frontend — `frontend-eaz/src/app/dashboard/pos/jobs/[id]/page.jsx`
   - **Fix:** Frontend-only change — hide/make read-only for `ready`/`collected`/`cancelled`;
-    **no backend change required** (see `frontend-eaz/tasks.md` → T20).
+    **no backend change required** (see `frontend-eaz/tasks.md` → T20, implemented there).
 
 ---
 
