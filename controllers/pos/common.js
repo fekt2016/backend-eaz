@@ -27,6 +27,7 @@ const { deductPartStock } = require('../../utils/deductPartStock');
 const { cloudinary } = require('../../config/cloudinary');
 const streamifier    = require('streamifier');
 const { notifyCustomer, sendCredentialsSms } = require('../../services/notify');
+const { notify, NOTIFICATION_TYPES } = require('../../utils/notifications');
 const { sendAccountCreatedEmail } = require('../../utils/email');
 const { log, logFromRequest, buildChanges, ACTIONS, RESOURCES } = require('../../services/activityLogService');
 const { escapeRegex }   = require('../../utils/regex');
@@ -184,6 +185,7 @@ module.exports = {
   sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText,
   deductPartStock, cloudinary, streamifier,
   notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail,
+  notify, NOTIFICATION_TYPES,
   log, logFromRequest, buildChanges, ACTIONS, RESOURCES,
   escapeRegex, normalizePhone, formatGhs,
   paystack, FRONTEND_URL,

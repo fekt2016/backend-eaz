@@ -383,7 +383,46 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
 
 Not defects; product features that don't exist yet. Scope separately before building.
 
-- [ ] **T12 · In-app notifications / alert center** — no model/API/UI (only SMS + email exist). — AUDIT.md §24 (#1)
+- [x] **T12 · In-app notifications / alert center** — no model/API/UI (only SMS + email exist). — AUDIT.md §24 (#1)
+  - **v1 scope (agreed with product owner before implementation):** generic per-user
+    `Notification` model + polling API (`/api/v1/notifications`: list, unread-count,
+    mark-read, mark-all-read) + a small helper (`utils/notifications.js`: `notify()`,
+    `notifyRoles()`) — server-created only, no client-facing create endpoint. Two v1
+    triggers wired end-to-end: (1) a repair job's assigned technician gets notified on
+    creation and on reassignment (`controllers/pos/jobController.js`); (2) admin/staff/
+    superadmin get notified when a shop order transitions pending→paid
+    (`utils/fulfilShopOrder.js`, the same idempotent choke point the webhook and manual-
+    verify paths both call). Frontend: `NotificationBell` (bell + unread badge + dropdown)
+    wired into both `DashboardShell` and `PosShell` topbars (commerce reuses
+    `DashboardShell` already), plus a `/dashboard/notifications` page (all/unread filter,
+    pagination, mark-all-read).
+  - **Explicitly out of scope this pass** (agreed up front, to not bleed into T13/T14/T15):
+    AI/smart summarization (T13), notification-preferences/settings UI (T14), refund
+    triggers (T15, refunds don't exist yet), customer-facing in-app notifications
+    (customers already get SMS/email via `services/notify.js`), real-time/websocket
+    delivery, push notifications. More trigger events (low stock, payment received,
+    domain/hosting expiry, warranty expiring) are follow-up tasks, not part of T12.
+  - **Decisions made explicit, not left as oversights:** unread-count badge polls every
+    30s (`refetchInterval`, matches the app's global 30s `staleTime` default; pauses
+    automatically when the tab is backgrounded — react-query default). Read notifications
+    auto-expire 90 days after `readAt` via a partial-filter TTL index
+    (`{ readAt: 1 }, { expireAfterSeconds: 90d, partialFilterExpression: { read: true } }`)
+    — unread notifications never expire, so nothing disappears before it's seen.
+  - **Bug found + fixed during implementation:** `job.populate([...])` mutates the
+    Mongoose document in place, so reading `job.assignedTo.toString()` *after* that call
+    (as the pre-existing `afterSnapshot` for the activity-log diff already did) returns
+    Mongoose's debug-inspect string, not the hex id — passing that into `notify()` as a
+    recipient threw a cast error. Fixed by capturing `newAssignedTo` from `job.assignedTo`
+    *before* the populate call, dedicated to the notification, and left the pre-existing
+    (cosmetic-only, activity-log-diff) `afterSnapshot.assignedTo` behavior alone as
+    out-of-scope for this task.
+  - **Tests:** `tests/notifications.test.js` — API (list scoped to own user, unread-count,
+    mark-read ownership check, mark-all-read scoping) + both triggers (assign on create,
+    reassign notifies only the new technician, new-order notifies admin/staff/superadmin
+    but not technician/customer, idempotent on duplicate fulfilment). Full regression run
+    with the job/order suites this touches: 6 suites / 44 tests passed. Frontend:
+    `useNotifications.test.jsx` (7 tests); full `vitest run`: 27 files / 126 tests passed.
+    Lint clean both sides; `next build` succeeded.
 - [ ] **T13 · AI chat responses** — `getAIResponse` is a stub returning `null`; only rule-based replies today. — AUDIT.md §23, §24 (#2)
 - [ ] **T14 · General business settings** — `Settings` holds only maintenance fields (no shop profile, tax/VAT, currency, hours). — AUDIT.md §24 (#3)
 - [ ] **T15 · Refunds** — no refund endpoint or Paystack refund call anywhere. — AUDIT.md §24 (#4)

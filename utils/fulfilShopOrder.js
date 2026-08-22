@@ -3,6 +3,7 @@ const Part = require('../models/Part');
 const Product = require('../models/Product');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
 const { formatGhs } = require('./money');
+const { notifyRoles, NOTIFICATION_TYPES } = require('./notifications');
 
 /**
  * Atomically transition a shop order pending→paid and decrement stock.
@@ -35,6 +36,16 @@ async function fulfilShopOrder(reference) {
     description: `Payment confirmed for order ${paid.orderNumber} (${formatGhs(paid.total)})`,
     metadata: { reference: reference, totalPesewas: paid.total },
   });
+
+  // Notify admin/staff — in-app (T12)
+  notifyRoles(['superadmin', 'admin', 'staff'], {
+    type:  NOTIFICATION_TYPES.NEW_ORDER,
+    title: `New order paid: ${paid.orderNumber}`,
+    body:  `${formatGhs(paid.total)} — ${paid.customer?.name || 'Customer'}`,
+    link:  `/dashboard/orders/${paid._id}`,
+    resourceType: 'Order',
+    resourceId:   paid.orderNumber,
+  }).catch(() => {});
 
   // Decrement stock atomically per item. Never oversell: if the guard
   // fails for an item, log it and continue.
