@@ -36,6 +36,7 @@ const orderRoutes        = require('./routes/orderRoutes');
 const deliveryZoneRoutes = require('./routes/deliveryZoneRoutes');
 const activityLogRoutes  = require('./routes/activityLogRoutes');
 const productReviewRoutes = require('./routes/productReviewRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 
@@ -214,6 +215,7 @@ app.use('/api/v1/orders',   orderRoutes);
 app.use('/api/v1/delivery-zones', deliveryZoneRoutes);
 app.use('/api/v1/activity-logs', activityLogRoutes); // admin/superadmin only
 app.use('/api/v1/product-reviews', productReviewRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
 
 // ────────────────────────────────────────────────
 // 🩺 Health Check

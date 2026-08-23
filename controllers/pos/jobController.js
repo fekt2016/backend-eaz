@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder, canTransitionJobStatus
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, notify, NOTIFICATION_TYPES, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder, canTransitionJobStatus
 } = require('./common');
 
 const createJob = async (req, res, next) => {
@@ -88,6 +88,16 @@ const createJob = async (req, res, next) => {
 
     // Notify customer — job received
     notifyCustomer(populated, 'received').catch(() => {});
+
+    // Notify the assigned technician — in-app (T12)
+    notify(assignedTech, {
+      type:  NOTIFICATION_TYPES.JOB_ASSIGNED,
+      title: `New job assigned: ${job.jobNumber}`,
+      body:  `${populated.deviceBrand || ''} ${populated.deviceModel || ''}`.trim() || 'Repair job',
+      link:  `/dashboard/pos/jobs/${job._id}`,
+      resourceType: 'RepairJob',
+      resourceId:   job.jobNumber,
+    }).catch(() => {});
 
     // Record an upfront payment (parts / deposit) with the job from the start.
     const paid = Number(paymentAmount) || 0;
@@ -431,6 +441,12 @@ const updateJob = async (req, res, next) => {
     }
 
     await job.save();
+
+    // Capture assignedTo before populate() below mutates job.assignedTo in
+    // place into a populated subdocument — job.assignedTo.toString() after
+    // that point returns Mongoose's debug-inspect string, not the hex id.
+    const newAssignedTo = job.assignedTo ? job.assignedTo.toString() : '';
+
     const populated = await job.populate([
       { path: 'customer', select: 'name phone email' },
       { path: 'assignedTo', select: 'name' },
@@ -452,6 +468,19 @@ const updateJob = async (req, res, next) => {
       assignedTo: job.assignedTo ? job.assignedTo.toString() : '',
       warrantyDays: job.warrantyDays,
     };
+
+    // Notify the newly-assigned technician on reassignment — in-app (T12)
+    if (newAssignedTo && newAssignedTo !== prevSnapshot.assignedTo) {
+      notify(newAssignedTo, {
+        type:  NOTIFICATION_TYPES.JOB_ASSIGNED,
+        title: `Job reassigned to you: ${job.jobNumber}`,
+        body:  `${populated.deviceBrand || ''} ${populated.deviceModel || ''}`.trim() || 'Repair job',
+        link:  `/dashboard/pos/jobs/${job._id}`,
+        resourceType: 'RepairJob',
+        resourceId:   job.jobNumber,
+      }).catch(() => {});
+    }
+
     const changes = buildChanges(prevSnapshot, afterSnapshot, {
       status: 'Status',
       priority: 'Priority',

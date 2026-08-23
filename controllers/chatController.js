@@ -1,17 +1,83 @@
+const Anthropic = require('@anthropic-ai/sdk');
 const ChatSession = require('../models/ChatSession');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeMessage } = require('../utils/sanitize');
 const { getBusinessProfile } = require('../utils/businessProfile');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AI HOOK — swap this function when you're ready to plug in OpenAI / Claude
-// Just replace the body with your API call and return a string response.
+// AI RESPONSES (T13) — Claude, grounded in the same business-profile knowledge
+// the rule-based engine below uses. Falls through to that engine (returns
+// null) whenever ANTHROPIC_API_KEY isn't set or the API call fails for any
+// reason — mirrors services/notify.js's "never break the main flow" pattern.
 // ─────────────────────────────────────────────────────────────────────────────
+const AI_MODEL = 'claude-sonnet-5';
+const AI_MAX_TOKENS = 500;
+// Most recent messages sent to the API per call — bounds input-token growth
+// on a long-running session. The full history still lives in Mongo regardless.
+const AI_HISTORY_LIMIT = 12;
+
+let _anthropicClient = null;
+function hasAIConfig() {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+function getAnthropicClient() {
+  if (!_anthropicClient) _anthropicClient = new Anthropic();
+  return _anthropicClient;
+}
+
+function buildSystemPrompt(knowledge) {
+  const services = knowledge.services.map(s => `- ${s.name}: ${s.price}`).join('\n');
+  return `You are Eazy, the friendly chat assistant for ${knowledge.shopName}, a digital agency and phone-repair shop in ${knowledge.location}, Ghana.
+
+Only quote prices and services from this list — never invent a price, service, or policy that isn't here:
+${services}
+
+Contact info:
+- WhatsApp: ${knowledge.whatsapp}
+- Email: ${knowledge.email}
+- Hours: ${knowledge.hours}
+
+Rules:
+- Keep replies short and conversational — 2-4 sentences, suitable for a small chat bubble.
+- If asked about a price, policy, or service that isn't in the list above, say you'll connect them with a human instead of guessing.
+- Never mention that you are Claude, an AI, or made by Anthropic — you are "Eazy", EazWorld's assistant.
+- All prices are in Ghana Cedis (GHS).`;
+}
+
+// Map stored session roles ('user'|'bot'|'admin') to Anthropic's ('user'|'assistant'),
+// truncate to the last AI_HISTORY_LIMIT turns, and drop any leading assistant
+// turns the truncation leaves behind (the API requires the first message to
+// be 'user').
+function buildApiMessages(messages) {
+  const mapped = messages
+    .slice(-AI_HISTORY_LIMIT)
+    .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
+  const firstUserIndex = mapped.findIndex(m => m.role === 'user');
+  return firstUserIndex === -1 ? [] : mapped.slice(firstUserIndex);
+}
+
 async function getAIResponse(messages, userMessage) {
-  // TODO: replace with AI call e.g.:
-  // const openai = require('openai');
-  // const response = await openai.chat.completions.create({ ... });
-  // return response.choices[0].message.content;
-  return null; // returning null falls through to rule-based engine
+  if (!hasAIConfig()) return null;
+
+  try {
+    const knowledge = await getBusinessProfile();
+    // Falls back to just the current message if history truncation left
+    // nothing sane to send (e.g. a session with no prior user turns).
+    const apiMessages = buildApiMessages(messages);
+    if (!apiMessages.length) apiMessages.push({ role: 'user', content: userMessage });
+
+    const response = await getAnthropicClient().messages.create({
+      model: AI_MODEL,
+      max_tokens: AI_MAX_TOKENS,
+      system: buildSystemPrompt(knowledge),
+      messages: apiMessages,
+    });
+
+    const textBlock = response.content.find(b => b.type === 'text');
+    return textBlock?.text?.trim() || null;
+  } catch (err) {
+    console.error('[chat] AI response failed, falling back to rule-based engine:', err.message);
+    return null;
+  }
 }
 
 // Digits-only WhatsApp number (e.g. "233244388190") → display format "+233 244 388 190"

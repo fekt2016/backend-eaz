@@ -24,6 +24,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "@paystack/paystack-sdk": "^1.0.1",
     "@react-email/components": "^1.0.9",
     "@react-email/render": "^2.0.4",

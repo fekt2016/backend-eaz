@@ -11,7 +11,7 @@
  * - Buyer cPanel SSO (owner): GET /orders/:id/cpanel-login — only when status is "active" and cpanelUsername is set.
  */
 const express = require('express');
-const { protect, restrictTo } = require('../middleware/auth');
+const { protect, restrictTo, denyRoles } = require('../middleware/auth');
 const { upload } = require('../controllers/uploadController');
 const {
   getPlans,
@@ -38,19 +38,19 @@ const {
 const router = express.Router();
 
 router.get('/plans', getPlans);
-router.post('/orders', protect, createOrder);
+router.post('/orders', protect, denyRoles('technician'), createOrder);
 router.post('/orders/staff-create', protect, restrictTo('admin', 'staff'), staffCreateHostingAccount);
-router.get('/orders', protect, getOrders);
+router.get('/orders', protect, denyRoles('technician'), getOrders);
 router.get('/orders/admin-overview', protect, restrictTo('admin'), getAdminOverview);
 router.get('/orders/admin-summary', protect, restrictTo('admin'), getHostingOrdersAdminSummary);
-router.get('/orders/by-reference/:reference', protect, getOrderByReference);
-router.get('/orders/:id/invoice', protect, getInvoice);
-router.get('/orders/:id/cpanel-login', protect, getCpanelLoginUrl);
-router.get('/orders/:id/status', protect, getServiceStatus);
-router.get('/orders/:id', protect, getOrder);
-router.post('/orders/:id/proof', protect, upload.single('proof'), uploadOrderProof);
-router.post('/orders/:id/renew', protect, renewOrder);
-router.post('/orders/:id/password', protect, changeHostingPassword);
+router.get('/orders/by-reference/:reference', protect, denyRoles('technician'), getOrderByReference);
+router.get('/orders/:id/invoice', protect, denyRoles('technician'), getInvoice);
+router.get('/orders/:id/cpanel-login', protect, denyRoles('technician'), getCpanelLoginUrl);
+router.get('/orders/:id/status', protect, denyRoles('technician'), getServiceStatus);
+router.get('/orders/:id', protect, denyRoles('technician'), getOrder);
+router.post('/orders/:id/proof', protect, denyRoles('technician'), upload.single('proof'), uploadOrderProof);
+router.post('/orders/:id/renew', protect, denyRoles('technician'), renewOrder);
+router.post('/orders/:id/password', protect, denyRoles('technician'), changeHostingPassword);
 router.post('/orders/:id/suspend', protect, restrictTo('admin'), suspendService);
 router.post('/orders/:id/unsuspend', protect, restrictTo('admin'), unsuspendService);
 router.post('/orders/:id/terminate', protect, restrictTo('admin'), terminateService);

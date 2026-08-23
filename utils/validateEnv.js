@@ -46,6 +46,7 @@ const validateEnv = () => {
     'NAMECHEAP_API_USER',
     'NAMECHEAP_API_KEY',
     'NAMECHEAP_CLIENT_IP',
+    'ANTHROPIC_API_KEY',
   ];
 
   const missingRecommended = recommendedVars.filter(varName => !process.env[varName]);
