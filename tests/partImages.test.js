@@ -8,6 +8,7 @@ const jwt = require("jsonwebtoken");
 const app = require("../app");
 const User = require("../models/User");
 const Part = require("../models/Part");
+const Product = require("../models/Product");
 
 function tokenFor(user) {
   return jwt.sign({ id: user._id.toString() }, process.env.JWT_SECRET);
@@ -79,5 +80,40 @@ describe("Part images (T33)", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.data.images).toEqual([]);
+  });
+});
+
+describe("Shop product images in POS inventory search (T37)", () => {
+  let staff;
+  beforeEach(async () => {
+    staff = await makeUser("staff");
+  });
+
+  it("GET /pos/inventory?includeProducts=true returns product images (previously omitted)", async () => {
+    await Product.create({
+      name: "USB-C Cable 1m", slug: `usb-c-cable-${Date.now()}`, price: 1500,
+      category: "Accessory", stock: 20, isActive: true, images: [IMG_A, IMG_B],
+    });
+
+    const res = await request(app).get("/api/v1/pos/inventory?includeProducts=true&q=USB-C")
+      .set("Authorization", `Bearer ${tokenFor(staff)}`);
+
+    expect(res.status).toBe(200);
+    const product = res.body.data.find((d) => d._kind === "product");
+    expect(product.images).toEqual([IMG_A, IMG_B]);
+  });
+
+  it("a matched product with no images returns an empty array, not undefined", async () => {
+    await Product.create({
+      name: "Screen Protector", slug: `screen-protector-${Date.now()}`, price: 500,
+      category: "Accessory", stock: 10, isActive: true,
+    });
+
+    const res = await request(app).get("/api/v1/pos/inventory?includeProducts=true&q=Screen+Protector")
+      .set("Authorization", `Bearer ${tokenFor(staff)}`);
+
+    expect(res.status).toBe(200);
+    const product = res.body.data.find((d) => d._kind === "product");
+    expect(product.images).toEqual([]);
   });
 });
