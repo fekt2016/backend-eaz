@@ -146,12 +146,14 @@ const getSupplier = async (req, res, next) => {
 
 const createSupplier = async (req, res, next) => {
   try {
-    const { name, contactPerson, phone, email, address, notes } = req.body;
+    const { name, contactPerson, phone, whatsapp, wechat, email, address, notes } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Supplier name is required.' });
     const supplier = await Supplier.create({
       name:          sanitizeName(name, 100),
       contactPerson: contactPerson ? sanitizeName(contactPerson, 100) : undefined,
       phone:         phone    ? sanitizePhone(phone)          : undefined,
+      whatsapp:      whatsapp ? sanitizeText(whatsapp, 30)    : undefined,
+      wechat:        wechat   ? sanitizeText(wechat, 50)      : undefined,
       email:         email    ? sanitizeEmail(email)          : undefined,
       address:       address  ? sanitizeText(address, 300)    : undefined,
       notes:         notes    ? sanitizeText(notes, 500)      : undefined,
@@ -174,12 +176,15 @@ const updateSupplier = async (req, res, next) => {
     if (!supplier) return res.status(404).json({ success: false, error: 'Supplier not found.' });
     const before = {
       name: supplier.name, contactPerson: supplier.contactPerson, phone: supplier.phone,
+      whatsapp: supplier.whatsapp, wechat: supplier.wechat,
       email: supplier.email, address: supplier.address, notes: supplier.notes, isActive: supplier.isActive,
     };
-    const { name, contactPerson, phone, email, address, notes, isActive } = req.body;
+    const { name, contactPerson, phone, whatsapp, wechat, email, address, notes, isActive } = req.body;
     if (name          !== undefined) supplier.name          = sanitizeName(name, 100);
     if (contactPerson !== undefined) supplier.contactPerson = sanitizeName(contactPerson, 100);
     if (phone         !== undefined) supplier.phone         = sanitizePhone(phone);
+    if (whatsapp      !== undefined) supplier.whatsapp      = sanitizeText(whatsapp, 30);
+    if (wechat        !== undefined) supplier.wechat        = sanitizeText(wechat, 50);
     if (email         !== undefined) supplier.email         = sanitizeEmail(email);
     if (address       !== undefined) supplier.address       = sanitizeText(address, 300);
     if (notes         !== undefined) supplier.notes         = sanitizeText(notes, 500);
@@ -187,9 +192,11 @@ const updateSupplier = async (req, res, next) => {
     await supplier.save();
     const changes = buildChanges(before, {
       name: supplier.name, contactPerson: supplier.contactPerson, phone: supplier.phone,
+      whatsapp: supplier.whatsapp, wechat: supplier.wechat,
       email: supplier.email, address: supplier.address, notes: supplier.notes, isActive: supplier.isActive,
     }, {
       name: 'Name', contactPerson: 'Contact Person', phone: 'Phone',
+      whatsapp: 'WhatsApp', wechat: 'WeChat',
       email: 'Email', address: 'Address', notes: 'Notes', isActive: 'Active',
     });
     await logFromRequest(req, {
