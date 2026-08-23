@@ -10,7 +10,9 @@ const {
   getOrders,
   getOrder,
   updateOrderStatus,
-  addTrackingEvent
+  addTrackingEvent,
+  refundOrder,
+  syncRefund
 } = require('../controllers/orderController');
 
 const router = express.Router();
@@ -24,6 +26,10 @@ router.get('/', protect, restrictTo('admin', 'staff'), getOrders);
 router.get('/by-reference/:reference', getOrderByReference);
 router.post('/:id/tracking', protect, restrictTo('admin', 'staff'), addTrackingEvent);
 router.patch('/:id', protect, restrictTo('admin', 'staff'), updateOrderStatus);
+// Refunds move real money and are irreversible — admin only, staff excluded
+// (narrower than the other order-management routes above).
+router.post('/:id/refund', protect, restrictTo('admin'), refundOrder);
+router.post('/:id/refund/sync', protect, restrictTo('admin'), syncRefund);
 router.get('/:id', protect, restrictTo('admin', 'staff'), getOrder);
 
 module.exports = router;

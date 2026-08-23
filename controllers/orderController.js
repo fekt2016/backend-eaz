@@ -8,6 +8,7 @@ const { fulfilShopOrder, restockOrderItems } = require("../utils/fulfilShopOrder
 const { formatGhs } = require("../utils/money");
 const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 const { normalizePhone } = require("../utils/phone");
+const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -606,6 +607,156 @@ const addTrackingEvent = async (req, res, next) => {
   }
 };
 
+// T15 — a refund is a payment outcome, not a fulfilment stage: no "refunded"
+// value was added to ORDER_STATUSES. Eligibility mirrors canTransition's own
+// definition of "live" (pending is excluded too — nothing's been paid yet).
+const REFUND_ELIGIBLE_STATUSES = ['paid', 'processing', 'shipped'];
+
+/**
+ * POST /api/v1/orders/:id/refund  (admin only)
+ * Full-order refund via Paystack. Claim-then-call: the atomic write below
+ * flips refund.status 'none' -> 'processing' *before* the Paystack API call
+ * fires, so (a) two simultaneous requests can't both proceed — the second
+ * gets no match and 409s — and (b) a crash between the claim and the
+ * Paystack call fails safe: a stuck 'processing' record with no money moved,
+ * recoverable via /refund/sync or the reconcile job, rather than risking a
+ * duplicate refund attempt. See backend-eaz/tasks.md T15 for the full design
+ * writeup, including why call-then-claim was rejected.
+ */
+const refundOrder = async (req, res, next) => {
+  try {
+    if (!paystack) {
+      return res.status(500).json({ success: false, error: 'Paystack not configured.' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
+    if (!order.paystackReference) {
+      return res.status(400).json({ success: false, error: 'Order has no Paystack payment to refund.' });
+    }
+    if (!REFUND_ELIGIBLE_STATUSES.includes(order.status)) {
+      return res.status(400).json({ success: false, error: `Cannot refund an order with status "${order.status}".` });
+    }
+
+    const reason = req.body?.reason ? String(req.body.reason).trim().slice(0, 500) : '';
+
+    // Atomic claim. Re-checks the same conditions as above so a race between
+    // the reads and this write can't slip a second refund through.
+    const claimed = await Order.findOneAndUpdate(
+      { _id: order._id, 'refund.status': 'none', status: { $in: REFUND_ELIGIBLE_STATUSES } },
+      {
+        $set: {
+          'refund.status': 'processing',
+          'refund.amount': order.total,
+          'refund.reason': reason,
+          'refund.requestedBy': req.user._id,
+          'refund.requestedAt': new Date(),
+        },
+      },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(409).json({ success: false, error: 'A refund is already in progress or completed for this order.' });
+    }
+
+    await logFromRequest(req, {
+      action: ACTIONS.REFUND_INITIATED,
+      resourceType: RESOURCES.PAYMENT,
+      resourceId: claimed.orderNumber,
+      resourceName: `Order ${claimed.orderNumber}`,
+      description: `Refund initiated for order ${claimed.orderNumber} (${formatGhs(claimed.total)})`,
+      metadata: { reason },
+    });
+
+    let refundResponse;
+    try {
+      refundResponse = await paystack.refund.create({
+        transaction: claimed.paystackReference,
+        amount: claimed.total,
+        currency: 'GHS',
+        merchant_note: reason || undefined,
+      });
+    } catch (err) {
+      // The claim already flipped refund.status to 'processing'. We don't
+      // know whether Paystack received the request before this error, so we
+      // don't guess — leave it in 'processing' and let /refund/sync or the
+      // reconcile job ask Paystack directly, rather than risk a duplicate
+      // refund by blindly retrying create() here.
+      console.error(`[refund] paystack.refund.create threw for order ${claimed.orderNumber}:`, err.message);
+      return res.status(202).json({
+        success: true,
+        data: claimed,
+        warning: 'Refund request sent but not yet confirmed. Status will update automatically, or use /refund/sync to check now.',
+      });
+    }
+
+    if (!refundResponse?.status) {
+      // Paystack responded and rejected the request outright — this is a
+      // confirmed failure, not an ambiguous one, so mark it now.
+      await applyRefundOutcome(claimed, 'failed', req.user);
+      return res.status(502).json({
+        success: false,
+        error: refundResponse?.message || 'Paystack rejected the refund request.',
+        data: claimed,
+      });
+    }
+
+    claimed.refund.reference = refundResponse.data?.id != null ? String(refundResponse.data.id) : null;
+    // Reuse the exact cancellation transition + T2 restock the rest of this
+    // app already uses — a refund IS a cancellation, plus payment detail.
+    claimed.status = 'cancelled';
+    if (claimed.stockDeducted && !claimed.stockRestored) {
+      await restockOrderItems(claimed);
+      claimed.stockRestored = true;
+    }
+    claimed.trackingHistory.push({
+      status: 'cancelled',
+      note: `Order cancelled — refund initiated (${formatGhs(claimed.total)}).`,
+      updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
+      timestamp: new Date(),
+    });
+    await claimed.save();
+
+    res.status(200).json({ success: true, data: claimed });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/orders/:id/refund/sync  (admin only)
+ * Manual reconciliation — asks Paystack directly what a refund's real status
+ * is. Fallback for when the refund.processed/refund.failed webhook doesn't
+ * arrive; Paystack webhook delivery has never been live-verified in this
+ * project (see backend-eaz/tasks.md T3b — still blocked). Read-only against
+ * Paystack (refund.fetch), safe to call repeatedly.
+ */
+const syncRefund = async (req, res, next) => {
+  try {
+    if (!paystack) {
+      return res.status(500).json({ success: false, error: 'Paystack not configured.' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
+    if (!order.refund?.reference) {
+      return res.status(400).json({ success: false, error: 'No refund reference to check for this order.' });
+    }
+    if (['completed', 'failed'].includes(order.refund.status)) {
+      return res.status(200).json({ success: true, data: order }); // already settled
+    }
+
+    const result = await paystack.refund.fetch({ id: order.refund.reference });
+    const outcome = mapPaystackRefundStatus(result?.data?.status);
+    if (outcome) await applyRefundOutcome(order, outcome, req.user);
+    // else: still in-flight at Paystack's end — leave as 'processing'.
+
+    res.status(200).json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createOrder,
   getMyOrders,
@@ -617,5 +768,7 @@ module.exports = {
   getOrder,
   updateOrderStatus,
   addTrackingEvent,
+  refundOrder,
+  syncRefund,
   normalizePhone
 };
