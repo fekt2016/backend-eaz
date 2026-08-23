@@ -1366,7 +1366,8 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None expected on the backend — verify the upload endpoint accepts `image/*` and
     returns `{ url }`. Frontend change only (see `frontend-eaz/tasks.md` → T34).
 
-- [ ] **T33 · `Part` model + inventory endpoint should support an image**
+- [ ] **T33 · `Part` model + inventory endpoint should support an image** — **backend half
+  done 2026-08-23** (frontend upload UI still open)
   - **Issue:** Repair parts have no image field; the inventory form can't attach a photo. Shop
     products already support images (`Product.images`). Parts need the same.
   - **Location:** `models/Part.js`, `controllers/pos/inventoryController.js`,
@@ -1374,6 +1375,29 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Add an image field to `Part` (e.g. `image`/`images`), accept it in the inventory
     create/update handlers, and expose it in `GET /pos/inventory` + scan/search responses.
     Frontend part: `frontend-eaz/tasks.md` → T33.
+  - **Found already shipped, not new work:** `Part.images` (schema), `createPart`/
+    `updatePart` accepting and persisting it, `GET /pos/inventory` (unrestricted
+    `.find()`, no `.select()`), and `GET /track/parts` (`getPublicParts`, explicit
+    `.select(...images)`) were all already correct before this task touched anything —
+    this fix note pre-dated whatever earlier work actually added the field. No code
+    change was needed for any of that; added `tests/partImages.test.js` (5 tests) to lock
+    it in, since none existed.
+  - **The actual gap found and fixed:** the fix note's own "upload route (Cloudinary) used
+    by products" is `POST /api/v1/uploads` (`routes/uploadRoutes.js`) — it was
+    `restrictTo('admin')` only, while `createProduct`/`updateProduct`
+    (`routes/productRoutes.js`) and `createPart`/`updatePart` are both
+    `restrictTo('superadmin','staff','admin')`. This is a **pre-existing bug, not
+    introduced here**: `ProductForm.jsx` on the frontend already calls this endpoint
+    today, so a staff member using the live product form already gets 403'd trying to
+    upload an image, independent of Part work. Confirmed via a full frontend grep that
+    this route has exactly one other consumer (`ProductForm.jsx`) — the job-photo upload
+    (`usePosJobs.js`) hits a completely separate dedicated route, unaffected — so
+    widening this one to `restrictTo('admin', 'staff')` is scoped exactly to its two real
+    callers, not a blanket loosening. `tests/uploadRoute.test.js` (6 tests, mocked
+    Cloudinary): technician/plain-user still 403, unauthenticated still 401, staff/admin/
+    superadmin now 200.
+  - **Verified:** full suite 43 suites/308 tests pass (up from 41/297); `npm run lint` 0
+    errors.
 
 - [ ] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity**
   - **Issue:** `getReportsAnalytics` returns **shop-wide** figures to every role (only

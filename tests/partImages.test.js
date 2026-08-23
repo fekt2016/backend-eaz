@@ -1,0 +1,83 @@
+// T33: Part.images already existed on the schema and createPart/updatePart/
+// getParts/getPublicParts already handled it before this task touched
+// anything — this locks that behavior in with real coverage, since none
+// existed. (The actual gap this task closed was the shared upload route's
+// role gate — see uploadRoute.test.js.)
+const request = require("supertest");
+const jwt = require("jsonwebtoken");
+const app = require("../app");
+const User = require("../models/User");
+const Part = require("../models/Part");
+
+function tokenFor(user) {
+  return jwt.sign({ id: user._id.toString() }, process.env.JWT_SECRET);
+}
+
+let seq = 0;
+async function makeUser(role) {
+  seq += 1;
+  return User.create({
+    name: role, email: `${role}-${Date.now()}-${seq}@t.com`, password: "Password123!", role, isVerified: true,
+  });
+}
+
+const IMG_A = "https://res.cloudinary.com/demo/a.jpg";
+const IMG_B = "https://res.cloudinary.com/demo/b.jpg";
+
+describe("Part images (T33)", () => {
+  let staff;
+  beforeEach(async () => {
+    staff = await makeUser("staff");
+  });
+
+  it("createPart persists the images array", async () => {
+    const res = await request(app).post("/api/v1/pos/inventory")
+      .set("Authorization", `Bearer ${tokenFor(staff)}`)
+      .send({ name: "iPhone 12 Screen", costPrice: 5000, sellingPrice: 9000, images: [IMG_A, IMG_B] });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.images).toEqual([IMG_A, IMG_B]);
+
+    const stored = await Part.findById(res.body.data._id);
+    expect(stored.images).toEqual([IMG_A, IMG_B]);
+  });
+
+  it("updatePart replaces the images array", async () => {
+    const part = await Part.create({ name: "Battery", costPrice: 2000, sellingPrice: 4000, images: [IMG_A] });
+
+    const res = await request(app).patch(`/api/v1/pos/inventory/${part._id}`)
+      .set("Authorization", `Bearer ${tokenFor(staff)}`)
+      .send({ images: [IMG_B] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.images).toEqual([IMG_B]);
+  });
+
+  it("GET /pos/inventory returns images", async () => {
+    await Part.create({ name: "Charging Port", costPrice: 1000, sellingPrice: 2500, images: [IMG_A] });
+
+    const res = await request(app).get("/api/v1/pos/inventory")
+      .set("Authorization", `Bearer ${tokenFor(staff)}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].images).toEqual([IMG_A]);
+  });
+
+  it("GET /track/parts (public search) returns images", async () => {
+    await Part.create({ name: "Camera Module", costPrice: 3000, sellingPrice: 6000, isRetail: true, images: [IMG_A, IMG_B] });
+
+    const res = await request(app).get("/api/v1/track/parts?q=Camera");
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].images).toEqual([IMG_A, IMG_B]);
+  });
+
+  it("a part with no images returns an empty array, not undefined", async () => {
+    const res = await request(app).post("/api/v1/pos/inventory")
+      .set("Authorization", `Bearer ${tokenFor(staff)}`)
+      .send({ name: "Speaker", costPrice: 800, sellingPrice: 1800 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.images).toEqual([]);
+  });
+});
