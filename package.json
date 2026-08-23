@@ -10,6 +10,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "seed:ecommerce": "node src/seedEcommerce.js",
+    "seed:blog": "node src/seedBlog.js",
     "seed:iphone-parts": "node src/seedIphoneParts.js",
     "migrate:part-prices": "node src/migratePartPricesToPesewas.js",
     "migrate:pos-money": "node src/migratePosMoneyToPesewas.js",
