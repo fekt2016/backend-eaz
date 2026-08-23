@@ -357,8 +357,9 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
     - `AUDIT_REPORT.md`'s old CVE list was not consulted or copied — this is a fresh
       audit against current `package-lock.json` state per the task's own instruction.
 
-- [ ] **T17 · Allow registration with email OR phone number** — **backend half done
-  2026-08-23** (frontend register form still open)
+- [x] **T17 · Allow registration with email OR phone number** — ✅ done 2026-08-23 (both
+  halves; frontend register form + verify page shipped in `frontend-eaz` on the same
+  branch)
   - **Issue:** Registration currently requires an email input (`email` is a required field
     on the signup schema), but users should be able to register using **either** an
     email **or** a phone number. (Related: login already supports `$or` lookup by email/phone;
