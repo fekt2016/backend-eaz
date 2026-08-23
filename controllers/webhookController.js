@@ -18,6 +18,7 @@ const Part = require('../models/Part');
 const namecheap = require('../services/namecheap');
 const whm = require('../services/whm');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
+const { applyRefundOutcome } = require('../utils/refunds');
 
 /**
  * Ensure a paid part is on the job, snapshot its real cost, and reserve stock
@@ -106,6 +107,21 @@ const handlePaystackWebhook = async (req, res) => {
     }
 
     const event = req.body;
+
+    // T15 — refund completion. Matched by the refund id we stored on
+    // creation, not the underlying transaction reference (a refund event's
+    // own `id` is what we captured as order.refund.reference).
+    if (event.event === 'refund.processed' || event.event === 'refund.failed') {
+      const refundId = event.data?.id != null ? String(event.data.id) : null;
+      const order = refundId ? await Order.findOne({ 'refund.reference': refundId }) : null;
+      if (!order) {
+        console.error(`[webhook] Refund event for unrecognised reference: ${refundId}`);
+        return res.status(200).json({ received: true }); // nothing to reconcile — ack anyway
+      }
+      const outcome = event.event === 'refund.processed' ? 'completed' : 'failed';
+      await applyRefundOutcome(order, outcome, null); // idempotent — no-op if already settled
+      return res.status(200).json({ received: true });
+    }
 
     if (event.event !== 'charge.success') {
       return res.status(200).json({ received: true });

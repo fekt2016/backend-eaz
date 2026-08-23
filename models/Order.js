@@ -126,7 +126,25 @@ const orderSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     }
-  }]
+  }],
+  // T15 — full-order refunds via Paystack. Not a `status` value: refund is a
+  // payment outcome, orthogonal to fulfilment status. `status` here starts
+  // 'none' and is atomically claimed to 'processing' before the Paystack call
+  // fires (see orderController.refundOrder) so a crash mid-request fails safe
+  // (stuck record, no money moved) rather than risking a duplicate refund.
+  refund: {
+    status: {
+      type: String,
+      enum: ['none', 'processing', 'completed', 'failed'],
+      default: 'none'
+    },
+    amount:      { type: Number, default: null },  // pesewas, snapshot of order.total
+    reference:   { type: String, default: null },  // Paystack refund id
+    reason:      { type: String, trim: true, default: '' },
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    requestedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+  },
 }, {
   timestamps: true,
   // item.variant.attributes is a Map — flatten it in responses so the API

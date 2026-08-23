@@ -504,7 +504,84 @@ Not defects; product features that don't exist yet. Scope separately before buil
     values, saves shop profile, hides/shows + saves VAT fields, add/remove service row).
     Full frontend suite: 28 files / 131 tests passed. Lint clean both sides; `next build`
     succeeded (`/dashboard/business-settings` compiles).
-- [ ] **T15 · Refunds** — no refund endpoint or Paystack refund call anywhere. — AUDIT.md §24 (#4)
+- [x] **T15 · Refunds** — no refund endpoint or Paystack refund call anywhere. — AUDIT.md §24 (#4)
+  - **v1 scope (agreed with product owner before implementation, given real money
+    movement):** full-order refunds for shop `Order`s only, via the real Paystack refund
+    API (`paystack.refund.create`/`.fetch` — already available on the `@paystack/paystack-sdk`
+    dependency this codebase already uses for `transaction.initialize`/`.verify`, just unused
+    until now). Admin/superadmin only (`restrictTo('admin')`), staff excluded — narrower than
+    the other order-management routes, since a refund is irreversible in a way editing a
+    status isn't. No second-approver step. Not a new `Order.status` value — `refund` is a
+    separate sub-object (payment outcome is orthogonal to fulfilment status); a refund
+    transitions the order to `status: 'cancelled'`, reusing the exact existing "cancel any
+    live order" transition + **T2's restock guard** (`stockDeducted && !stockRestored` →
+    `restockOrderItems()`) for free — no new inventory logic.
+  - **Concurrency (reviewed at T30-level rigor before implementation):** "one refund per
+    order" is enforced by a single atomic `findOneAndUpdate({_id, 'refund.status':'none',
+    status:{$in: eligible}}, {$set:{'refund.status':'processing', ...}})` — a single-document
+    write, atomically guaranteed by MongoDB without needing T30's `session.withTransaction()`
+    (that was needed there for *multi*-document atomicity across Sale+Part; this is one
+    document). **Claim-then-call ordering, deliberately**: the atomic claim flips
+    `refund.status` to `'processing'` *before* `paystack.refund.create()` fires, so a crash
+    between the two fails safe (stuck record, no money moved) instead of the alternative
+    (call-then-claim) which risks a duplicate refund attempt if a crash hides a
+    successfully-created refund from the DB. If `create()` itself throws, the ambiguous state
+    is left at `'processing'` rather than guessed at — `@paystack/paystack-sdk`'s refund
+    create endpoint has no idempotency key, so blindly retrying risked a real duplicate.
+  - **Recovery when the webhook doesn't arrive** — and it might not: `T3b` (Paystack webhook
+    delivery end-to-end) is **still blocked/unverified in this project**, so T15 does not
+    assume it works. Two real recovery paths: `POST /orders/:id/refund/sync` (admin,
+    read-only `refund.fetch` against Paystack, safe to call repeatedly), and a periodic
+    `services/refundReconcileJob.js` (mirrors the existing `setInterval`-based
+    `reminderJob`/`renewalJob` pattern in `server.js` — this codebase has no `node-cron`)
+    that finds any refund stuck in `'processing'` past a threshold and checks it
+    automatically. **Documented gap, not silently swallowed:** if `create()` itself threw
+    before a refund id was captured, there's no reference to look up and no way to filter
+    Paystack's `refund.list()` by transaction — that narrow case needs manual investigation
+    via the Paystack dashboard; it's distinct from (and rarer than) the case the reconcile
+    job actually covers (create() succeeded, only the webhook confirming it never arrived).
+  - **Live sandbox finding that changed the design:** live-verified `refund.create()` +
+    `.fetch()` against the real Paystack sandbox (charged a real transaction via the
+    documented MTN test number, then refunded it) — confirmed the request/response shapes,
+    but also found a refund's initial status is `'pending'`, not settled synchronously, and
+    Paystack's own `expected_at` for that MTN GHA refund was **~9 days out**. Adjusted the
+    reconcile job's `server.js` interval from an initially-planned 15 minutes to **2 hours**
+    to match that real timeline instead of polling Paystack for nothing for over a week per
+    stuck refund.
+  - **Explicitly out of scope:** POS payments/sales (`PosPayment`/`Sale`/`RepairJob` —
+    often cash, no Paystack reference; `voidSale` is a pre-existing, unrelated concept, not
+    touched); Hosting/Domain/Service order refunds (separate money conventions per the
+    completed Phase 7 migration's "Group C"); partial/line-item refunds (full-order only);
+    refunding an already-`delivered` order (restock semantics need a separate decision —
+    was the item actually returned?); dual-approval workflow; customer-initiated refund
+    requests; **retrying a `'failed'` refund** — once `refund.status` leaves `'none'` the
+    atomic claim guard blocks a second attempt by design, and no reset/retry UI was built —
+    a failed refund currently needs direct DB intervention to retry, a deliberate limitation
+    to avoid a careless one-click retry on real money movement, not an oversight.
+  - **Shipped:** `models/Order.js` (`refund` subdocument), `controllers/orderController.js`
+    (`refundOrder`, `syncRefund`), `routes/orderRoutes.js` (`POST /:id/refund`,
+    `POST /:id/refund/sync`), `controllers/webhookController.js` (new `refund.processed`/
+    `refund.failed` branch, matched by the refund id captured at creation — not live-verified,
+    since webhook delivery itself is unverified in this project, but consistent with the
+    live-verified refund object shape), `utils/refunds.js` (`applyRefundOutcome`,
+    `mapPaystackRefundStatus` — shared by the webhook branch, sync endpoint, and reconcile
+    job), `services/refundReconcileJob.js`, `server.js` wiring, `services/activityLogService.js`
+    (`REFUND_INITIATED`/`REFUND_COMPLETED`/`REFUND_FAILED`).
+  - **Tests — explicit about live vs. mocked:** `paystack.refund.create()`/`.fetch()` request
+    shapes were **live-verified** against the real Paystack sandbox (one-off script, not
+    committed — mirrors how T3a's live verification was documented as prose, not a permanent
+    test). Everything else — the webhook branch, sync endpoint, reconcile job, and the
+    atomicity guard — is **mocked-SDK** (`jest.mock('@paystack/paystack-sdk', ...)`, same
+    pattern as T13's Anthropic SDK mock), because webhook delivery can't be received in this
+    environment (same blocker as T3b) and refund settlement takes days, not test-suite time.
+    `tests/refunds.test.js` — 19 tests: eligibility (no reference/pending/cancelled/staff),
+    a real two-simultaneous-requests concurrency regression (T30-style — exactly one 200,
+    one 409, Paystack contacted once), the happy path (cancel + T2 restock + reference
+    capture), a confirmed Paystack rejection (`failed`, fulfilment untouched), an ambiguous
+    thrown error (`processing`, not guessed at), both webhook outcomes + idempotency + an
+    unmatched event + a bad signature, the sync endpoint (resolves / stays pending / 400 with
+    no reference), and the reconcile job (resolves past-threshold / ignores recent / skips
+    the no-reference gap). Full backend suite: 39 suites / 282 tests passed. Lint clean.
 
 ---
 

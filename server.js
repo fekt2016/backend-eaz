@@ -108,6 +108,20 @@ const startServer = async () => {
       console.warn('⚠️  Reminder job could not be loaded:', err.message);
     }
 
+    // Refund reconciliation (T15) — catches refunds whose webhook never
+    // arrived. Runs once at startup then every 2 hours — live-verified
+    // against the real Paystack sandbox that refunds settle on the order of
+    // days (an MTN GHA mobile money refund reported ~9 days out), not
+    // minutes, so a tighter interval would just poll Paystack for nothing.
+    try {
+      const { runRefundReconcileJob } = require('./services/refundReconcileJob');
+      setTimeout(() => runRefundReconcileJob().catch(() => {}), 15_000);
+      setInterval(() => runRefundReconcileJob().catch(() => {}), 2 * 60 * 60 * 1000);
+      console.log('💳 Refund reconciliation job scheduled (runs every 2h)');
+    } catch (err) {
+      console.warn('⚠️  Refund reconciliation job could not be loaded:', err.message);
+    }
+
     // Initialize Socket.io (optional - only if socket server exists)
     try {
       // Optional module — guarded by the MODULE_NOT_FOUND check below; doesn't exist yet.
