@@ -1366,8 +1366,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None expected on the backend — verify the upload endpoint accepts `image/*` and
     returns `{ url }`. Frontend change only (see `frontend-eaz/tasks.md` → T34).
 
-- [ ] **T33 · `Part` model + inventory endpoint should support an image** — **backend half
-  done 2026-08-23** (frontend upload UI still open)
+- [x] **T33 · `Part` model + inventory endpoint should support an image** — ✅ done
+  2026-08-23 (both halves; frontend upload UI shipped in `frontend-eaz` on the matching
+  branch)
   - **Issue:** Repair parts have no image field; the inventory form can't attach a photo. Shop
     products already support images (`Product.images`). Parts need the same.
   - **Location:** `models/Part.js`, `controllers/pos/inventoryController.js`,
