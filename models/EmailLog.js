@@ -8,7 +8,9 @@ const emailLogSchema = new mongoose.Schema(
       type: String,
       enum: [
         'welcome',
+        'account_created',
         'password_reset',
+        'two_factor',
         'contact_admin',
         'contact_autoreply',
         'order_confirmation',
