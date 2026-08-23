@@ -36,6 +36,15 @@ describe("GET /api/v1/settings — business defaults", () => {
     expect(res.body.data.business.whatsapp).toBe("233244388190");
     expect(res.body.data.business.services.length).toBeGreaterThan(0);
   });
+
+  it("defaults tax/VAT fields to disabled/zero (T14)", async () => {
+    const res = await request(app).get("/api/v1/settings");
+    expect(res.status).toBe(200);
+    expect(res.body.data.business.vatEnabled).toBe(false);
+    expect(res.body.data.business.vatRate).toBe(0);
+    expect(res.body.data.business.vatNumber).toBe("");
+    expect(res.body.data.business.pricesIncludeVat).toBe(true);
+  });
 });
 
 describe("PATCH /api/v1/settings — business", () => {
@@ -75,6 +84,39 @@ describe("PATCH /api/v1/settings — business", () => {
     expect(second.status).toBe(200);
     expect(second.body.data.business.whatsapp).toBe("233201112222");
     expect(second.body.data.business.shopName).toBe("Eazy Fix Shop");
+  });
+
+  it("updates tax/VAT fields without touching the rest of the business subdocument (T14)", async () => {
+    const { token } = await makeUser("admin");
+
+    const res = await request(app)
+      .patch("/api/v1/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ business: { vatEnabled: true, vatRate: 15, vatNumber: "C0123456789", pricesIncludeVat: false } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.business.vatEnabled).toBe(true);
+    expect(res.body.data.business.vatRate).toBe(15);
+    expect(res.body.data.business.vatNumber).toBe("C0123456789");
+    expect(res.body.data.business.pricesIncludeVat).toBe(false);
+    // Untouched fields survive.
+    expect(res.body.data.business.shopName).toBe("EazWorld Repair");
+  });
+
+  it("clamps vatRate to [0, 100]", async () => {
+    const { token } = await makeUser("admin");
+
+    const tooLow = await request(app)
+      .patch("/api/v1/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ business: { vatRate: -5 } });
+    expect(tooLow.body.data.business.vatRate).toBe(0);
+
+    const tooHigh = await request(app)
+      .patch("/api/v1/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ business: { vatRate: 250 } });
+    expect(tooHigh.body.data.business.vatRate).toBe(100);
   });
 
   it("replaces the services list wholesale on update", async () => {

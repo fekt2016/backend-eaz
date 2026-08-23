@@ -461,7 +461,49 @@ Not defects; product features that don't exist yet. Scope separately before buil
     with the latest user message last; history truncates to 12; AI is never called once a
     human agent has taken over (`humanRequested`). Full backend suite run afterward to confirm
     no regressions from the new dependency. Lint clean.
-- [ ] **T14 · General business settings** — `Settings` holds only maintenance fields (no shop profile, tax/VAT, currency, hours). — AUDIT.md §24 (#3)
+- [x] **T14 · General business settings** — `Settings` holds only maintenance fields (no shop profile, tax/VAT, currency, hours). — AUDIT.md §24 (#3)
+  - **Finding before implementation:** this audit line was stale. T6 (2026-08-20) already
+    built "shop profile" and "hours" — `Settings.business` + `getBusinessProfile()` +
+    `PATCH /api/v1/settings` (admin-only). What was actually still missing: (1) tax/VAT
+    fields, genuinely absent everywhere (zero hits searching the whole codebase), and (2)
+    **any admin UI at all** for `business.*` — `/dashboard/settings` is the personal
+    account page shared by every role (profile/password/2FA/theme), not a business-settings
+    editor; the only thing touching `Settings` in the frontend was `MaintenanceCard` on the
+    admin Overview page, and it only ever sent maintenance fields. So the real scope became
+    "add VAT fields + build the missing admin UI," not "add new backend fields."
+  - **Decisions made explicit, not left as oversights:** no currency setting added, not even
+    read-only — the app is hardcoded to GHS/pesewas everywhere (`CLAUDE.md`'s golden rule +
+    the completed Phase 7 money-standardization migration); a fake selector that does
+    nothing when changed would be misleading, and real multi-currency support is a
+    money-architecture change on Phase 7's scale, not a settings-page addition. VAT fields
+    are **display-only** — nothing here computes VAT into any order/sale/invoice total,
+    and wiring the new fields into any actual invoice/receipt/checkout display is
+    explicitly deferred to a separate future task (several plausible places to put it;
+    not picking one unilaterally here).
+  - **Shipped:**
+    - `models/Settings.js` — `business.vatEnabled` (bool), `business.vatRate` (0–100,
+      server-clamped), `business.vatNumber` (string), `business.pricesIncludeVat` (bool).
+    - `controllers/settingsController.js` — extended the existing dot-path merge logic for
+      these 4 fields (same pattern T6 established); `vatRate` clamped server-side
+      regardless of what the client sends.
+    - `frontend-eaz`: new admin-only `/dashboard/business-settings` page (Shop Profile /
+      Services & Pricing / Tax-VAT sections), reusing the existing `useSettings`/
+      `useUpdateSettings` hooks as-is. New `adminNav` sidebar entry.
+  - **Bug found + fixed during implementation (frontend):** the VAT-rate `<input>` initially
+    had both `max="100"` and a JS clamp on submit. HTML5 constraint validation silently
+    blocks form submission when a number input's value exceeds its `max` — so typing 250
+    and clicking Save would do *nothing* in a real browser (no error, no clamp, just a
+    blocked submit), never reaching the JS clamp at all. Removed `max` (kept `min="0"`),
+    matching the convention already used elsewhere in this app (e.g. the repair-job
+    labour-cost input) of relying on the backend's authoritative clamp rather than a
+    native `max` attribute. Caught by a test that deliberately submitted an out-of-range
+    value and got 0 mock calls instead of the expected clamped payload.
+  - **Tests:** backend `tests/businessProfile.test.js` extended (+4 tests: VAT defaults,
+    a VAT-fields PATCH that doesn't disturb other business fields, rate clamping at both
+    ends). Full file: 9/9 passed. Frontend `page.test.jsx` (5 tests: renders fetched
+    values, saves shop profile, hides/shows + saves VAT fields, add/remove service row).
+    Full frontend suite: 28 files / 131 tests passed. Lint clean both sides; `next build`
+    succeeded (`/dashboard/business-settings` compiles).
 - [ ] **T15 · Refunds** — no refund endpoint or Paystack refund call anywhere. — AUDIT.md §24 (#4)
 
 ---

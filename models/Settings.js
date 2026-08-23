@@ -20,6 +20,12 @@ const settingsSchema = new mongoose.Schema({
     location:          { type: String, default: 'Accra, Ghana' },
     hours:             { type: String, default: 'Monday – Friday, 8am – 6pm GMT' },
     consultationPath:  { type: String, default: '/book-consultation' },
+    // ── Tax / VAT (T14 — display-only; nothing reads these into order/invoice
+    //    totals math. A future task decides where, if anywhere, to surface them.)
+    vatEnabled:        { type: Boolean, default: false },
+    vatRate:           { type: Number,  default: 0, min: 0, max: 100 }, // percentage
+    vatNumber:         { type: String,  default: '' },                  // TIN / VAT reg. number
+    pricesIncludeVat:  { type: Boolean, default: true },                 // informational label only
     services: {
       type: [{
         name:  { type: String, required: true },
