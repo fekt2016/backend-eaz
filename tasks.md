@@ -1337,16 +1337,27 @@ Not defects; product features that don't exist yet. Scope separately before buil
     not `undefined`.
   - **Frontend part:** `frontend-eaz/tasks.md` → T37.
 
-- [ ] **T36 · Supplier model: add WhatsApp and WeChat fields**
+- [x] **T36 · Supplier model: add WhatsApp and WeChat fields** — ✅ done 2026-08-23 (both
+  halves)
   - **Issue:** Parts/products are sourced from China — vendors are contacted via **WhatsApp**
     and **WeChat**, not just phone/email. The `Supplier` schema needs fields for both.
   - **Location:** `models/Supplier.js` (add `whatsapp`, `wechat` strings), sanitization +
     validation in `controllers/pos/expenseController.js` (createSupplier/updateSupplier),
     include in `GET /pos/suppliers` + `GET /pos/suppliers/:id` responses (already returned via
     find).
-  - **Fix:** Add `whatsapp` (phone, maxlength ~30) and `wechat` (WeChat ID, maxlength ~50)
-    optional fields; sanitize like phone (and allow a leading `+`). Frontend renders chat
-    links. Keep money/roles unchanged.
+  - **Fix:** Added `whatsapp` (maxlength 30) and `wechat` (maxlength 50) optional fields to
+    `Supplier`; wired into `createSupplier`/`updateSupplier` (incl. `buildChanges` activity-log
+    diffing). `getSuppliers`/`getSupplier` do a plain `.find()`/`.findById()` with no
+    `.select()`, so both new fields flow through untouched — no read-side change needed.
+  - **Deviated from the fix note's "sanitize like phone":** used `sanitizeText`, not
+    `sanitizePhone`. `sanitizePhone` (`utils/sanitize.js`) is Ghana-specific — it strips every
+    non-digit character (including a leading `+`) and only accepts a 9/10-digit local number
+    or a `233` country code; a China WhatsApp number (`+86138...`) would come out mangled or
+    empty. `sanitizeText` just trims/strips tags, which is what the fix note's own "allow a
+    leading `+`" actually needs.
+  - **Tests:** new `tests/supplierContact.test.js` (4 tests) — create/read/update persist both
+    fields, whatsapp keeps its leading `+`, and an unset supplier returns `undefined` for both
+    (not empty strings). Full suite: 44 suites/314 tests pass. Lint clean (0 errors).
   - **Frontend part:** `frontend-eaz/tasks.md` → T36.
 
 - [ ] **T35 · Variant model: support a per-variant price**
