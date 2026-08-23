@@ -357,7 +357,8 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
     - `AUDIT_REPORT.md`'s old CVE list was not consulted or copied — this is a fresh
       audit against current `package-lock.json` state per the task's own instruction.
 
-- [ ] **T17 · Allow registration with email OR phone number**
+- [ ] **T17 · Allow registration with email OR phone number** — **backend half done
+  2026-08-23** (frontend register form still open)
   - **Issue:** Registration currently requires an email input (`email` is a required field
     on the signup schema), but users should be able to register using **either** an
     email **or** a phone number. (Related: login already supports `$or` lookup by email/phone;
@@ -368,14 +369,69 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
     least one identifier. Send verification (email PIN or phone OTP) to whichever
     identifier was chosen. Scope account verification/OTP accordingly.
   - **Frontend part:** register form changes live in **`frontend-eaz/tasks.md` → T17**.
+  - **Shipped (backend half):**
+    - **`models/User.js`** — turned out to be a hard prerequisite, not just the schema/
+      controller the fix note named: `email` was `required:true, unique:true` at the
+      Mongoose level, so `User.create()` would throw a `ValidationError` for a phone-only
+      registration regardless of what the controller/Zod schema allowed. Removed
+      `required`/field-level `unique`; added a partial-unique index on `email` mirroring
+      the existing `phone` pattern (safe to build directly — email was previously
+      required+unique, so every existing document already has a distinct value). Added a
+      `pre('validate')` guard rejecting a document with neither `email` nor `phone`, as
+      defense-in-depth for any other `User.create()` call site.
+      (Pre-existing workaround this replaces for *self*-registration: the POS
+      staff-create-customer flow in `controllers/pos/customerController.js` already
+      handles phone-only accounts today, but via a synthetic
+      `${phone}@eazworld.local` email — left untouched, out of scope, still works.)
+    - **`validation/authSchema.js`** — `registerSchema.email`/`.phone` both optional via
+      `z.preprocess` (blank/whitespace → `undefined`) + `.email().optional()`, with a
+      top-level `.refine()` requiring at least one. The preprocess step matters: without
+      it, an intentionally-blank `email: ''` (a real value a form posts, not `undefined`)
+      fails `z.string().email()`'s format check with "Invalid email" before `.refine()`
+      ever runs — so the user gets the wrong error message for "I left email blank on
+      purpose." Not wired into a route yet (`register`/`login` both still parse manually,
+      pre-existing pattern per CLAUDE.md); kept accurate for whenever it is.
+    - **`controllers/authController.js`** (`register`) — accepts either identifier;
+      existing-user/phone-taken pre-checks now conditional on the identifier being
+      present; verification PIN goes to email (existing `sendVerificationPin`) or SMS (new
+      `sendVerificationPinSms`, phone-only), never both.
+    - **`controllers/authController.js`** (`verifyPin`, `resendPin`) — necessary follow-on:
+      a phone-only registrant has no email to submit to these endpoints, so both now
+      accept either identifier via the same `$or` lookup pattern `login` already uses,
+      instead of an email-only lookup. `verifyPin`'s post-verify `sendWelcomeEmail` is now
+      conditional on the account actually having an email.
+    - **`services/notify.js`** — new `sendVerificationPinSms(phone, name, pin)`, mirroring
+      the existing `sendCredentialsSms` graceful-degrade pattern (silent no-op if Hubtel
+      env vars aren't set — T3f is still blocked/unconfigured in this project — logged in
+      dev, silent in prod; never throws to the caller).
+    - `tests/registerSchema.test.js` (7 tests, schema-only, no DB) — covers the
+      blank-string-vs-undefined trap directly: empty-string email+phone is rejected with
+      the refine's message (not `.email()`'s "Invalid email"), a whitespace-only email
+      with a real phone passes and normalizes to `undefined`, and a real invalid email
+      format is still rejected when actually provided.
+    - `tests/registerEmailOrPhone.test.js` (8 tests, full app + in-memory DB) — email-only
+      regression, phone-only registration end-to-end, both-missing and both-empty-string
+      rejected, two phone-only accounts coexist (partial index), `verify-pin`/`resend-pin`
+      by phone for a phone-only account, and a garbage identifier rejected on both
+      endpoints.
+  - **Verified:** full suite 41 suites / 297 tests pass (up from 39/282 — 2 new files, 15
+    new tests); `npm run lint` 0 errors.
 
-- [ ] **T18 · Backend guard: reject `cancelled` from `ready` repair jobs**
+- [x] **T18 · Backend guard: reject `cancelled` from `ready` repair jobs** — ✅ already done,
+  confirmed 2026-08-23 (shipped as part of T53, never checked off under its own line)
   - **Issue:** Frontend hides "Cancel Job" once a job is `ready` (see
     `frontend-eaz/tasks.md` → T18). For parity, the backend status-transition guard should
     also reject a transition from `ready` → `cancelled`.
   - **Location:** POS repair job controller (status update handler)
   - **Fix:** Add a guard so a `ready`/`collected` job cannot be transitioned to `cancelled`;
     return a friendly 400. Add a test.
+  - **Confirmed shipped:** `controllers/pos/common.js`'s `canTransitionJobStatus` (added for
+    T53, see that entry above) already rejects `ready`→`cancelled` — `cancelled` is only
+    reachable from a live non-`ready` status, exactly this rule. Covered by
+    `tests/jobStatusTransition.test.js`'s `` `ready`→`cancelled` rejected (T18) `` case
+    (see T53's shipped notes for the full test list). No new backend code needed here.
+    **Frontend half (hide the button + confirmation modal) is still open** — see
+    `frontend-eaz/tasks.md` → T18.
 
 ---
 

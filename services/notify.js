@@ -263,6 +263,43 @@ async function sendCredentialsSms(phone, name, password) {
   }
 }
 
+/**
+ * Deliver a registration/verify-account PIN by SMS (Hubtel).
+ * Used when a self-registered account has no email — mirrors
+ * utils/email.sendVerificationPin's content for the phone channel.
+ * Never crashes the caller.
+ * @param {string} phone — customer phone in local 0XXXXXXXXX format
+ * @param {string} name  — customer display name (optional)
+ * @param {string} pin   — 6-digit verification code
+ * @returns {Promise<boolean>} true when the SMS was handed to Hubtel
+ */
+async function sendVerificationPinSms(phone, name, pin) {
+  const to = _toHubtelNumber(phone);
+  if (!to) {
+    logger.warn(`[notify] Could not normalise phone for verification SMS: ${phone}`);
+    return false;
+  }
+
+  const content = `Hi${name ? ` ${name}` : ''}! Your EazWorld verification code is ${pin}. It expires in 15 minutes.`;
+
+  if (!process.env.HUBTEL_CLIENT_ID || !process.env.HUBTEL_CLIENT_SECRET) {
+    if (process.env.NODE_ENV !== 'production') {
+      logger.info(`[notify] (Hubtel not configured) Would SMS ${to}: ${content}`);
+    }
+    return false;
+  }
+
+  try {
+    const biz = await getBusinessProfile();
+    await _sendHubtelSms(to, content, biz.shopName);
+    logger.info(`[notify] Verification SMS sent to ${to}`);
+    return true;
+  } catch (err) {
+    logger.error(`[notify] Failed to send verification SMS to ${to}:`, err.message);
+    return false;
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -320,4 +357,4 @@ async function notifyCustomer(job, newStatus) {
   }
 }
 
-module.exports = { notifyCustomer, notifyReminder, sendCredentialsSms };
+module.exports = { notifyCustomer, notifyReminder, sendCredentialsSms, sendVerificationPinSms };

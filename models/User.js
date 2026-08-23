@@ -11,11 +11,13 @@ const userSchema = new mongoose.Schema(
     },
     email: {
       type: String,
-      required: [true, "Email is required"],
-      unique: true,
       trim: true,
       lowercase: true,
       match: [/^\S+@\S+\.\S+$/, "Please provide a valid email"],
+      // No `required`/field-level `unique` here (T17: registration allows
+      // phone-only accounts with no email at all) — uniqueness for non-empty
+      // emails only is enforced by the partial-unique index defined below,
+      // same pattern as `phone`.
     },
     phone: {
       type: String,
@@ -156,6 +158,21 @@ userSchema.index(
   { phone: 1 },
   { unique: true, partialFilterExpression: { phone: { $type: 'string', $gt: '' } } },
 );
+// Unique email — same partial pattern as phone above (T17). Safe to build
+// directly: email was `required`+`unique` before this change, so every
+// existing document already has a distinct non-empty value.
+userSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: 'string', $gt: '' } } },
+);
+
+// T17: registration allows either identifier, but not neither.
+userSchema.pre("validate", function (next) {
+  if (!this.email && !this.phone) {
+    this.invalidate("email", "Provide an email or phone number.");
+  }
+  next();
+});
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
