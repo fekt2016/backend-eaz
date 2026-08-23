@@ -383,84 +383,6 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
 
 Not defects; product features that don't exist yet. Scope separately before building.
 
-- [x] **T12 · In-app notifications / alert center** — no model/API/UI (only SMS + email exist). — AUDIT.md §24 (#1)
-  - **v1 scope (agreed with product owner before implementation):** generic per-user
-    `Notification` model + polling API (`/api/v1/notifications`: list, unread-count,
-    mark-read, mark-all-read) + a small helper (`utils/notifications.js`: `notify()`,
-    `notifyRoles()`) — server-created only, no client-facing create endpoint. Two v1
-    triggers wired end-to-end: (1) a repair job's assigned technician gets notified on
-    creation and on reassignment (`controllers/pos/jobController.js`); (2) admin/staff/
-    superadmin get notified when a shop order transitions pending→paid
-    (`utils/fulfilShopOrder.js`, the same idempotent choke point the webhook and manual-
-    verify paths both call). Frontend: `NotificationBell` (bell + unread badge + dropdown)
-    wired into both `DashboardShell` and `PosShell` topbars (commerce reuses
-    `DashboardShell` already), plus a `/dashboard/notifications` page (all/unread filter,
-    pagination, mark-all-read).
-  - **Explicitly out of scope this pass** (agreed up front, to not bleed into T13/T14/T15):
-    AI/smart summarization (T13), notification-preferences/settings UI (T14), refund
-    triggers (T15, refunds don't exist yet), customer-facing in-app notifications
-    (customers already get SMS/email via `services/notify.js`), real-time/websocket
-    delivery, push notifications. More trigger events (low stock, payment received,
-    domain/hosting expiry, warranty expiring) are follow-up tasks, not part of T12.
-  - **Decisions made explicit, not left as oversights:** unread-count badge polls every
-    30s (`refetchInterval`, matches the app's global 30s `staleTime` default; pauses
-    automatically when the tab is backgrounded — react-query default). Read notifications
-    auto-expire 90 days after `readAt` via a partial-filter TTL index
-    (`{ readAt: 1 }, { expireAfterSeconds: 90d, partialFilterExpression: { read: true } }`)
-    — unread notifications never expire, so nothing disappears before it's seen.
-  - **Bug found + fixed during implementation:** `job.populate([...])` mutates the
-    Mongoose document in place, so reading `job.assignedTo.toString()` *after* that call
-    (as the pre-existing `afterSnapshot` for the activity-log diff already did) returns
-    Mongoose's debug-inspect string, not the hex id — passing that into `notify()` as a
-    recipient threw a cast error. Fixed by capturing `newAssignedTo` from `job.assignedTo`
-    *before* the populate call, dedicated to the notification, and left the pre-existing
-    (cosmetic-only, activity-log-diff) `afterSnapshot.assignedTo` behavior alone as
-    out-of-scope for this task.
-  - **Tests:** `tests/notifications.test.js` — API (list scoped to own user, unread-count,
-    mark-read ownership check, mark-all-read scoping) + both triggers (assign on create,
-    reassign notifies only the new technician, new-order notifies admin/staff/superadmin
-    but not technician/customer, idempotent on duplicate fulfilment). Full regression run
-    with the job/order suites this touches: 6 suites / 44 tests passed. Frontend:
-    `useNotifications.test.jsx` (7 tests); full `vitest run`: 27 files / 126 tests passed.
-    Lint clean both sides; `next build` succeeded.
-- [x] **T13 · AI chat responses** — `getAIResponse` is a stub returning `null`; only rule-based replies today. — AUDIT.md §23, §24 (#2)
-  - **v1 scope (agreed with product owner before implementation):** filled in the existing
-    `getAIResponse(messages, userMessage)` hook in `controllers/chatController.js` — no other
-    part of the chat system (model, session lifecycle, human-handoff flow) changed. Model:
-    `claude-sonnet-5` (explicit choice — Opus 5 is the tool's own default, but flagged the
-    cost tradeoff for this low-stakes FAQ bot and the user picked Sonnet 5 over Opus
-    5/Haiku 4.5). New dependency: `@anthropic-ai/sdk`. `ANTHROPIC_API_KEY` added to
-    `.env.example` and to `validateEnv.js`'s *recommended* (not required) list — unset key
-    means `getAIResponse` returns `null` immediately, same "optional integration, degrade
-    gracefully" pattern as `namecheap.hasConfig()`/`whm.hasConfig()`.
-  - **Design:** system prompt built from `getBusinessProfile()` — the same knowledge object
-    the rule-based engine already uses — with an explicit "only quote what's in this list,
-    otherwise say you'll connect them with a human" instruction (hallucination guardrail on
-    real pricing). History (`session.messages`, roles `user`/`bot`/`admin`) mapped to
-    Anthropic's `user`/`assistant` and truncated to the last 12 messages sent per call (full
-    history stays in Mongo). Non-streaming call, `max_tokens: 500`. Any SDK error (rate
-    limit, timeout, auth) is caught and returns `null` — falls straight through to the
-    existing rule-based engine, never breaks the request.
-  - **Explicitly out of scope this pass** (agreed up front): no changes to General Business
-    Settings (T14) — reads the profile as-is, adds no settings fields or admin toggle beyond
-    "is the API key set"; no refund logic (T15); no tool use/function calling — the AI only
-    answers in text, cannot book consultations or touch real orders/accounts; no
-    AI-generated quick-reply suggestion chips (still rule-based-engine-only; `suggestions: []`
-    on the AI path, and the frontend widget already renders that correctly); no streaming,
-    voice, or image input; no usage/cost dashboard or per-session spend caps — the existing
-    `/api/v1/chat` IP rate limit (60 req/15 min, `app.js`) plus the `max_tokens` cap and
-    history truncation are the v1 cost controls.
-  - **Frontend:** none required — checked `ChatWidget.jsx`; it already does
-    `json.data.suggestions || []` and only renders the suggestion-chip row when non-empty, so
-    the AI path's empty `suggestions` needed no widget change. `frontend-eaz`'s
-    `task-t13-ai-chat-responses` branch was created (chained correctly off T12) but carries no
-    commits — genuinely nothing to change there.
-  - **Tests:** `tests/chatAI.test.js` (7 tests) — falls back to rule-based with no API key;
-    uses the AI response when configured; falls back to rule-based on an API error; system
-    prompt is grounded in business-profile services; bot/admin history maps to `assistant`
-    with the latest user message last; history truncates to 12; AI is never called once a
-    human agent has taken over (`humanRequested`). Full backend suite run afterward to confirm
-    no regressions from the new dependency. Lint clean.
 - [ ] **T14 · General business settings** — `Settings` holds only maintenance fields (no shop profile, tax/VAT, currency, hours). — AUDIT.md §24 (#3)
 - [ ] **T15 · Refunds** — no refund endpoint or Paystack refund call anywhere. — AUDIT.md §24 (#4)
 
@@ -862,13 +784,6 @@ Not defects; product features that don't exist yet. Scope separately before buil
     start / mongoose buffering timeouts, i.e. resource contention across parallel Jest
     workers) — confirmed pre-existing and unrelated: that file passes 19/19 standalone, and
     all T51/T53/T58 status-guard tests together (49 tests, 4 suites) pass clean.
-
-- [x] **T19 · "Customer will bring device in" → "Device received" when diagnosing starts**
-  - **Issue:** Once a repair job leaves the `received` stage, the customer/device card label
-    should read "Device received" instead of the dropoff-based "Customer will bring device in".
-  - **Location:** frontend — `frontend-eaz/src/app/dashboard/pos/jobs/[id]/_components/CustomerDeviceCard.jsx`
-  - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
-    (see `frontend-eaz/tasks.md` → T19, implemented there).
 
 - [x] **T50 · `resetPassword` / `verifyPin` don't check `isBlocked`** ✅ done 2026-08-21
   - **Issue:** `login` rejects blocked accounts, but `resetPassword` (~line 350) and
@@ -1400,38 +1315,6 @@ Not defects; product features that don't exist yet. Scope separately before buil
     them into one endpoint would conflate two different authorization models for no benefit;
     the frontend fix routes each role to the correctly-scoped one instead of showing a
     redundant third view.
-
-- [x] **T21 · Technicians have NO hosting/domain access — backend + audit**
-  - **Issue:** Technicians must have **zero** access to anything hosting- or domain-related.
-    Confirm the backend routes (`/api/v1/hosting/*`, `/api/v1/domains/*`) return 401/403 for
-    technicians, and that no technician-facing endpoint leaks hosting/domain data.
-  - **Location:** `routes/hostingOrderRoutes.js`, `routes/domainRoutes.js`, `middleware/auth.js`
-  - **Fix:** Audited every route in both files. `restrictTo(...)` routes already excluded
-    technician. The `protect`-only routes (any logged-in role, including technician —
-    customer-self-service endpoints) now also get a new `denyRoles('technician')` middleware
-    added to `middleware/auth.js`, applied on: `domainRoutes.js` (`/payment`, `/my`, `/orders`,
-    `/orders/:id`) and `hostingOrderRoutes.js` (`/orders` POST+GET, `/orders/by-reference/:reference`,
-    `/orders/:id/invoice`, `/orders/:id/cpanel-login`, `/orders/:id/status`, `/orders/:id`,
-    `/orders/:id/proof`, `/orders/:id/renew`, `/orders/:id/password`). Public lookup routes
-    (`/check`, `/search`, `/suggest`, `/plans`) return no user data, left as-is. No other
-    controllers reference `HostingOrder`/`DomainOrder`. Frontend nav/widget hiding for
-    technicians lives in `frontend-eaz/tasks.md` → T21.
-  - **Test verification:** initial `mongodb-memory-server` failures were a red herring — the
-    `dyld: Symbol not found: __ZTVNSt3__13pmr25monotonic_buffer_resourceE` came from an ad-hoc
-    diagnostic script that let the package default to mongod 8.x (needs macOS 14+; host is
-    12.7.6). `tests/setup.js` already correctly pins to 7.0.14, which starts fine standalone —
-    the real failure was 5 jest workers each launching mongod concurrently and timing out
-    under sandbox resource contention. `--runInBand` fixed it. Added
-    `tests/technicianHostingDomainAccess.test.js` (14 tests: 403 for technician on every
-    newly-guarded route in both files, + 2 regression checks that a plain `user` still gets
-    200). Full run: 6 suites / 52 tests passed.
-
-- [x] **T20 · Hide repair/technician form when job is done or cancelled**
-  - **Issue:** The Technician Update + Parts forms on the repair job detail page remain editable
-    after the job is finished or cancelled.
-  - **Location:** frontend — `frontend-eaz/src/app/dashboard/pos/jobs/[id]/page.jsx`
-  - **Fix:** Frontend-only change — hide/make read-only for `ready`/`collected`/`cancelled`;
-    **no backend change required** (see `frontend-eaz/tasks.md` → T20, implemented there).
 
 ---
 
