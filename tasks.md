@@ -1319,7 +1319,8 @@ Not defects; product features that don't exist yet. Scope separately before buil
     endpoints used from the drawer still work: `POST /api/v1/cart/sync` (if present),
     `GET /api/v1/products`, and checkout `POST /api/v1/orders`.
 
-- [ ] **T37 · POS inventory search: return product images**
+- [x] **T37 · POS inventory search: return product images** — ✅ done 2026-08-23 (both
+  halves)
   - **Issue:** When the sell page searches with `includeProducts=true`, the shop product
     query does `.select('name sku price stock category')` — **no `images`** — so product
     thumbnails can't render in the sell page results/cart. Parts already return their full
@@ -1327,9 +1328,13 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Location:** `controllers/pos/inventoryController.js` (getParts product query ~line 32 —
     add `images` to `.select(...)`); scan lookup (`scanLookup` ~line 74) already returns full
     docs but confirm `images` survives `normalizeProduct`
-  - **Fix:** Add `images` to the product `.select(...)` so `GET /pos/inventory?...` returns
-    them. `normalizeProduct` spreads the full product, so `images` flows through untouched.
-    No model change needed.
+  - **Fix:** Added `images` to the product `.select(...)` so `GET /pos/inventory?...` returns
+    them. `normalizeProduct` spreads the full product, so `images` flows through untouched —
+    no model change needed. `scanLookup`'s SKU-fallback branch already returns the full
+    (unselected) product doc via `normalizeProduct`, so it needed no change.
+  - **Tests:** `tests/partImages.test.js` gained a `T37` describe block — a matched product
+    returns its `images` array (previously omitted), and a product with none returns `[]`,
+    not `undefined`.
   - **Frontend part:** `frontend-eaz/tasks.md` → T37.
 
 - [ ] **T36 · Supplier model: add WhatsApp and WeChat fields**
