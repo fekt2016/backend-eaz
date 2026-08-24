@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const Product = require("../models/Product");
 const DeliveryZone = require("../models/DeliveryZone");
+const { logDbTarget } = require("../utils/dbTarget");
 
 // Resolved lazily inside seed() so this module can be imported by tests/other
 // seeders without touching .env or the process.
@@ -2085,6 +2086,7 @@ async function seed() {
     socketTimeoutMS: 45000,
   });
   console.log("MongoDB connected");
+  logDbTarget();
 
   const productOps = PRODUCTS.map((p) => ({
     updateOne: {

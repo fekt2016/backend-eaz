@@ -25,6 +25,7 @@
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const User = require("../models/User");
+const { logDbTarget } = require("../utils/dbTarget");
 
 dotenv.config({ path: "./.env" });
 
@@ -67,9 +68,9 @@ async function run() {
   // Say WHICH database out loud. `dotenv` falls back to .env, so a bare run with no
   // MONGO_URL in the shell quietly targets whatever that file points at — in this repo,
   // the live Atlas cluster. An operator about to pass --apply should see the target.
-  const { host, name } = mongoose.connection;
   console.log(`MongoDB connected — ${APPLY ? "APPLY (writing changes)" : "DRY RUN (no writes)"}`);
-  console.log(`Target: ${host}/${name}\n`);
+  logDbTarget();
+  console.log();
 
   const coll = User.collection;
 

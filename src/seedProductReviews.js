@@ -4,6 +4,7 @@ const User = require("../models/User");
 const Product = require("../models/Product");
 const ProductReview = require("../models/ProductReview");
 const { getRatingSummary } = require("../controllers/productReviewController");
+const { logDbTarget } = require("../utils/dbTarget");
 
 // Mock customers created purely so the seeded reviews have a real user ref.
 // Passwords satisfy the User schema but these accounts are not advertised
@@ -242,6 +243,7 @@ async function run() {
     socketTimeoutMS: 45000,
   });
   console.log("MongoDB connected");
+  logDbTarget();
 
   const u = await seedUsers();
   console.log(

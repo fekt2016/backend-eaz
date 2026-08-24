@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const Post = require("../models/Post");
+const { logDbTarget } = require("../utils/dbTarget");
 
 // Resolved lazily inside seed() so this module can be imported by tests/other
 // seeders without touching .env or the process. Mirrors src/seedEcommerce.js.
@@ -922,6 +923,7 @@ async function seed() {
     socketTimeoutMS: 45000,
   });
   console.log("MongoDB connected");
+  logDbTarget();
 
   // Idempotent upsert keyed on the unique slug. Seeded as drafts
   // (published: false); flip to published in the admin blog dashboard once

@@ -18,6 +18,7 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const User = require("../models/User");
 const { sanitizePhone } = require("../utils/sanitize");
+const { logDbTarget } = require("../utils/dbTarget");
 
 dotenv.config({ path: "./.env" });
 
@@ -46,7 +47,9 @@ async function run() {
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
   });
-  console.log(`MongoDB connected — ${APPLY ? "APPLY (writing changes)" : "DRY RUN (no writes)"}\n`);
+  console.log(`MongoDB connected — ${APPLY ? "APPLY (writing changes)" : "DRY RUN (no writes)"}`);
+  logDbTarget();
+  console.log();
 
   // Oldest-first so the earliest account keeps a contested number.
   const users = await User.find({ phone: { $type: "string", $gt: "" } })

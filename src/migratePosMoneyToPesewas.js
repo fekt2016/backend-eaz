@@ -118,6 +118,7 @@ const PIPELINES = {
 if (require.main === module) {
   const mongoose = require("mongoose");
   const dotenv = require("dotenv");
+  const { logDbTarget } = require("../utils/dbTarget");
   dotenv.config({ path: "./.env" });
 
   const mongoUrlRaw =
@@ -139,7 +140,9 @@ if (require.main === module) {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
     });
-    console.log("MongoDB connected\n");
+    console.log("MongoDB connected");
+    logDbTarget();
+    console.log();
 
     for (const [coll, pipeline] of Object.entries(PIPELINES)) {
       const target = mongoose.connection.db.collection(coll);

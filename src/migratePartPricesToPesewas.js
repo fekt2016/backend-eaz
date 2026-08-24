@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const Part = require("../models/Part");
+const { logDbTarget } = require("../utils/dbTarget");
 
 dotenv.config({ path: "./.env" });
 
@@ -27,6 +28,7 @@ async function migrate() {
     socketTimeoutMS: 45000,
   });
   console.log("MongoDB connected");
+  logDbTarget();
 
   const before = await Part.countDocuments();
   const res = await Part.updateMany(

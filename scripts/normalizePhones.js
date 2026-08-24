@@ -1,6 +1,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
+const { logDbTarget } = require('../utils/dbTarget');
 
 const rawUri    = process.env.MONGO_URL || process.env.mongo_url || process.env.MONGO_URI;
 const dbPassword = process.env.DATABASE_PASSWORD || process.env.database_password;
@@ -18,6 +19,7 @@ function normalizePhone(str) {
 async function run() {
   await mongoose.connect(MONGO_URI);
   console.log('Connected.');
+  logDbTarget();
   const col = mongoose.connection.db.collection('poscustomers');
   const docs = await col.find({}).toArray();
   let updated = 0;
