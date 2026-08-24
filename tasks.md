@@ -180,6 +180,42 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Storefront (mirror in `frontend-eaz/tasks.md`):** product card/detail shows a "Pre-order" badge + expected-availability copy instead of "Out of stock"; the add-to-cart button becomes "Pre-order".
   - **Open questions to resolve before building:** upfront payment vs. deposit; per-item pre-order quantity cap; whether a pre-order auto-converts to a normal order once stock arrives; customer comms (SMS/email) when the item becomes available.
 
+- [ ] **T48 · Product popularity metrics: view count + sold count**
+  - **Request:** product cards should show how many times a product has been **viewed**
+    and how many units have been **sold**; the product detail page should show the
+    live **stock count** and **sold count**. Backend half — schema fields, counters,
+    and API exposure (storefront half: `frontend-eaz/tasks.md` → T48).
+  - **Current state:** `models/Product.js` has no `views` or `sold` fields. Stock
+    exists (`stock` top-level + per-variant) but nothing tracks cumulative sales or
+    detail-page traffic.
+  - **Schema (`models/Product.js`):** add `views: { type: Number, default: 0 }` and
+    `sold: { type: Number, default: 0 }`, both `min: 0`. Existing products default to
+    0 without migration.
+  - **Views (`controllers/productController.js`):** increment `views` atomically when
+    the public `GET /api/v1/products/:slug` detail endpoint is read (`$inc`, not
+    read-modify-write — concurrent readers must not clobber each other). Do **not**
+    count list-endpoint reads. Decide whether admin/staff requests (JWT present)
+    should be excluded so staff previews don't inflate the count; simplest correct
+    version counts every public detail fetch and never trusts a client-supplied count.
+  - **Sold (`utils/fulfilShopOrder.js`):** `sold` must be incremented in the same
+    place stock is decremented on payment — `fulfilShopOrder`'s `$inc` — so it stays
+    idempotent with the existing `stockDeducted` guard (no double-count on webhook
+    retries) and reverses correctly in `restockOrderItems` if an order is
+    cancelled/refunded after fulfilment. Sum quantities across order line items for
+    that product.
+  - **Decision needed:** whether in-store POS sales of products
+    (`controllers/pos/salesController.js`, items sent as `productId`) should also
+    bump `sold`. Recommend yes (it's real demand), implemented in the same `$inc`
+    that already deducts product stock there.
+  - **API exposure:** `productController` has no `.select()` projections (confirmed in
+    T39), so once the fields are on the schema they flow through list + detail
+    automatically. Keep them out of any admin create/update payload parsing so they
+    can only change via the counters, not client input.
+  - **Tests:** views increment once per detail GET (and not on list reads), sold
+    increments exactly once per paid order including the webhook-retry case, restock
+    decrements it back, defaults are 0.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T48.
+
 ---
 
 ## Ad-hoc fixes (found during work, outside the original audit)
