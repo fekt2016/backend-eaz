@@ -1382,7 +1382,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     scope for this task. 3 new tests in `variants.test.js` (variant price wins, unset falls back
     to base price, explicit 0 stays free) — 44 suites/317 tests pass.
 
-- [ ] **T34 · Product image upload endpoint already covers local uploads — no backend change**
+- [x] **T34 · Product image upload endpoint already covers local uploads — no backend change** — ✅ done 2026-08-24
   - **Issue:** The product form's main images field is URL-only in the UI, but the backend
     upload route (`POST /api/v1/uploads`, Cloudinary) already exists and is used by the form's
     variant/gallery upload buttons. No backend work required for local product image upload.
@@ -1390,6 +1390,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
     `routes/uploadRoutes.js`
   - **Fix:** None expected on the backend — verify the upload endpoint accepts `image/*` and
     returns `{ url }`. Frontend change only (see `frontend-eaz/tasks.md` → T34).
+  - **Confirmed:** no backend change needed — frontend's `ProductForm.jsx` now reuses the same
+    `UploadButton` → `POST /uploads` → `{ url }` flow already exercised by the variant/gallery
+    fields; see `frontend-eaz/tasks.md` → T34 for what shipped.
 
 - [x] **T33 · `Part` model + inventory endpoint should support an image** — ✅ done
   2026-08-23 (both halves; frontend upload UI shipped in `frontend-eaz` on the matching
