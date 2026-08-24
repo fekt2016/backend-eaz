@@ -211,7 +211,7 @@ const getAdminProducts = async (req, res, next) => {
 
 const createProduct = async (req, res, next) => {
   try {
-    const { name, slug, description, price, images, category, stock, sku, variants, gallery, isActive } = req.body;
+    const { name, slug, description, shortDescription, price, images, category, stock, sku, variants, gallery, isActive } = req.body;
 
     if (!name || price == null || !category) {
       return res.status(400).json({
@@ -229,6 +229,7 @@ const createProduct = async (req, res, next) => {
       name: String(name).trim(),
       slug: productSlug,
       description: description || "",
+      shortDescription: shortDescription || "",
       price: Number(price),
       images: Array.isArray(images) ? images.filter(Boolean) : [],
       category: String(category).trim(),
