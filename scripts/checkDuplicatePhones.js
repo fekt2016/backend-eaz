@@ -25,6 +25,7 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const User = require("../models/User");
 const { sanitizePhone } = require("../utils/sanitize");
+const { logDbTarget } = require("../utils/dbTarget");
 
 dotenv.config({ path: "./.env" });
 
@@ -57,7 +58,9 @@ async function run() {
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
   });
-  console.log("MongoDB connected\n");
+  console.log("MongoDB connected");
+  logDbTarget();
+  console.log();
 
   // Only accounts with a non-empty string phone are relevant. Absent/"" phones
   // never collide under the partial index.

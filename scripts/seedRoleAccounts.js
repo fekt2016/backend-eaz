@@ -14,6 +14,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const { logDbTarget } = require('../utils/dbTarget');
 
 function resolveMongoUrl() {
   const mongoUrlRaw =
@@ -39,6 +40,7 @@ const ACCOUNTS = [
 async function main() {
   const db = resolveMongoUrl();
   await mongoose.connect(db, { maxPoolSize: 3, serverSelectionTimeoutMS: 10_000 });
+  logDbTarget();
 
   const results = [];
   for (const acc of ACCOUNTS) {

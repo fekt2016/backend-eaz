@@ -13,6 +13,7 @@ dotenv.config();
 const User = require("../models/User");
 const PosCustomer = require("../models/PosCustomer");
 const RepairJob = require("../models/RepairJob");
+const { logDbTarget } = require("../utils/dbTarget");
 
 const resolveDbUrl = () => {
   const mongoUrlRaw =
@@ -35,6 +36,7 @@ const CUSTOMER_PHONE = "+233200000999";
 async function seed() {
   await mongoose.connect(resolveDbUrl());
   console.log("✅ connected");
+  logDbTarget();
 
   // --- users (delete + recreate so the password hook re-runs cleanly) ---
   await User.deleteMany({ email: { $in: Object.values(TEST_EMAILS) } });

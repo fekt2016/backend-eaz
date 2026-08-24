@@ -10,6 +10,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
 const PosCustomer = require('../models/PosCustomer');
 const RepairJob   = require('../models/RepairJob');
+const { logDbTarget } = require('../utils/dbTarget');
 
 const rawUri    = process.env.MONGO_URL || process.env.mongo_url || process.env.MONGO_URI;
 const dbPassword = process.env.DATABASE_PASSWORD || process.env.database_password;
@@ -22,6 +23,7 @@ if (!MONGO_URI) { console.error('No MongoDB URI found in .env'); process.exit(1)
 async function run() {
   await mongoose.connect(MONGO_URI);
   console.log('Connected to MongoDB');
+  logDbTarget();
 
   // Find all phone values that appear more than once
   const dupes = await PosCustomer.aggregate([

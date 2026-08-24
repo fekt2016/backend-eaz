@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const Part = require("../models/Part");
+const { logDbTarget } = require("../utils/dbTarget");
 
 dotenv.config({ path: "./.env" });
 
@@ -265,6 +266,7 @@ async function seed() {
     socketTimeoutMS: 45000,
   });
   console.log("MongoDB connected");
+  logDbTarget();
 
   // Idempotent by SKU: existing parts are refreshed in place, never duplicated.
   const ops = PARTS.map((p) => ({
