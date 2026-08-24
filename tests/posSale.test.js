@@ -219,3 +219,110 @@ describe("POST /api/v1/pos/sales — concurrent writes to the same part (withTra
     expect(saleCount).toBe(2);
   });
 });
+
+// T47: the sale number used to come from `countDocuments() + 1` evaluated inside
+// the transaction — a read-modify-write two concurrent checkouts both win. The
+// unique index then rejects one with E11000, the cashier gets a 500, and that
+// sale is never recorded. Reproduced at 4 concurrent creates: two persisted, two
+// died on the duplicate key.
+describe("POST /api/v1/pos/sales — concurrent checkouts (T47)", () => {
+  const fire = (token, part) =>
+    request(app)
+      .post("/api/v1/pos/sales")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        items: [{ partId: part._id.toString(), quantity: 1 }],
+        paymentMethod: "cash",
+        amountPaid: 2000,
+      });
+
+  it("records every one of five simultaneous sales, each with its own number", async () => {
+    const tokens = [];
+    const parts = [];
+    for (let i = 0; i < 5; i++) {
+      tokens.push((await makeUser()).token);
+      // A part each, so nothing but the sale number itself can serialise them.
+      parts.push(await makePart({ sku: `SKU-T47-${i}`, quantity: 5 }));
+    }
+
+    const results = await Promise.all(tokens.map((t, i) => fire(t, parts[i])));
+
+    expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201, 201]);
+    const numbers = results.map((r) => r.body.data.saleNumber);
+    expect(new Set(numbers).size).toBe(5);
+    expect(await Sale.countDocuments()).toBe(5);
+  });
+
+  it("issues distinct numbers to transactions that overlap exactly", async () => {
+    // The HTTP test above has auth and body parsing between the requests, which
+    // is often enough jitter to hide the race. This drives the failing unit
+    // straight: six transactions opened together, each creating one sale.
+    const { user } = await makeUser();
+    const create = async (i) => {
+      const session = await mongoose.startSession();
+      try {
+        let made;
+        await session.withTransaction(async () => {
+          const [doc] = await Sale.create([{
+            items: [{ name: `Item ${i}`, quantity: 1, unitPrice: 100, subtotal: 100 }],
+            subtotal: 100, total: 100, paymentMethod: "cash", amountPaid: 100,
+            cashier: user._id,
+          }], { session });
+          made = doc;
+        });
+        return made.saleNumber;
+      } finally {
+        session.endSession();
+      }
+    };
+
+    const numbers = await Promise.all([0, 1, 2, 3, 4, 5].map(create));
+
+    expect(new Set(numbers).size).toBe(6);
+    expect(await Sale.countDocuments()).toBe(6);
+  });
+
+  it("numbers sales SAL-YYYYMM-nnnnn, counting up from 1 within the month", async () => {
+    const { token } = await makeUser();
+    const part = await makePart({ sku: "SKU-T47-SEQ", quantity: 10 });
+    const now = new Date();
+    const period = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    const first = await fire(token, part);
+    const second = await fire(token, part);
+
+    expect(first.body.data.saleNumber).toBe(`SAL-${period}-00001`);
+    expect(second.body.data.saleNumber).toBe(`SAL-${period}-00002`);
+  });
+
+  it("never re-issues a number after a sale is deleted", async () => {
+    const { token } = await makeUser();
+    const part = await makePart({ sku: "SKU-T47-DEL", quantity: 10 });
+
+    const first = await fire(token, part);
+    await Sale.deleteOne({ saleNumber: first.body.data.saleNumber });
+    const second = await fire(token, part);
+
+    // Under the old count-based scheme the delete dropped the count back, so
+    // this second sale reused the first one's number.
+    expect(second.body.data.saleNumber).not.toBe(first.body.data.saleNumber);
+  });
+
+  it("carries on from numbers issued before the counter existed", async () => {
+    const { token } = await makeUser();
+    const part = await makePart({ sku: "SKU-T47-LEGACY", quantity: 10 });
+    const now = new Date();
+    const period = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    // A sale written under the old scheme: numbered, but no counter row backs it.
+    await Sale.create({
+      saleNumber: `SAL-${period}-00042`,
+      items: [{ name: "Legacy", quantity: 1, unitPrice: 100, subtotal: 100 }],
+      subtotal: 100, total: 100, paymentMethod: "cash", amountPaid: 100,
+      cashier: (await makeUser()).user._id,
+    });
+
+    const res = await fire(token, part);
+    expect(res.body.data.saleNumber).toBe(`SAL-${period}-00043`);
+  });
+});

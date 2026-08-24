@@ -155,7 +155,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Verified:** full backend suite 50 suites / 382 tests, exit 0; no new lint warnings
     (salesController went 37 → 36).
 
-- [ ] **T47 · `Sale.saleNumber` collides when two cashiers check out at once**
+- [x] **T47 · `Sale.saleNumber` collides when two cashiers check out at once** — ✅ done 2026-08-24
   - **Issue:** `models/Sale.js`'s pre-save hook builds the sale number from a document
     count: `const count = await mongoose.model('Sale').countDocuments()` then
     `SAL-YYYYMM-{count+1}`. Two concurrent creates read the same count, generate the
@@ -168,11 +168,37 @@ Not defects; product features that don't exist yet. Scope separately before buil
     narrow race — two cashiers ringing up at the same moment is enough.
   - **Also wrong regardless of the race:** the count includes voided sales but a voided
     sale keeps its number, and any future delete would cause reuse.
-  - **Fix (suggested):** replace the count with an atomic per-month counter
-    (`findOneAndUpdate` with `$inc` and `upsert` on a small counters collection), or
-    retry on E11000. Note the hook runs inside `createSale`'s transaction, so the
-    counter write must join the same session.
-  - **Frontend part:** none — surfaces as the same "Sale failed" error T30 added.
+  - **Shipped:** `models/Counter.js` (new), `models/Sale.js`, `controllers/pos/salesController.js`
+    - `Counter` is a small `{ _id: String, seq: Number }` collection keyed per period
+      (`sale:202608`). `Counter.next(key, session)` is a single `findOneAndUpdate`
+      `$inc`, so the number is issued atomically instead of read-modify-write.
+    - The pre-save hook passes `this.$session()` into it — **verified that a document
+      created via `Sale.create([...], { session })` really does expose the transaction's
+      session inside the hook.** So the counter and the sale commit together, and an
+      aborted sale rolls its number back rather than burning it.
+    - Numbering is now genuinely per-month: a new month starts at `00001`. Within the
+      current month it continues from wherever the old scheme left off — the counter
+      row is seeded from the highest `SAL-<period>-` number already issued
+      (`Sale.ensureNumberCounter`), so no existing number can be handed out twice.
+      **No migration needed**: the counter is created lazily on the first sale.
+    - `ensureNumberCounter()` runs in `createSale` **before** the transaction opens.
+      That placement is the point: two transactions upserting the same *missing*
+      counter row race into an E11000, and `withTransaction` will not retry it (a
+      duplicate-key error carries no `TransientTransactionError` label). With the row
+      already there, concurrent `$inc`s collide as `WriteConflict`, which *is* labelled
+      transient and so retries on its own.
+    - The hook also skips any document that already has a `saleNumber`, so a caller
+      can supply one (the legacy-seeding test does) without it being overwritten.
+  - **Tests:** 5 added to `tests/posSale.test.js` (which already runs on a replica set).
+    The API-level 5-concurrent-checkout test **passes even against the old code** —
+    auth and body parsing stagger the requests enough to hide the race — so there is
+    also a model-level test that opens six transactions at once, which reproduced the
+    exact `E11000 ... saleNumber_1` before the fix. Plus: number format/sequence, no
+    reuse after a delete, and continuation from a pre-counter number.
+  - **Verified:** full backend suite 50 suites / 389 tests, exit 0; `posSale.test.js` run
+    3× back to back with no flakes; no new lint warnings (the new files are clean,
+    `salesController` stays at its existing 36).
+  - **Frontend part:** none — surfaced as the same "Sale failed" error T30 added.
 
 - [ ] **T45 · Pre-order support for products** — items that are out of stock, or not yet available in Ghana, currently can't be ordered at all (the shop blocks add-to-cart / checkout on zero stock). Add a pre-order capability so customers can place these ahead of availability.
   - **Model (`models/Product.js`):** add a `preorder` sub-object — e.g. `preorder.enabled` (bool), `preorder.availableFrom` (date | null), `preorder.note` (string, e.g. "ships from abroad, ~3 weeks"), and a cap field if pre-order quantity is limited. Decide how this interacts with `stock`/availability so a pre-order-enabled item bypasses the existing "out of stock → can't buy" guard *only when* `preorder.enabled`.

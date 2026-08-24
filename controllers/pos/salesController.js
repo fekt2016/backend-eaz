@@ -29,6 +29,11 @@ const createSale = async (req, res, next) => {
     if (!paymentMethod)   return res.status(400).json({ success: false, error: 'Payment method required.' });
     if (amountPaid == null) return res.status(400).json({ success: false, error: 'Amount paid is required.' });
 
+    // Seed this month's sale-number counter before the transaction opens — an
+    // upsert of a missing counter row from inside two concurrent transactions
+    // races into an E11000 that withTransaction won't retry (T47).
+    await Sale.ensureNumberCounter();
+
     const session = await mongoose.startSession();
     let sale;
     try {
