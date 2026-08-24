@@ -206,7 +206,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Storefront (mirror in `frontend-eaz/tasks.md`):** product card/detail shows a "Pre-order" badge + expected-availability copy instead of "Out of stock"; the add-to-cart button becomes "Pre-order".
   - **Open questions to resolve before building:** upfront payment vs. deposit; per-item pre-order quantity cap; whether a pre-order auto-converts to a normal order once stock arrives; customer comms (SMS/email) when the item becomes available.
 
-- [ ] **T48 · Product popularity metrics: view count + sold count**
+- [x] **T48 · Product popularity metrics: view count + sold count** — ✅ done 2026-08-24 (both halves)
   - **Request:** product cards should show how many times a product has been **viewed**
     and how many units have been **sold**; the product detail page should show the
     live **stock count** and **sold count**. Backend half — schema fields, counters,
@@ -237,10 +237,41 @@ Not defects; product features that don't exist yet. Scope separately before buil
     T39), so once the fields are on the schema they flow through list + detail
     automatically. Keep them out of any admin create/update payload parsing so they
     can only change via the counters, not client input.
-  - **Tests:** views increment once per detail GET (and not on list reads), sold
-    increments exactly once per paid order including the webhook-retry case, restock
-    decrements it back, defaults are 0.
-  - **Frontend part:** `frontend-eaz/tasks.md` → T48.
+  - **Decisions taken:** POS sales **do** count toward `sold` (the spec's own
+    recommendation — an over-the-counter sale is real demand), and **every** public
+    detail fetch counts as a view. Staff previews are not excluded, because
+    `GET /products/:slug` is mounted with no auth middleware at all — there is no
+    `req.user` on that route to exclude by, and adding one to serve a counter would
+    be the wrong trade.
+  - **Shipped:** `models/Product.js`, `controllers/productController.js`,
+    `utils/fulfilShopOrder.js`, `controllers/pos/salesController.js`
+    - `views` / `sold` added with `default: 0`, so existing products need no migration.
+      `min: 0` on both is documentation, not enforcement: `$inc` is a raw update and
+      skips validators — the clamp lives in `Product.decrementSold`.
+    - The detail read is now one `findOneAndUpdate` with `$inc: { views: 1 }` instead
+      of a `findOne`, so counting a view costs no extra round trip and simultaneous
+      readers never clobber one another. List reads are untouched.
+    - `sold` rides on the *same* update that deducts stock, in all three places
+      (plain line, variant line, POS sale). That is what keeps it honest: it inherits
+      `fulfilShopOrder`'s pending→paid idempotence so a Paystack retry cannot
+      double-count, and a line that fails the no-oversell guard is not counted as sold.
+      Variant lines count against the parent product — `sold` is product-level.
+    - `Product.decrementSold(id, qty, session)` reverses it on cancel/restock and on a
+      POS void. It is a **pipeline update** (`$max: [0, …]`) rather than a plain
+      `$inc: -qty` for a specific reason: orders paid *before* this shipped deducted
+      stock without ever bumping `sold`, so cancelling one of those now would drive
+      the counter negative.
+    - `createProduct`/`updateProduct` destructure named fields, so neither counter can
+      be set from a client payload — verified with a test that posts `views: 9999`.
+  - **Tests:** `tests/productPopularity.test.js` (new, 12) — defaults, the admin
+    payload being ignored, one view per detail read, 8 concurrent readers all counted,
+    list reads not counted, a 404 not counted, sold on fulfil, no double-count on
+    webhook retry, variant lines, no count when the stock guard fails, restock
+    reversal, and the clamp for a pre-T48 order. Plus 3 in `tests/posSale.test.js`
+    (replica set) for the POS sale, the void reversal, and parts not counting.
+  - **Verified:** full backend suite 51 suites / 404 tests, exit 0; no new lint
+    warnings (`salesController` stays at its existing 36, everything else clean).
+  - **Frontend part:** `frontend-eaz/tasks.md` → T48 — done.
 
 ---
 

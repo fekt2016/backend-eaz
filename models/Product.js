@@ -117,6 +117,21 @@ const productSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // T48 — popularity counters. Both move only through $inc from the server
+    // (detail-page reads, and the same update that deducts stock on a sale);
+    // neither is ever read off a client payload, so create/update must keep
+    // ignoring them. `min` is documentation here rather than enforcement: $inc
+    // is a raw update and skips validators, so the decrement paths clamp.
+    views: {
+      type: Number,
+      default: 0,
+      min: [0, "Views cannot be negative"],
+    },
+    sold: {
+      type: Number,
+      default: 0,
+      min: [0, "Sold cannot be negative"],
+    },
   },
   {
     timestamps: true,
@@ -126,6 +141,18 @@ const productSchema = new mongoose.Schema(
     toJSON: { flattenMaps: true },
   },
 );
+
+// Give a unit of stock back to `sold` when a sale is reversed (order cancelled,
+// POS sale voided). A pipeline update so the clamp is atomic: orders paid before
+// T48 shipped deducted stock without ever bumping `sold`, so a plain $inc of -qty
+// would drive those products negative when they are cancelled now.
+productSchema.statics.decrementSold = function (productId, qty, session) {
+  return this.updateOne(
+    { _id: productId },
+    [{ $set: { sold: { $max: [0, { $subtract: [{ $ifNull: ["$sold", 0] }, qty] }] } } }],
+    session ? { session } : {},
+  );
+};
 
 productSchema.index({ category: 1, isActive: 1 });
 productSchema.index({ isActive: 1 });

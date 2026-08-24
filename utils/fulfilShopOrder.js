@@ -48,7 +48,10 @@ async function fulfilShopOrder(reference) {
   }).catch(() => {});
 
   // Decrement stock atomically per item. Never oversell: if the guard
-  // fails for an item, log it and continue.
+  // fails for an item, log it and continue. T48's `sold` counter rides on the
+  // same update, so it inherits this function's idempotence (the pending→paid
+  // guard above means a webhook retry never gets here twice) and a line that
+  // fails the stock guard is not counted as sold either.
   for (const item of paid.items) {
     if (item.part) {
       const result = await Part.findOneAndUpdate(
@@ -69,12 +72,12 @@ async function fulfilShopOrder(reference) {
     if (item.variant && item.variant.sku) {
       result = await Product.findOneAndUpdate(
         { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku, stock: { $gte: item.qty } } } },
-        { $inc: { "variants.$.stock": -item.qty } }
+        { $inc: { "variants.$.stock": -item.qty, sold: item.qty } }
       );
     } else {
       result = await Product.findOneAndUpdate(
         { _id: item.product, stock: { $gte: item.qty } },
-        { $inc: { stock: -item.qty } }
+        { $inc: { stock: -item.qty, sold: item.qty } }
       );
     }
     if (!result) {
@@ -110,6 +113,11 @@ async function restockOrderItems(order) {
     } else if (item.product) {
       await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.qty } });
     }
+
+    // Take the units back off `sold` (T48). Separate from the stock restore
+    // above because it is clamped at zero and because `sold` is product-level,
+    // shared by variant and plain lines alike.
+    if (item.product) await Product.decrementSold(item.product, item.qty);
   }
 }
 

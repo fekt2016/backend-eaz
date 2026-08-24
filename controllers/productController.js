@@ -177,10 +177,14 @@ const getProductBySlug = async (req, res, next) => {
       return res.status(200).json({ success: true, data: { ...partAsProductDoc, ratingSummary } });
     }
 
-    const product = await Product.findOne({
-      slug,
-      isActive: true,
-    });
+    // T48: count the read as a view in the same round trip that fetches the
+    // product. $inc rather than read-modify-write, so simultaneous readers each
+    // count. Only the detail endpoint does this — list reads are not views.
+    const product = await Product.findOneAndUpdate(
+      { slug, isActive: true },
+      { $inc: { views: 1 } },
+      { new: true },
+    );
 
     if (!product) {
       return res.status(404).json({

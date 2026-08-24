@@ -88,7 +88,10 @@ const createSale = async (req, res, next) => {
               throw new SaleError(400, `Insufficient stock for "${product.name}". Available: ${product.stock}, Requested: ${qty}`);
             }
 
-            await Product.findByIdAndUpdate(product._id, { $inc: { stock: -qty } }, { session });
+            // An over-the-counter sale is real demand, so it counts toward the
+            // same `sold` figure the storefront shows (T48) — same update as the
+            // stock deduction, so the two can never diverge.
+            await Product.findByIdAndUpdate(product._id, { $inc: { stock: -qty, sold: qty } }, { session });
 
             saleItems.push({
               product:   product._id,
@@ -304,6 +307,7 @@ const voidSale = async (req, res, next) => {
           }
           if (item.product) {
             await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.quantity } }, { session });
+            await Product.decrementSold(item.product, item.quantity, session);
           }
         }
 

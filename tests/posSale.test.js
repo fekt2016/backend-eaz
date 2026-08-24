@@ -326,3 +326,70 @@ describe("POST /api/v1/pos/sales — concurrent checkouts (T47)", () => {
     expect(res.body.data.saleNumber).toBe(`SAL-${period}-00043`);
   });
 });
+
+// T48: an over-the-counter sale is real demand, so it counts toward the same
+// `sold` figure the storefront shows on the product card — and voiding the sale
+// takes it back off, exactly as it puts the stock back.
+describe("POST /api/v1/pos/sales — product sold count (T48)", () => {
+  it("adds the quantity sold over the counter to the product's sold count", async () => {
+    const { token } = await makeUser();
+    const product = await makeProduct({ stock: 10 });
+
+    const res = await request(app)
+      .post("/api/v1/pos/sales")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        items: [{ productId: product._id.toString(), quantity: 3 }],
+        paymentMethod: "cash",
+        amountPaid: 4500,
+      });
+
+    expect(res.status).toBe(201);
+    const refreshed = await Product.findById(product._id);
+    expect(refreshed.sold).toBe(3);
+    expect(refreshed.stock).toBe(7);
+  });
+
+  it("takes it back off when the sale is voided", async () => {
+    const { token } = await makeUser();
+    const { token: adminToken } = await makeUser("superadmin");
+    const product = await makeProduct({ stock: 10 });
+
+    const sale = await request(app)
+      .post("/api/v1/pos/sales")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        items: [{ productId: product._id.toString(), quantity: 3 }],
+        paymentMethod: "cash",
+        amountPaid: 4500,
+      });
+
+    const voided = await request(app)
+      .patch(`/api/v1/pos/sales/${sale.body.data._id}/void`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ reason: "Customer changed their mind" });
+
+    expect(voided.status).toBe(200);
+    const refreshed = await Product.findById(product._id);
+    expect(refreshed.sold).toBe(0);
+    expect(refreshed.stock).toBe(10);
+  });
+
+  it("does not count a repair part as a product sale", async () => {
+    const { token } = await makeUser();
+    const part = await makePart({ sku: "SKU-T48-PART", quantity: 10 });
+    const product = await makeProduct({ stock: 10 });
+
+    await request(app)
+      .post("/api/v1/pos/sales")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        items: [{ partId: part._id.toString(), quantity: 2 }],
+        paymentMethod: "cash",
+        amountPaid: 4000,
+      });
+
+    const refreshed = await Product.findById(product._id);
+    expect(refreshed.sold).toBe(0);
+  });
+});
