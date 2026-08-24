@@ -7,6 +7,30 @@ process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = process.env.JWT_SECRET || "test-jwt-secret";
 process.env.JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "1h";
 
+// ── Keep the suite hermetic ────────────────────────────────────────────────
+// `app.js` runs `dotenv.config()`, and this repo's .env holds LIVE credentials.
+// Without this block the suite really does call third parties: a password-reset
+// test was sending mail through Resend and getting back
+// "403 — the eazworld.com domain is not verified", which surfaced as a
+// "Cannot log after tests are done" warning and made a fully green run still
+// exit 1. Real network I/O also makes runs nondeterministic.
+//
+// These are ASSIGNED, not deleted: dotenv only fills keys that are absent from
+// process.env, so an empty string here wins over the .env value. Paystack gets a
+// dummy secret rather than an empty one because refunds.test.js signs its webhook
+// payload with it — the value only has to match itself, not be real. It must keep
+// the `sk_` prefix: controllers gate on `paystackSecret.startsWith("sk_")` before
+// constructing the client, and a secret without it leaves `paystack` undefined,
+// turning every refund route into a 500. The SDK itself is mocked in the tests.
+process.env.RESEND_API_KEY = "";
+process.env.CLOUDINARY_API_KEY = "";
+process.env.CLOUDINARY_API_SECRET = "";
+process.env.NAMECHEAP_API_KEY = "";
+process.env.HUBTEL_CLIENT_ID = "";
+process.env.HUBTEL_CLIENT_SECRET = "";
+process.env.PAYSTACK_SECRET = "sk_test_eazworld_dummy_secret";
+process.env.PAYSTACK_KEY = process.env.PAYSTACK_SECRET;
+
 const mongoose = require("mongoose");
 const { MongoMemoryServer } = require("mongodb-memory-server");
 

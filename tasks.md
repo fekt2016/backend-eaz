@@ -214,7 +214,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     summary on the client. Giving `Part` its own field was left out of scope.
   - **Verified:** full backend suite passes; `eslint` clean on the changed files.
 
-- [ ] **T38 · Cart overlay viewport fit — no backend change**
+- [x] **T38 · Cart overlay viewport fit — no backend change** — ✅ done 2026-08-24
   - **Issue:** The cart overlay that opens on **Add to Cart** from a product detail page
     (frontend `CartDrawer`) should fit all content within one viewport. This is a
     **frontend-only** layout fix; no API/model/route work required.
@@ -222,6 +222,10 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None on the backend. After the frontend drawer change, verify cart flow
     endpoints used from the drawer still work: `POST /api/v1/cart/sync` (if present),
     `GET /api/v1/products`, and checkout `POST /api/v1/orders`.
+  - **Outcome:** confirmed frontend-only — the fix was a CSS flexbox correction in
+    `CartDrawer.jsx` (a missing `min-h-0`), touching no API. No backend code changed.
+    The cart-flow endpoints named above are unaffected and still covered by the
+    existing suite (48 suites / 344 tests green).
 
 - [x] **T35 · Variant model: support a per-variant price** — ✅ done 2026-08-24
   - **Issue:** `Product.variants[]` only has `sku`, `attributes`, `stock`, `images` — no price.
