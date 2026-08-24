@@ -15,6 +15,7 @@
     "migrate:part-prices": "node src/migratePartPricesToPesewas.js",
     "migrate:pos-money": "node src/migratePosMoneyToPesewas.js",
     "migrate:user-phones": "node scripts/normalizeUserPhones.js",
+    "migrate:user-email-index": "node scripts/migrateUserEmailIndex.js",
     "check:duplicate-skus": "node scripts/checkDuplicateSkus.js",
     "check:duplicate-phones": "node scripts/checkDuplicatePhones.js",
     "test": "jest --runInBand",
