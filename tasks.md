@@ -223,7 +223,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     endpoints used from the drawer still work: `POST /api/v1/cart/sync` (if present),
     `GET /api/v1/products`, and checkout `POST /api/v1/orders`.
 
-- [ ] **T35 · Variant model: support a per-variant price**
+- [x] **T35 · Variant model: support a per-variant price** — ✅ done 2026-08-24
   - **Issue:** `Product.variants[]` only has `sku`, `attributes`, `stock`, `images` — no price.
     Variants should support their own price (different sizes/colors/storage cost differently)
     instead of always inheriting the base product price.
@@ -235,8 +235,17 @@ Not defects; product features that don't exist yet. Scope separately before buil
     create/update. When an order/sale line references a variant, use the variant price if set
     (else base price). Keep money in integer pesewas.
   - **Frontend part:** `frontend-eaz/tasks.md` → T35.
+  - **Shipped:** deviated from the fix note's suggested `default: 0` — used `default: null`
+    instead, since `0` is a valid legitimate "free variant" price and would be indistinguishable
+    from "unset" under a truthy-check fallback. Resolution in `orderController.createOrder` is
+    `variant.price != null ? variant.price : product.price` (nullish check, not `||`). Scoped to
+    shop checkout only — POS sell (`salesController.js`) has no variant-selection mechanism at
+    all today (confirmed: no `variant.sku` lookup, no variant field in the POS cart payload), so
+    there's nothing to resolve there yet; adding POS variant selection was treated as out of
+    scope for this task. 3 new tests in `variants.test.js` (variant price wins, unset falls back
+    to base price, explicit 0 stays free) — 44 suites/317 tests pass.
 
-- [ ] **T34 · Product image upload endpoint already covers local uploads — no backend change**
+- [x] **T34 · Product image upload endpoint already covers local uploads — no backend change** — ✅ done 2026-08-24
   - **Issue:** The product form's main images field is URL-only in the UI, but the backend
     upload route (`POST /api/v1/uploads`, Cloudinary) already exists and is used by the form's
     variant/gallery upload buttons. No backend work required for local product image upload.
@@ -244,6 +253,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
     `routes/uploadRoutes.js`
   - **Fix:** None expected on the backend — verify the upload endpoint accepts `image/*` and
     returns `{ url }`. Frontend change only (see `frontend-eaz/tasks.md` → T34).
+  - **Confirmed:** no backend change needed — frontend's `ProductForm.jsx` now reuses the same
+    `UploadButton` → `POST /uploads` → `{ url }` flow already exercised by the variant/gallery
+    fields; see `frontend-eaz/tasks.md` → T34 for what shipped.
 
 - [ ] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity**
   - **Issue:** `getReportsAnalytics` returns **shop-wide** figures to every role (only
