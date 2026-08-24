@@ -163,7 +163,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     pesewas as the pages expect.
   - **Frontend part:** `frontend-eaz/tasks.md` → T43.
 
-- [ ] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk**
+- [x] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk** — ✅ done 2026-08-24 (both halves)
   - **Issue:** Blog post content from `GET /api/v1/posts/:slug` is converted markdown→HTML
     with regex and injected via `dangerouslySetInnerHTML` with **no escaping/sanitization**.
     If an admin-authored (or compromised) post body contains HTML/JS, it executes for every
@@ -175,6 +175,41 @@ Not defects; product features that don't exist yet. Scope separately before buil
     handlers, `javascript:` URLs). The primary render fix lives in the frontend
     (`frontend-eaz/tasks.md` → T42) — escape HTML before the markdown regex, or use a
     safe renderer.
+  - **Finding — the existing sanitiser was weaker than the task assumed.** `createPost`
+    and `updatePost` already ran `sanitizeMessage(content, 50000)`, so this looked done.
+    It was not: that function removed whole `<script>…</script>` blocks and the literal
+    string `javascript:` in a **single pass**, and every one of these got through —
+    verified against the old code before changing it:
+    - `<img src=x onerror=alert(1)>`, `<svg onload=…>`, `<iframe>`, `<body onload=…>`
+      — event handlers and dangerous tags were never considered at all.
+    - `<scr<script></script>ipt>alert(1)</script>` — the single pass *built* the
+      payload: deleting the inner `<script></script>` let the outer fragments close up
+      into a live `<script>alert(1)</script>`.
+    - `javasjavascript:cript:alert(1)` — same reconstruction trick on the scheme.
+    - `java<TAB>script:alert(1)` — browsers strip tab/newline from inside a URL before
+      parsing the scheme, so this executes.
+  - **Shipped:**
+    - `utils/sanitize.js` — new `stripExecutableMarkup()` behind `sanitizeMessage`.
+      Removes script blocks, dangerous tags (`iframe`/`object`/`embed`/`style`/`link`/
+      `meta`/`base`/`form`/`svg`/`math`), inline `on*=` handlers, and executable URL
+      schemes. It loops to a fixed point rather than passing once, which is what closes
+      the reconstruction bypasses; each pass only deletes, so it terminates (with a
+      10-iteration cap as belt-and-braces).
+    - Scheme names are matched tolerating control characters between letters, so
+      `java<TAB>script:` is caught. Only control characters are allowed in those gaps —
+      not spaces — so ordinary prose like "Java Script: a book review" is untouched.
+    - `data:` is stripped only for `text/html` and `image/svg+xml`; a legitimate
+      `data:image/png` survives.
+    - Input is truncated to `maxLen` **before** stripping, so a hostile payload cannot
+      make the loop do more work than necessary.
+    - **This hardening reaches more than blog posts:** `sanitizeMessage` is also used by
+      `chatController` (chat messages), `reviewController` (product reviews) and
+      `contactController` (contact form) — all user-submitted, all previously exposed to
+      the same bypasses.
+    - `tests/sanitizeRichText.test.js` (new, 22 tests): 11 payloads asserted inert, 6
+      legitimate inputs asserted byte-identical, plus create/update route tests proving
+      nothing executable is persisted. Detection normalises control characters the way a
+      browser does, so an obfuscated scheme cannot pass the assertion either.
   - **Frontend part:** `frontend-eaz/tasks.md` → T42.
 
 - [ ] **T41 · Public track page part-order cart mixes float-GHS and pesewas**
