@@ -212,7 +212,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
       browser does, so an obfuscated scheme cannot pass the assertion either.
   - **Frontend part:** `frontend-eaz/tasks.md` → T42.
 
-- [ ] **T41 · Public track page part-order cart mixes float-GHS and pesewas**
+- [x] **T41 · Public track page part-order cart mixes float-GHS and pesewas** — ✅ done 2026-08-24
   - **Issue:** On the `/track/:token` page, `addToCart` stores `unitPriceGhs: sellingPrice / 100`
     (float GHS) then recomputes `totalPesewas = partsSubtotalGhs * 100 + shippingPesewas`
     (float × 100), while `addPartToShopCart` stores integer pesewas directly. Two cart paths,
@@ -222,6 +222,17 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None on the backend. Optionally confirm `POST /track/:token/orders` ignores the
     client's price and re-prices from the `Part` model (it does — items carry only
     `partId`+`quantity`).
+  - **Outcome — confirmed frontend-only, and the optional check was actually done.**
+    `controllers/pos/jobController.js` → `createRepairOrder` (mounted at
+    `POST /api/v1/track/:token/orders`) destructures only `items, shippingZoneId, name,
+    phone, email` from the body, and for each item reads just `it.partId` and
+    `it.quantity` (clamped 1–10). Unit price comes from `Part.sellingPrice` via
+    `Part.findById`, shipping from `DeliveryZone.fee`; `subtotalPesewas` and
+    `totalPesewas` are computed server-side from those. **No client-supplied price is
+    read anywhere in the handler**, so the frontend's float-vs-pesewas confusion could
+    never have affected what a customer was charged — it was a display bug only.
+    Stock is also re-checked against `part.quantity` before the order is accepted.
+  - No backend code changed.
   - **Frontend part:** `frontend-eaz/tasks.md` → T41.
 
 - [x] **T39 · Product detail tabs + `shortDescription` field** — ✅ done 2026-08-24 (both halves)
