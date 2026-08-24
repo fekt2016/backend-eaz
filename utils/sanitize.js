@@ -60,14 +60,62 @@ function sanitizeInt(val, min, max) {
   return n;
 }
 
+// ── Rich-text stripping (T42) ───────────────────────────────────────────────
+// Defence in depth for stored text that may later be rendered as HTML (blog post
+// bodies especially — see frontend BlogArticle, which does the primary escaping).
+//
+// A whole <script>…</script> block, plus tags that can execute or exfiltrate on
+// their own. <svg>/<math> are here because they carry event handlers; <base> and
+// <form> because they can redirect a page's links and submissions.
+const SCRIPT_BLOCK    = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi;
+const DANGEROUS_TAG   = /<\s*\/?\s*(?:script|iframe|object|embed|style|link|meta|base|form|svg|math)\b[^>]*>?/gi;
+// Any inline event handler: onerror=, onload=, onclick=… quoted or bare.
+const EVENT_ATTR      = /\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+// Executable URL schemes. `data:` is only stripped for the two payload-carrying
+// types, so a legitimate data:image/png in content still survives.
+//
+// Browsers strip tab/newline/CR from inside a URL *before* parsing its scheme, so
+// `java&#9;script:alert(1)` runs. The scheme names are therefore built to tolerate
+// those characters between every letter. Only control characters are allowed in the
+// gaps — not spaces — so ordinary prose like "Java Script:" is left alone.
+const CTRL = '[\\t\\n\\r\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]*';
+const withGaps = (word) => word.split('').join(CTRL);
+const DANGEROUS_SCHEME = new RegExp(
+  `(?:${withGaps('javascript')}|${withGaps('vbscript')})${CTRL}:`
+    + `|data${CTRL}:${CTRL}(?:text\\/html|image\\/svg\\+xml)`,
+  'gi',
+);
+
+/**
+ * Strip executable markup, repeatedly, until the string stops changing.
+ *
+ * The loop is the point. A single pass can *create* a payload it just removed:
+ * `<scr<script></script>ipt>alert(1)</script>` has its inner `<script></script>`
+ * deleted, and the remains close up into a live `<script>alert(1)</script>`. The
+ * same trick reconstructs `javascript:` out of `javasjavascript:cript:`. Each pass
+ * only deletes, so the string shrinks monotonically and this terminates; the cap is
+ * belt-and-braces against a pathological input.
+ */
+function stripExecutableMarkup(str) {
+  let out = str;
+  for (let i = 0; i < 10; i++) {
+    const before = out;
+    out = out
+      .replace(SCRIPT_BLOCK, '')
+      .replace(DANGEROUS_TAG, '')
+      .replace(EVENT_ATTR, '')
+      .replace(DANGEROUS_SCHEME, '');
+    if (out === before) break;
+  }
+  return out;
+}
+
 /** Long-form text (message bodies). Returns undefined if empty. */
 function sanitizeMessage(str, maxLen = 5000) {
   if (!str || typeof str !== 'string') return undefined;
-  const cleaned = str
-    .trim()
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/javascript:/gi, '')
-    .slice(0, maxLen);
+  // Truncate first so a huge hostile payload can't make the strip loop do more work
+  // than necessary, then strip, then trim the whitespace stripping may have left.
+  const cleaned = stripExecutableMarkup(str.trim().slice(0, maxLen)).trim();
   return cleaned || undefined;
 }
 
