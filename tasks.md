@@ -1360,7 +1360,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     (not empty strings). Full suite: 44 suites/314 tests pass. Lint clean (0 errors).
   - **Frontend part:** `frontend-eaz/tasks.md` → T36.
 
-- [ ] **T35 · Variant model: support a per-variant price**
+- [x] **T35 · Variant model: support a per-variant price** — ✅ done 2026-08-24
   - **Issue:** `Product.variants[]` only has `sku`, `attributes`, `stock`, `images` — no price.
     Variants should support their own price (different sizes/colors/storage cost differently)
     instead of always inheriting the base product price.
@@ -1372,6 +1372,15 @@ Not defects; product features that don't exist yet. Scope separately before buil
     create/update. When an order/sale line references a variant, use the variant price if set
     (else base price). Keep money in integer pesewas.
   - **Frontend part:** `frontend-eaz/tasks.md` → T35.
+  - **Shipped:** deviated from the fix note's suggested `default: 0` — used `default: null`
+    instead, since `0` is a valid legitimate "free variant" price and would be indistinguishable
+    from "unset" under a truthy-check fallback. Resolution in `orderController.createOrder` is
+    `variant.price != null ? variant.price : product.price` (nullish check, not `||`). Scoped to
+    shop checkout only — POS sell (`salesController.js`) has no variant-selection mechanism at
+    all today (confirmed: no `variant.sku` lookup, no variant field in the POS cart payload), so
+    there's nothing to resolve there yet; adding POS variant selection was treated as out of
+    scope for this task. 3 new tests in `variants.test.js` (variant price wins, unset falls back
+    to base price, explicit 0 stays free) — 44 suites/317 tests pass.
 
 - [ ] **T34 · Product image upload endpoint already covers local uploads — no backend change**
   - **Issue:** The product form's main images field is URL-only in the UI, but the backend

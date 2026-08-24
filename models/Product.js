@@ -60,6 +60,18 @@ const productSchema = new mongoose.Schema(
           attributes: { type: Map, of: String, default: {} },
           stock: { type: Number, min: [0, "Stock cannot be negative"], default: 0 },
           images: { type: [String], default: [] },
+          // Per-variant price override, in pesewas. `null` (default) means
+          // "unset" — resolve to the product's base price. Distinct from an
+          // explicit `0`, which is a legitimately free variant.
+          price: {
+            type: Number,
+            min: [0, "Price cannot be negative"],
+            default: null,
+            validate: {
+              validator: (v) => v == null || Number.isInteger(v),
+              message: "Variant price must be a whole number in pesewas",
+            },
+          },
         },
       ],
       default: [],

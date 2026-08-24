@@ -137,6 +137,49 @@ describe("Order creation with variants (Phase 3)", () => {
     expect(order.items[0].variant).toBeUndefined();
     expect(order.items[0].name).toBe("Cable");
   });
+
+  it("uses the variant's own price when set, not the base product price", async () => {
+    const product = await makeVariantProduct({
+      variants: [
+        { sku: "SPG-BLK", attributes: { color: "Black" }, stock: 60, price: 17999 },
+        { sku: "SPG-BLU", attributes: { color: "Blue" }, stock: 50 },
+      ],
+    });
+    const res = await request(app)
+      .post("/api/v1/orders")
+      .send(orderPayload(product, 1, { sku: "SPG-BLK", attributes: { color: "Black" } }));
+    expect(res.status).toBe(200);
+
+    const order = await Order.findOne().sort({ _id: -1 });
+    expect(order.items[0].price).toBe(17999);
+  });
+
+  it("falls back to the base product price when the variant price is unset", async () => {
+    const product = await makeVariantProduct();
+    const res = await request(app)
+      .post("/api/v1/orders")
+      .send(orderPayload(product, 1, { sku: "SPG-BLU", attributes: { color: "Blue" } }));
+    expect(res.status).toBe(200);
+
+    const order = await Order.findOne().sort({ _id: -1 });
+    expect(order.items[0].price).toBe(product.price);
+  });
+
+  it("respects an explicit 0 variant price as free, not as unset", async () => {
+    const product = await makeVariantProduct({
+      variants: [
+        { sku: "SPG-BLK", attributes: { color: "Black" }, stock: 60, price: 0 },
+        { sku: "SPG-BLU", attributes: { color: "Blue" }, stock: 50 },
+      ],
+    });
+    const res = await request(app)
+      .post("/api/v1/orders")
+      .send(orderPayload(product, 1, { sku: "SPG-BLK", attributes: { color: "Black" } }));
+    expect(res.status).toBe(200);
+
+    const order = await Order.findOne().sort({ _id: -1 });
+    expect(order.items[0].price).toBe(0);
+  });
 });
 
 // ── Admin create/update preserve variants + gallery (controller whitelist) ──

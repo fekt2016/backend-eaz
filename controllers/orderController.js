@@ -88,6 +88,9 @@ const createOrder = async (req, res, next) => {
       // checked against that variant, and the order line records which variant
       // was purchased. Products without variants keep the old single-SKU path.
       let variantInfo = null;
+      // Variant price wins over base price when set; `null`/unset falls back
+      // to product.price (see Product.js variants schema comment).
+      let resolvedPrice = product.price;
       if (item.variant && item.variant.sku) {
         const variant = (product.variants || []).find(
           (v) => v.sku === item.variant.sku,
@@ -112,6 +115,7 @@ const createOrder = async (req, res, next) => {
               ? variant.attributes.toObject()
               : variant.attributes || {},
         };
+        resolvedPrice = variant.price != null ? variant.price : product.price;
       }
 
       if (product.stock < qty && !variantInfo) {
@@ -121,7 +125,7 @@ const createOrder = async (req, res, next) => {
         product: product._id,
         name: product.name,
         ...(variantInfo && { variant: variantInfo }),
-        price: product.price,
+        price: resolvedPrice,
         qty,
       });
     }
