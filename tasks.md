@@ -189,14 +189,30 @@ Not defects; product features that don't exist yet. Scope separately before buil
     `partId`+`quantity`).
   - **Frontend part:** `frontend-eaz/tasks.md` → T41.
 
-- [ ] **T39 · Product detail tabs (Description / Reviews) — no backend change**
+- [x] **T39 · Product detail tabs + `shortDescription` field** — ✅ done 2026-08-24 (both halves)
   - **Issue:** The frontend product detail page (`/shop/[slug]`) should show **tabs** for
-    Description and Reviews instead of stacking them as one long page. This is a
-    **frontend-only** UI change; no API/model/route work required.
-  - **Location:** n/a (backend) — see `frontend-eaz/tasks.md` → T39 for the fix.
-  - **Fix:** None on the backend. Verify the endpoints backing the tabs still work:
-    `GET /api/v1/products/:slug` (description + specs), `GET /api/v1/products/:productId/reviews`
-    (public review list), and the review submit/eligibility routes.
+    Description and Reviews instead of stacking them as one long page.
+  - **Originally filed as frontend-only** ("no API/model/route work required"). That turned
+    out to be wrong: with the full description moved behind a tab, the buy column needed a
+    short summary of its own, and the decision was that it should be a real editor-authored
+    field rather than text derived on the client. So this grew a backend half.
+  - **Shipped:**
+    - `models/Product.js` — new optional `shortDescription` (String, trimmed, `maxlength:
+      200`, defaults to `""`). Optional by design: every product that predates the field
+      stays valid, and the storefront falls back to summarising `description`.
+    - `controllers/productController.js` — `createProduct` destructures its fields
+      explicitly, so `shortDescription` had to be added there and passed to
+      `Product.create`. `updateProduct` spreads `req.body`, so it needed no change —
+      mongoose drops unknown keys, and the field flows through once it is on the schema.
+    - **No projection changes needed:** `productController` has no `.select()` anywhere,
+      so the new field is already returned by both the list and detail endpoints.
+    - `tests/productShortDescription.test.js` (new, 5 tests): persists on create, defaults
+      to `""` when omitted, updates without clobbering `description`, rejects >200 chars
+      with a 400, and is present on the public `GET /api/v1/products/:slug` the page reads.
+  - **Note:** retail parts surface in the catalogue under a synthetic `part-<id>` slug and
+    resolve to a `Part`, which has no `shortDescription` — those fall back to the derived
+    summary on the client. Giving `Part` its own field was left out of scope.
+  - **Verified:** full backend suite passes; `eslint` clean on the changed files.
 
 - [ ] **T38 · Cart overlay viewport fit — no backend change**
   - **Issue:** The cart overlay that opens on **Add to Cart** from a product detail page

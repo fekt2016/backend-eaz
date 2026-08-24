@@ -19,6 +19,16 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    // T39: one-or-two-line summary shown in the buy column on the product page,
+    // above the price. The full `description` lives behind the Description tab.
+    // Optional — the storefront falls back to summarising `description` when this
+    // is empty, so products created before this field still read sensibly.
+    shortDescription: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: [200, "Short description cannot exceed 200 characters"],
+    },
     price: {
       type: Number,
       required: [true, "Price is required"],
