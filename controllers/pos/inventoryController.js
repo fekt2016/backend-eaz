@@ -23,17 +23,23 @@ const getParts = async (req, res, next) => {
     // searches so cashiers can ring up in-store products too.
     let data = parts;
     if (includeProducts === 'true') {
-      const prodQuery = { isActive: true };
-      if (q) prodQuery.$or = [
-        { name: { $regex: escapeRegex(q), $options: 'i' } },
-        { sku:  { $regex: escapeRegex(q), $options: 'i' } },
-      ];
-      const products = await Product.find(prodQuery)
-        .select('name sku price stock category images')
-        .sort({ name: 1 })
-        .limit(Number(limit))
-        .lean();
-      data = [...data, ...products.map(normalizeProduct)];
+      // Products get whatever is left of `limit` after the parts, so the merged
+      // response honours the limit the caller asked for. It used to fetch a further
+      // `limit` products and concatenate, which meant ?limit=10 could return 20 rows.
+      const remaining = Math.max(0, Number(limit) - parts.length);
+      if (remaining > 0) {
+        const prodQuery = { isActive: true };
+        if (q) prodQuery.$or = [
+          { name: { $regex: escapeRegex(q), $options: 'i' } },
+          { sku:  { $regex: escapeRegex(q), $options: 'i' } },
+        ];
+        const products = await Product.find(prodQuery)
+          .select('name sku price stock category images')
+          .sort({ name: 1 })
+          .limit(remaining)
+          .lean();
+        data = [...data, ...products.map(normalizeProduct)];
+      }
     }
 
     res.json({ success: true, data, total });
