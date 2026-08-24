@@ -113,7 +113,9 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
     it was an oversight.
   - **Source:** AUDIT.md §7 note, §23
 
-- [ ] **T17 · Allow registration with email OR phone number**
+- [x] **T17 · Allow registration with email OR phone number** — ✅ done 2026-08-23 (both
+  halves; frontend register form + verify page shipped in `frontend-eaz` on the same
+  branch)
   - **Issue:** Registration currently requires an email input (`email` is a required field
     on the signup schema), but users should be able to register using **either** an
     email **or** a phone number. (Related: login already supports `$or` lookup by email/phone;
@@ -124,6 +126,53 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
     least one identifier. Send verification (email PIN or phone OTP) to whichever
     identifier was chosen. Scope account verification/OTP accordingly.
   - **Frontend part:** register form changes live in **`frontend-eaz/tasks.md` → T17**.
+  - **Shipped (backend half):**
+    - **`models/User.js`** — turned out to be a hard prerequisite, not just the schema/
+      controller the fix note named: `email` was `required:true, unique:true` at the
+      Mongoose level, so `User.create()` would throw a `ValidationError` for a phone-only
+      registration regardless of what the controller/Zod schema allowed. Removed
+      `required`/field-level `unique`; added a partial-unique index on `email` mirroring
+      the existing `phone` pattern (safe to build directly — email was previously
+      required+unique, so every existing document already has a distinct value). Added a
+      `pre('validate')` guard rejecting a document with neither `email` nor `phone`, as
+      defense-in-depth for any other `User.create()` call site.
+      (Pre-existing workaround this replaces for *self*-registration: the POS
+      staff-create-customer flow in `controllers/pos/customerController.js` already
+      handles phone-only accounts today, but via a synthetic
+      `${phone}@eazworld.local` email — left untouched, out of scope, still works.)
+    - **`validation/authSchema.js`** — `registerSchema.email`/`.phone` both optional via
+      `z.preprocess` (blank/whitespace → `undefined`) + `.email().optional()`, with a
+      top-level `.refine()` requiring at least one. The preprocess step matters: without
+      it, an intentionally-blank `email: ''` (a real value a form posts, not `undefined`)
+      fails `z.string().email()`'s format check with "Invalid email" before `.refine()`
+      ever runs — so the user gets the wrong error message for "I left email blank on
+      purpose." Not wired into a route yet (`register`/`login` both still parse manually,
+      pre-existing pattern per CLAUDE.md); kept accurate for whenever it is.
+    - **`controllers/authController.js`** (`register`) — accepts either identifier;
+      existing-user/phone-taken pre-checks now conditional on the identifier being
+      present; verification PIN goes to email (existing `sendVerificationPin`) or SMS (new
+      `sendVerificationPinSms`, phone-only), never both.
+    - **`controllers/authController.js`** (`verifyPin`, `resendPin`) — necessary follow-on:
+      a phone-only registrant has no email to submit to these endpoints, so both now
+      accept either identifier via the same `$or` lookup pattern `login` already uses,
+      instead of an email-only lookup. `verifyPin`'s post-verify `sendWelcomeEmail` is now
+      conditional on the account actually having an email.
+    - **`services/notify.js`** — new `sendVerificationPinSms(phone, name, pin)`, mirroring
+      the existing `sendCredentialsSms` graceful-degrade pattern (silent no-op if Hubtel
+      env vars aren't set — T3f is still blocked/unconfigured in this project — logged in
+      dev, silent in prod; never throws to the caller).
+    - `tests/registerSchema.test.js` (7 tests, schema-only, no DB) — covers the
+      blank-string-vs-undefined trap directly: empty-string email+phone is rejected with
+      the refine's message (not `.email()`'s "Invalid email"), a whitespace-only email
+      with a real phone passes and normalizes to `undefined`, and a real invalid email
+      format is still rejected when actually provided.
+    - `tests/registerEmailOrPhone.test.js` (8 tests, full app + in-memory DB) — email-only
+      regression, phone-only registration end-to-end, both-missing and both-empty-string
+      rejected, two phone-only accounts coexist (partial index), `verify-pin`/`resend-pin`
+      by phone for a phone-only account, and a garbage identifier rejected on both
+      endpoints.
+  - **Verified:** full suite 41 suites / 297 tests pass (up from 39/282 — 2 new files, 15
+    new tests); `npm run lint` 0 errors.
 
 - [ ] **T18 · Backend guard: reject `cancelled` from `ready` repair jobs**
   - **Issue:** Frontend hides "Cancel Job" once a job is `ready` (see
@@ -219,7 +268,8 @@ Not defects; product features that don't exist yet. Scope separately before buil
     endpoints used from the drawer still work: `POST /api/v1/cart/sync` (if present),
     `GET /api/v1/products`, and checkout `POST /api/v1/orders`.
 
-- [ ] **T37 · POS inventory search: return product images**
+- [x] **T37 · POS inventory search: return product images** — ✅ done 2026-08-23 (both
+  halves)
   - **Issue:** When the sell page searches with `includeProducts=true`, the shop product
     query does `.select('name sku price stock category')` — **no `images`** — so product
     thumbnails can't render in the sell page results/cart. Parts already return their full
@@ -227,21 +277,36 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Location:** `controllers/pos/inventoryController.js` (getParts product query ~line 32 —
     add `images` to `.select(...)`); scan lookup (`scanLookup` ~line 74) already returns full
     docs but confirm `images` survives `normalizeProduct`
-  - **Fix:** Add `images` to the product `.select(...)` so `GET /pos/inventory?...` returns
-    them. `normalizeProduct` spreads the full product, so `images` flows through untouched.
-    No model change needed.
+  - **Fix:** Added `images` to the product `.select(...)` so `GET /pos/inventory?...` returns
+    them. `normalizeProduct` spreads the full product, so `images` flows through untouched —
+    no model change needed. `scanLookup`'s SKU-fallback branch already returns the full
+    (unselected) product doc via `normalizeProduct`, so it needed no change.
+  - **Tests:** `tests/partImages.test.js` gained a `T37` describe block — a matched product
+    returns its `images` array (previously omitted), and a product with none returns `[]`,
+    not `undefined`.
   - **Frontend part:** `frontend-eaz/tasks.md` → T37.
 
-- [ ] **T36 · Supplier model: add WhatsApp and WeChat fields**
+- [x] **T36 · Supplier model: add WhatsApp and WeChat fields** — ✅ done 2026-08-23 (both
+  halves)
   - **Issue:** Parts/products are sourced from China — vendors are contacted via **WhatsApp**
     and **WeChat**, not just phone/email. The `Supplier` schema needs fields for both.
   - **Location:** `models/Supplier.js` (add `whatsapp`, `wechat` strings), sanitization +
     validation in `controllers/pos/expenseController.js` (createSupplier/updateSupplier),
     include in `GET /pos/suppliers` + `GET /pos/suppliers/:id` responses (already returned via
     find).
-  - **Fix:** Add `whatsapp` (phone, maxlength ~30) and `wechat` (WeChat ID, maxlength ~50)
-    optional fields; sanitize like phone (and allow a leading `+`). Frontend renders chat
-    links. Keep money/roles unchanged.
+  - **Fix:** Added `whatsapp` (maxlength 30) and `wechat` (maxlength 50) optional fields to
+    `Supplier`; wired into `createSupplier`/`updateSupplier` (incl. `buildChanges` activity-log
+    diffing). `getSuppliers`/`getSupplier` do a plain `.find()`/`.findById()` with no
+    `.select()`, so both new fields flow through untouched — no read-side change needed.
+  - **Deviated from the fix note's "sanitize like phone":** used `sanitizeText`, not
+    `sanitizePhone`. `sanitizePhone` (`utils/sanitize.js`) is Ghana-specific — it strips every
+    non-digit character (including a leading `+`) and only accepts a 9/10-digit local number
+    or a `233` country code; a China WhatsApp number (`+86138...`) would come out mangled or
+    empty. `sanitizeText` just trims/strips tags, which is what the fix note's own "allow a
+    leading `+`" actually needs.
+  - **Tests:** new `tests/supplierContact.test.js` (4 tests) — create/read/update persist both
+    fields, whatsapp keeps its leading `+`, and an unset supplier returns `undefined` for both
+    (not empty strings). Full suite: 44 suites/314 tests pass. Lint clean (0 errors).
   - **Frontend part:** `frontend-eaz/tasks.md` → T36.
 
 - [ ] **T35 · Variant model: support a per-variant price**
@@ -266,7 +331,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None expected on the backend — verify the upload endpoint accepts `image/*` and
     returns `{ url }`. Frontend change only (see `frontend-eaz/tasks.md` → T34).
 
-- [ ] **T33 · `Part` model + inventory endpoint should support an image**
+- [x] **T33 · `Part` model + inventory endpoint should support an image** — ✅ done
+  2026-08-23 (both halves; frontend upload UI shipped in `frontend-eaz` on the matching
+  branch)
   - **Issue:** Repair parts have no image field; the inventory form can't attach a photo. Shop
     products already support images (`Product.images`). Parts need the same.
   - **Location:** `models/Part.js`, `controllers/pos/inventoryController.js`,
@@ -274,6 +341,29 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** Add an image field to `Part` (e.g. `image`/`images`), accept it in the inventory
     create/update handlers, and expose it in `GET /pos/inventory` + scan/search responses.
     Frontend part: `frontend-eaz/tasks.md` → T33.
+  - **Found already shipped, not new work:** `Part.images` (schema), `createPart`/
+    `updatePart` accepting and persisting it, `GET /pos/inventory` (unrestricted
+    `.find()`, no `.select()`), and `GET /track/parts` (`getPublicParts`, explicit
+    `.select(...images)`) were all already correct before this task touched anything —
+    this fix note pre-dated whatever earlier work actually added the field. No code
+    change was needed for any of that; added `tests/partImages.test.js` (5 tests) to lock
+    it in, since none existed.
+  - **The actual gap found and fixed:** the fix note's own "upload route (Cloudinary) used
+    by products" is `POST /api/v1/uploads` (`routes/uploadRoutes.js`) — it was
+    `restrictTo('admin')` only, while `createProduct`/`updateProduct`
+    (`routes/productRoutes.js`) and `createPart`/`updatePart` are both
+    `restrictTo('superadmin','staff','admin')`. This is a **pre-existing bug, not
+    introduced here**: `ProductForm.jsx` on the frontend already calls this endpoint
+    today, so a staff member using the live product form already gets 403'd trying to
+    upload an image, independent of Part work. Confirmed via a full frontend grep that
+    this route has exactly one other consumer (`ProductForm.jsx`) — the job-photo upload
+    (`usePosJobs.js`) hits a completely separate dedicated route, unaffected — so
+    widening this one to `restrictTo('admin', 'staff')` is scoped exactly to its two real
+    callers, not a blanket loosening. `tests/uploadRoute.test.js` (6 tests, mocked
+    Cloudinary): technician/plain-user still 403, unauthenticated still 401, staff/admin/
+    superadmin now 200.
+  - **Verified:** full suite 43 suites/308 tests pass (up from 41/297); `npm run lint` 0
+    errors.
 
 - [ ] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity**
   - **Issue:** `getReportsAnalytics` returns **shop-wide** figures to every role (only

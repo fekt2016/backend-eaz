@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { protect, restrictTo } = require('../middleware/auth');
 const { sendWelcomeEmail, sendPasswordResetEmail, sendVerificationPin, sendTwoFactorPin } = require('../utils/email');
+const { sendVerificationPinSms } = require('../services/notify');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, validatePassword } = require('../utils/sanitize');
 const { log, logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
 
@@ -71,10 +72,12 @@ const register = async (req, res, next) => {
     const phone = sanitizePhone(req.body.phone);
     const { password } = req.body;
 
-    if (!name || !email || !password) {
+    // T17: registration accepts either identifier, but not neither — sanitizeEmail/
+    // sanitizePhone already collapse '' and whitespace-only input to undefined.
+    if (!name || !password || (!email && !phone)) {
       return res.status(400).json({
         success: false,
-        error: 'Name, email, and password are required.'
+        error: 'Name, password, and an email or phone number are required.'
       });
     }
 
@@ -83,12 +86,14 @@ const register = async (req, res, next) => {
       return res.status(400).json({ success: false, error: pwError });
     }
 
-    const existing = await User.findOne({ email });
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        error: 'Email already registered.'
-      });
+    if (email) {
+      const existing = await User.findOne({ email });
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email already registered.'
+        });
+      }
     }
 
     // Phone is optional, but when supplied it must be unique (canonical form
@@ -109,7 +114,7 @@ const register = async (req, res, next) => {
 
     const user = await User.create({
       name,
-      email,
+      ...(email ? { email } : {}),
       ...(phone ? { phone } : {}),
       password,
       isVerified: false,
@@ -117,14 +122,20 @@ const register = async (req, res, next) => {
       verifyPinExpires: pinExpires,
     });
 
-    await sendVerificationPin(user, pin).catch(() => {});
+    // Verification goes to whichever identifier was actually provided — never both.
+    if (email) {
+      await sendVerificationPin(user, pin).catch(() => {});
+    } else {
+      await sendVerificationPinSms(phone, name, pin).catch(() => {});
+    }
+
     await log({
       actor: user,
       action: ACTIONS.USER_REGISTERED,
       resourceType: RESOURCES.USER,
       resourceId: user._id,
-      resourceName: user.email,
-      description: `New account registered (${user.email})`,
+      resourceName: user.email || user.phone,
+      description: `New account registered (${user.email || user.phone})`,
       ip: req.ip,
       userAgent: req.get('user-agent') || '',
       requestId: req.id,
@@ -133,8 +144,11 @@ const register = async (req, res, next) => {
     res.status(201).json({
       success: true,
       data: {
-        message: 'Account created. Please check your email for a 6-digit verification code.',
+        message: email
+          ? 'Account created. Please check your email for a 6-digit verification code.'
+          : 'Account created. Please check your phone for a 6-digit verification code.',
         email: user.email,
+        phone: user.phone,
         requiresVerification: true,
       }
     });
@@ -419,13 +433,24 @@ const resetPassword = async (req, res, next) => {
 
 const verifyPin = async (req, res, next) => {
   try {
-    const email = sanitizeEmail(req.body.email);
+    // T17: a phone-only registrant has no email to submit here — accept
+    // whichever identifier was used to register, same $or lookup as login.
+    const identifier = (req.body.email || req.body.phone || '').trim();
     const { pin } = req.body;
-    if (!email || !pin) {
-      return res.status(400).json({ success: false, error: 'Email and PIN are required.' });
+    if (!identifier || !pin) {
+      return res.status(400).json({ success: false, error: 'Email or phone and PIN are required.' });
     }
 
-    const user = await User.findOne({ email })
+    const email = sanitizeEmail(identifier);
+    const phone = sanitizePhone(identifier);
+    const lookups = [];
+    if (/\S+@\S+\.\S+/.test(email)) lookups.push({ email });
+    if (phone && phone.length >= 9) lookups.push({ phone });
+    if (!lookups.length) {
+      return res.status(400).json({ success: false, error: 'Enter a valid email or phone number.' });
+    }
+
+    const user = await User.findOne({ $or: lookups })
       .select('+verifyPin +verifyPinExpires +password');
 
     if (!user) {
@@ -458,8 +483,9 @@ const verifyPin = async (req, res, next) => {
     user.verifyPinExpires = undefined;
     await user.save({ validateBeforeSave: false });
 
-    // Send welcome email
-    sendWelcomeEmail(user).catch(() => {});
+    // Send welcome email — only when the account actually has one (T17: phone-only
+    // registrants have no email to send to).
+    if (user.email) sendWelcomeEmail(user).catch(() => {});
 
     // Log them in immediately
     user.password = undefined;
@@ -471,16 +497,26 @@ const verifyPin = async (req, res, next) => {
 
 const resendPin = async (req, res, next) => {
   try {
-    const email = sanitizeEmail(req.body.email);
-    if (!email) {
-      return res.status(400).json({ success: false, error: 'Email is required.' });
+    // T17: same identifier flexibility as verifyPin — accept email or phone.
+    const identifier = (req.body.email || req.body.phone || '').trim();
+    if (!identifier) {
+      return res.status(400).json({ success: false, error: 'Email or phone is required.' });
     }
 
-    const user = await User.findOne({ email })
+    const email = sanitizeEmail(identifier);
+    const phone = sanitizePhone(identifier);
+    const lookups = [];
+    if (/\S+@\S+\.\S+/.test(email)) lookups.push({ email });
+    if (phone && phone.length >= 9) lookups.push({ phone });
+    if (!lookups.length) {
+      return res.status(400).json({ success: false, error: 'Enter a valid email or phone number.' });
+    }
+
+    const user = await User.findOne({ $or: lookups })
       .select('+verifyPin +verifyPinExpires');
 
     if (!user) {
-      // Don't reveal if email exists
+      // Don't reveal if the account exists
       return res.status(200).json({ success: true, data: { message: 'If that account exists, a new code has been sent.' } });
     }
 
@@ -493,9 +529,20 @@ const resendPin = async (req, res, next) => {
     user.verifyPinExpires = new Date(Date.now() + 15 * 60 * 1000);
     await user.save({ validateBeforeSave: false });
 
-    await sendVerificationPin(user, pin).catch(() => {});
+    if (user.email) {
+      await sendVerificationPin(user, pin).catch(() => {});
+    } else {
+      await sendVerificationPinSms(user.phone, user.name, pin).catch(() => {});
+    }
 
-    res.status(200).json({ success: true, data: { message: 'A new verification code has been sent to your email.' } });
+    res.status(200).json({
+      success: true,
+      data: {
+        message: user.email
+          ? 'A new verification code has been sent to your email.'
+          : 'A new verification code has been sent to your phone.',
+      }
+    });
   } catch (error) {
     next(error);
   }

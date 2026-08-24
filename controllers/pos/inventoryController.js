@@ -29,7 +29,7 @@ const getParts = async (req, res, next) => {
         { sku:  { $regex: escapeRegex(q), $options: 'i' } },
       ];
       const products = await Product.find(prodQuery)
-        .select('name sku price stock category')
+        .select('name sku price stock category images')
         .sort({ name: 1 })
         .limit(Number(limit))
         .lean();
