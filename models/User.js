@@ -158,9 +158,15 @@ userSchema.index(
   { phone: 1 },
   { unique: true, partialFilterExpression: { phone: { $type: 'string', $gt: '' } } },
 );
-// Unique email — same partial pattern as phone above (T17). Safe to build
-// directly: email was `required`+`unique` before this change, so every
-// existing document already has a distinct non-empty value.
+// Unique email — same partial pattern as phone above (T17). The DATA is already
+// compatible (email was `required`+`unique` before this change, so every existing
+// document has a distinct non-empty value), but the INDEX is not: a pre-T17
+// database still carries a plain unique `email_1`, and autoIndex cannot replace it
+// (same name + different options → IndexKeySpecsConflict). The old index then
+// survives and rejects the second email-less account with a `{ email: null }`
+// duplicate-key error. Run `npm run migrate:user-email-index` against any existing
+// database before deploying this. Same situation as `phone` above, whose legacy
+// index is handled by `npm run migrate:user-phones`.
 userSchema.index(
   { email: 1 },
   { unique: true, partialFilterExpression: { email: { $type: 'string', $gt: '' } } },
