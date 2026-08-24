@@ -127,6 +127,53 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
 
 Not defects; product features that don't exist yet. Scope separately before building.
 
+- [x] **T46 · Sales endpoints: scope by cashier + per-staff summary** — ✅ done 2026-08-24 (both halves)
+  - **Request:** back the Sell page's per-staff sales section (see
+    `frontend-eaz/tasks.md` → T46).
+  - **Found while implementing — this was also an access-control gap.** `GET /pos/sales`
+    had no `restrictTo` and no cashier scoping, so **any authenticated POS user could
+    list every cashier's sales**, and `GET /pos/sales/:id` would open any sale by id.
+  - **Shipped:** `controllers/pos/salesController.js`, `routes/posRoutes.js`
+    - `getSales` scopes to `req.user._id` for everyone except admin/superadmin. The
+      scope comes from `req.user`, never from the query string, so a staff member
+      passing `?cashierId=` cannot widen it. Admins may use `?cashierId=` to filter,
+      validated as an ObjectId.
+    - `getSale` applies the same rule, returning **404 rather than 403** so the endpoint
+      does not confirm that another cashier's sale id exists.
+    - `page`/`limit` are now clamped (limit max 100). They were unbounded, so one
+      request could pull the entire sales history into a 512MB heap.
+    - Search terms go through `escapeRegex` — they were interpolated raw into `$regex`.
+    - New `GET /pos/sales/summary`: own totals (all-time + today) for every role, plus a
+      per-cashier `byStaff` aggregate for admin/superadmin. A sale whose cashier account
+      was deleted still counts, labelled "Unknown", rather than vanishing from the totals.
+    - The summary route is registered **before** `/sales/:id`, or Express would match
+      "summary" as an id.
+    - `tests/salesScoping.test.js` (new, 16 tests) covering the scoping, the
+      cannot-widen case, admin filtering, the 404-not-403 behaviour, voided exclusion,
+      the limit clamp, and every summary shape.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T46.
+  - **Verified:** full backend suite 50 suites / 382 tests, exit 0; no new lint warnings
+    (salesController went 37 → 36).
+
+- [ ] **T47 · `Sale.saleNumber` collides when two cashiers check out at once**
+  - **Issue:** `models/Sale.js`'s pre-save hook builds the sale number from a document
+    count: `const count = await mongoose.model('Sale').countDocuments()` then
+    `SAL-YYYYMM-{count+1}`. Two concurrent creates read the same count, generate the
+    same number, and the unique index rejects one with
+    `E11000 duplicate key error ... saleNumber_1`. The losing cashier gets a 500 and the
+    sale is not recorded.
+  - **Reproduced 2026-08-24** while writing T46's tests: three sequential creates
+    succeed (`SAL-202608-00001..3`); three concurrent creates produce two successes and
+    one E11000. The window is the whole `countDocuments()` round-trip, so this is not a
+    narrow race — two cashiers ringing up at the same moment is enough.
+  - **Also wrong regardless of the race:** the count includes voided sales but a voided
+    sale keeps its number, and any future delete would cause reuse.
+  - **Fix (suggested):** replace the count with an atomic per-month counter
+    (`findOneAndUpdate` with `$inc` and `upsert` on a small counters collection), or
+    retry on E11000. Note the hook runs inside `createSale`'s transaction, so the
+    counter write must join the same session.
+  - **Frontend part:** none — surfaces as the same "Sale failed" error T30 added.
+
 - [ ] **T45 · Pre-order support for products** — items that are out of stock, or not yet available in Ghana, currently can't be ordered at all (the shop blocks add-to-cart / checkout on zero stock). Add a pre-order capability so customers can place these ahead of availability.
   - **Model (`models/Product.js`):** add a `preorder` sub-object — e.g. `preorder.enabled` (bool), `preorder.availableFrom` (date | null), `preorder.note` (string, e.g. "ships from abroad, ~3 weeks"), and a cap field if pre-order quantity is limited. Decide how this interacts with `stock`/availability so a pre-order-enabled item bypasses the existing "out of stock → can't buy" guard *only when* `preorder.enabled`.
   - **Order flow:** flag pre-order line items on the `Order` so ops can tell them apart from in-stock items, and decide fulfilment/notification when the item actually lands. **Payment decision to make before building:** pay upfront via Paystack (same as a normal order) vs. deposit / pay-on-arrival — money-movement change, so scope explicitly.

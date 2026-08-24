@@ -150,20 +150,117 @@ const createSale = async (req, res, next) => {
   }
 };
 
+// Only these roles may look at another cashier's sales. Everyone else — staff and
+// technicians — is pinned to their own, regardless of what they ask for.
+const CAN_SEE_ALL_SALES = ['superadmin', 'admin'];
+const canSeeAllSales = (user) => CAN_SEE_ALL_SALES.includes(user?.role);
+
 const getSales = async (req, res, next) => {
   try {
-    const { page = 1, limit = 30, q } = req.query;
+    const { page = 1, limit = 30, q, cashierId } = req.query;
+    // Clamp pagination — an unbounded `limit` would let one request pull the whole
+    // sales history on a 512MB heap.
+    const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 30));
+
     const query = { voided: { $ne: true } };
+
+    // Scope: staff see only what they rang up. This is enforced from req.user, never
+    // from a client-supplied id, so passing ?cashierId= as staff cannot widen it.
+    if (canSeeAllSales(req.user)) {
+      if (cashierId) {
+        if (!mongoose.Types.ObjectId.isValid(cashierId)) {
+          return res.status(400).json({ success: false, error: 'Invalid cashier id.' });
+        }
+        query.cashier = cashierId;
+      }
+    } else {
+      query.cashier = req.user._id;
+    }
+
     if (q) query.$or = [
-      { saleNumber:    { $regex: q, $options: 'i' } },
-      { customerName:  { $regex: q, $options: 'i' } },
+      { saleNumber:    { $regex: escapeRegex(q), $options: 'i' } },
+      { customerName:  { $regex: escapeRegex(q), $options: 'i' } },
     ];
     const [sales, total] = await Promise.all([
-      Sale.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(Number(limit))
+      Sale.find(query).sort({ createdAt: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum)
         .populate('cashier', 'name').populate('customer', 'name phone'),
       Sale.countDocuments(query),
     ]);
-    res.json({ success: true, data: sales, total });
+    res.json({ success: true, data: sales, total, page: pageNum, pages: Math.ceil(total / limitNum) });
+  } catch (err) { next(err); }
+};
+
+/**
+ * GET /api/v1/pos/sales/summary
+ *
+ * Powers the Sell page's sales section. Staff get their own totals; admin and
+ * superadmin additionally get a per-cashier breakdown so they can see who sold what.
+ * Money is integer pesewas throughout, like the rest of POS.
+ */
+const getSalesSummary = async (req, res, next) => {
+  try {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const seeAll = canSeeAllSales(req.user);
+    const mine   = { cashier: req.user._id, voided: { $ne: true } };
+
+    const [allTime, today, byStaff] = await Promise.all([
+      Sale.aggregate([
+        { $match: mine },
+        { $group: { _id: null, revenue: { $sum: '$total' }, count: { $sum: 1 } } },
+      ]),
+      Sale.aggregate([
+        { $match: { ...mine, createdAt: { $gte: startOfToday } } },
+        { $group: { _id: null, revenue: { $sum: '$total' }, count: { $sum: 1 } } },
+      ]),
+      seeAll
+        ? Sale.aggregate([
+            { $match: { voided: { $ne: true } } },
+            {
+              $group: {
+                _id: '$cashier',
+                revenue: { $sum: '$total' },
+                count: { $sum: 1 },
+                todayRevenue: {
+                  $sum: { $cond: [{ $gte: ['$createdAt', startOfToday] }, '$total', 0] },
+                },
+                todayCount: {
+                  $sum: { $cond: [{ $gte: ['$createdAt', startOfToday] }, 1, 0] },
+                },
+              },
+            },
+            { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'staff' } },
+            { $unwind: { path: '$staff', preserveNullAndEmptyArrays: true } },
+            {
+              $project: {
+                _id: 0,
+                cashierId: '$_id',
+                // A sale whose cashier account was deleted still counts; don't drop it.
+                name: { $ifNull: ['$staff.name', 'Unknown'] },
+                revenue: 1, count: 1, todayRevenue: 1, todayCount: 1,
+              },
+            },
+            { $sort: { revenue: -1 } },
+          ])
+        : Promise.resolve(null),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        scope: seeAll ? 'all' : 'own',
+        mine: {
+          count:        allTime[0]?.count   || 0,
+          revenue:      allTime[0]?.revenue || 0,
+          todayCount:   today[0]?.count     || 0,
+          todayRevenue: today[0]?.revenue   || 0,
+        },
+        // Only present for admin/superadmin.
+        byStaff: byStaff || undefined,
+      },
+    });
   } catch (err) { next(err); }
 };
 
@@ -173,6 +270,11 @@ const getSale = async (req, res, next) => {
       .populate('cashier', 'name')
       .populate('customer', 'name phone');
     if (!sale) return res.status(404).json({ success: false, error: 'Sale not found.' });
+    // Same scoping as the list: staff may only open a sale they rang up. 404 rather
+    // than 403 so the endpoint doesn't confirm that someone else's sale id exists.
+    if (!canSeeAllSales(req.user) && String(sale.cashier?._id || sale.cashier) !== String(req.user._id)) {
+      return res.status(404).json({ success: false, error: 'Sale not found.' });
+    }
     res.json({ success: true, data: sale });
   } catch (err) { next(err); }
 };
@@ -234,6 +336,7 @@ const voidSale = async (req, res, next) => {
 module.exports = {
   createSale,
   getSales,
+  getSalesSummary,
   getSale,
   voidSale,
 };
