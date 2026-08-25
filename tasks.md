@@ -256,9 +256,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
     - `views` / `sold` added with `default: 0`, so existing products need no migration.
       `min: 0` on both is documentation, not enforcement: `$inc` is a raw update and
       skips validators — the clamp lives in `Product.decrementSold`.
-    - The detail read is now one `findOneAndUpdate` with `$inc: { views: 1 }` instead
-      of a `findOne`, so counting a view costs no extra round trip and simultaneous
-      readers never clobber one another. List reads are untouched.
+    - ~~The detail read is now one `findOneAndUpdate` with `$inc: { views: 1 }`.~~
+      **Replaced same day — counting on the GET counted fetches, not visitors.**
+      See the "views are recorded by the browser" follow-up below.
     - `sold` rides on the *same* update that deducts stock, in all three places
       (plain line, variant line, POS sale). That is what keeps it honest: it inherits
       `fulfilShopOrder`'s pending→paid idempotence so a Paystack retry cannot
@@ -277,11 +277,29 @@ Not defects; product features that don't exist yet. Scope separately before buil
     webhook retry, variant lines, no count when the stock guard fails, restock
     reversal, and the clamp for a pre-T48 order. Plus 3 in `tests/posSale.test.js`
     (replica set) for the POS sale, the void reversal, and parts not counting.
+  - **Follow-up (same day) — views are recorded by the browser, not by the fetch.**
+    Counting inside `GET /products/:slug` was wrong in both directions:
+    - **Over-counted a real visit ~3x.** `src/app/shop/[slug]/page.jsx` calls
+      `getProductBySlug` in `generateMetadata` *and* again in the page component, and
+      `lib/products.js` fetches with `cache: "no-store"` so Next dedupes neither. The
+      client `ProductDetail` then fetches a third time.
+    - **Counted visits nobody made.** Next prefetches `<Link>` targets on hover/viewport,
+      which renders the route server-side — so hovering a shop card counted a view.
+      Any SEO crawler hitting the page did the same.
+    - **Now:** `POST /api/v1/products/:slug/view` (public, new) does the `$inc` and
+      returns the new figure; the detail GET is a plain `findOne` again. `ProductDetail`
+      posts once after the product renders, guarded by a ref so React's development
+      double-mount doesn't count twice, and skips `part-` slugs (parts have no counter).
+      Because it takes a script running in a browser, crawlers can no longer inflate it.
+      The response's count is what the page displays, so a visitor sees a figure that
+      includes their own visit rather than a stale one.
+    - **Checked against the running dev stack:** three plain detail GETs left the count
+      at 3; one POST took it to 4.
   - **Follow-up (same day):** the list projection above. Two tests now pin it —
     a list row carries `views`/`sold`, and a product with the keys `$unset` still
     reports 0 — so the next field added to this schema fails loudly instead of
     silently missing from every card.
-  - **Verified:** full backend suite 51 suites / 406 tests, exit 0; no new lint
+  - **Verified:** full backend suite 51 suites / 409 tests, exit 0; no new lint
     warnings (`salesController` stays at its existing 36, everything else clean).
     Also checked against the running dev stack: three detail reads of a live product
     moved its `views` 0 → 3 and the homepage's own query

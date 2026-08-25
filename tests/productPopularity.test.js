@@ -68,23 +68,38 @@ describe("Product popularity counters — defaults (T48)", () => {
 });
 
 describe("Product views (T48)", () => {
-  it("counts one view per detail read, and returns the updated figure", async () => {
+  // Counting lives on POST /products/:slug/view, not on the detail GET. The GET
+  // is called by generateMetadata, by the server render of /shop/[slug], and
+  // again by the client — three per visit — and Next prefetches the route on
+  // link hover, so it counted products nobody opened.
+  it("does not count a view when the product is merely fetched", async () => {
     const product = await makeProduct();
 
-    const first = await request(app).get(`/api/v1/products/${product.slug}`);
+    const res = await request(app).get(`/api/v1/products/${product.slug}`);
+
+    expect(res.status).toBe(200);
+    const refreshed = await Product.findById(product._id);
+    expect(refreshed.views).toBe(0);
+  });
+
+  it("counts one view per POST, and returns the updated figure", async () => {
+    const product = await makeProduct();
+
+    const first = await request(app).post(`/api/v1/products/${product.slug}/view`);
     expect(first.status).toBe(200);
     expect(first.body.data.views).toBe(1);
 
-    await request(app).get(`/api/v1/products/${product.slug}`);
+    const second = await request(app).post(`/api/v1/products/${product.slug}/view`);
+    expect(second.body.data.views).toBe(2);
     const refreshed = await Product.findById(product._id);
     expect(refreshed.views).toBe(2);
   });
 
-  it("counts every simultaneous reader — no lost updates", async () => {
+  it("counts every simultaneous visitor — no lost updates", async () => {
     const product = await makeProduct();
 
     await Promise.all(
-      Array.from({ length: 8 }, () => request(app).get(`/api/v1/products/${product.slug}`)),
+      Array.from({ length: 8 }, () => request(app).post(`/api/v1/products/${product.slug}/view`)),
     );
 
     const refreshed = await Product.findById(product._id);
@@ -101,14 +116,27 @@ describe("Product views (T48)", () => {
     expect(refreshed.views).toBe(0);
   });
 
-  it("does not count a miss on an inactive product", async () => {
+  it("404s rather than counting a view on an inactive product", async () => {
     const product = await makeProduct({ isActive: false });
 
-    const res = await request(app).get(`/api/v1/products/${product.slug}`);
+    const res = await request(app).post(`/api/v1/products/${product.slug}/view`);
 
     expect(res.status).toBe(404);
     const refreshed = await Product.findById(product._id);
     expect(refreshed.views).toBe(0);
+  });
+
+  it("404s on a slug that does not exist", async () => {
+    const res = await request(app).post("/api/v1/products/no-such-product/view");
+    expect(res.status).toBe(404);
+  });
+
+  it("needs no login — a shopper is not signed in", async () => {
+    const product = await makeProduct();
+
+    const res = await request(app).post(`/api/v1/products/${product.slug}/view`);
+
+    expect(res.status).toBe(200);
   });
 });
 
@@ -118,7 +146,7 @@ describe("Product list exposes the counters (T48)", () => {
   // the homepage cards had nothing to render.
   it("returns views and sold on every list row", async () => {
     const product = await makeProduct();
-    await request(app).get(`/api/v1/products/${product.slug}`); // one view
+    await request(app).post(`/api/v1/products/${product.slug}/view`); // one view
 
     const res = await request(app).get("/api/v1/products?kind=product");
 

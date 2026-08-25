@@ -183,14 +183,10 @@ const getProductBySlug = async (req, res, next) => {
       return res.status(200).json({ success: true, data: { ...partAsProductDoc, ratingSummary } });
     }
 
-    // T48: count the read as a view in the same round trip that fetches the
-    // product. $inc rather than read-modify-write, so simultaneous readers each
-    // count. Only the detail endpoint does this — list reads are not views.
-    const product = await Product.findOneAndUpdate(
-      { slug, isActive: true },
-      { $inc: { views: 1 } },
-      { new: true },
-    );
+    const product = await Product.findOne({
+      slug,
+      isActive: true,
+    });
 
     if (!product) {
       return res.status(404).json({
@@ -205,6 +201,33 @@ const getProductBySlug = async (req, res, next) => {
       success: true,
       data: { ...product.toObject(), ratingSummary },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /products/:slug/view — record one product-page view.
+//
+// Deliberately NOT folded into the detail GET. That endpoint is called by
+// `generateMetadata`, by the server render of /shop/[slug], and again by the
+// client, so a single visit counted about three times — and Next prefetches the
+// route on link hover, so a view was recorded for products nobody ever opened.
+// A POST from the browser after the page mounts counts people, not fetches: it
+// also means crawlers, which never run the script, cannot inflate the figure.
+const recordProductView = async (req, res, next) => {
+  try {
+    const product = await Product.findOneAndUpdate(
+      { slug: req.params.slug, isActive: true },
+      { $inc: { views: 1 } },
+      // $inc rather than read-modify-write, so simultaneous visitors each count.
+      { new: true, projection: { views: 1 } },
+    );
+
+    if (!product) {
+      return res.status(404).json({ success: false, error: "Product not found" });
+    }
+
+    res.status(200).json({ success: true, data: { views: product.views } });
   } catch (error) {
     next(error);
   }
@@ -337,6 +360,7 @@ const deleteProduct = async (req, res, next) => {
 
 module.exports = {
   getProducts,
+  recordProductView,
   getProductBySlug,
   getAdminProducts,
   createProduct,
