@@ -165,6 +165,51 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+- [ ] **T62 · Transactional email coverage — audit and close the gaps**
+  - **Why now:** a pre-order customer waits weeks, and today they pay and hear
+    nothing. Shop orders send **no customer email at all** — no receipt, no tracking
+    number, no status change — while hosting orders send three. That asymmetry is the
+    core of this task.
+  - **Audited 2026-08-25 against the code, not assumed.**
+  - **Already covered (leave alone):**
+    | Area | Sends | Where |
+    |---|---|---|
+    | Auth | welcome, account created, password reset, 2FA pin, verification pin | `utils/email.js` |
+    | Contact / consultation | admin alert + customer auto-reply | `utils/email.js` |
+    | Hosting orders | order confirmation, payment received, hosting credentials | `utils/hostingEmail.js` |
+    | Repair jobs | status updates, **email first with SMS fallback** | `services/notify.js` → `notifyCustomer` |
+    | Repair collection | ready-for-collection reminder | `services/reminderJob.js` |
+    | Pre-orders | "your item has arrived" at release (T45) | `utils/email.js` → `sendPreorderReadyEmail` |
+  - **The gaps, roughly in order of what a customer would miss most:**
+    1. **Shop order confirmation — nothing is sent.** The customer pays and gets a web
+       page. Close the tab and they have no order number, no tracking number, no record.
+       This is also what makes the T45 pre-order tracking reachable, so it is the one
+       that matters most. Should carry: order number, **tracking number + link**, items,
+       total, delivery zone, and for a pre-order the expected-arrival line.
+    2. **Shop payment received** — hosting confirms payment, shop does not.
+    3. **Shop status changes** (`processing` / `shipped` / `delivered`) — repair jobs
+       notify the customer on every meaningful move; shop orders never do. Reuse
+       `notifyCustomer`'s shape rather than inventing a second pattern.
+    4. **Refunds** (T15) — a refund is issued and the customer is told nothing.
+    5. **Domain orders** — `controllers/domainController.js` sends **zero** emails: no
+       purchase confirmation, no registration success, no expiry warning.
+    6. **Service orders** — only `sendAccountCreatedEmail`; no confirmation of the
+       service order itself.
+    7. **Unused EmailLog types** — `renewal_reminder` and `expired_notice` are in the
+       enum but nothing sends them. `reminderJob` is repair-collection only, despite the
+       names suggesting hosting/domain renewals. Either wire them up or drop them.
+  - **Explicitly NOT wanted (decided with the user 2026-08-25):** per-stage emails for
+    pre-order shipment milestones. Customers check the tracking page themselves; the
+    only pre-order email is when the goods reach the shop.
+  - **Conventions to follow:** every send goes through `utils/email.js`'s `send()` so it
+    lands in `EmailLog`; give each new kind its **own** `type` rather than `other`, or it
+    is unfilterable in the admin log (T61's finding); a missing customer email is not a
+    failure — shop checkout here is phone-first, so return quietly like
+    `sendPreorderReadyEmail` does; and never let a mail failure roll back the thing that
+    triggered it.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T62.
+
+
 - [x] **T43 · Money display bypasses the single `formatGhs` formatter** — ✅ done 2026-08-25 (frontend-only, no backend change)
   - **Issue:** The frontend convention (STYLE_GUIDE/CLAUDE.md) is to render money via
     `formatGhs(pesewas)` from `lib/shop.js`. Many pages instead hand-roll `GH₵{...toFixed(2)}`

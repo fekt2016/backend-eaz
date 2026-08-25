@@ -206,3 +206,66 @@ describe("What the customer sees on their tracking page (T45)", () => {
     expect(res.body.data.preorder).toBeNull();
   });
 });
+
+// The customer's whole journey hangs off ONE number, issued when they check out and
+// never reissued: while the goods are in China it shows the shipment's position, and
+// once they land and the pre-order is released the same number carries the ordinary
+// delivery timeline. This is the thing that makes the tracking number worth giving
+// them at payment time.
+describe("One tracking number, start to finish (T45)", () => {
+  it("carries a pre-order from checkout in China through to delivery in Ghana", async () => {
+    const token = await tokenFor();
+    const tracking = `EZWTRK-JOURNEY${Date.now()}`;
+    const { product, order } = await makePreorder(tracking);
+
+    // 1. Straight after checkout — the number already works, before any shipment.
+    let res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder.label).toMatch(/awaiting shipment/i);
+
+    // 2. Attached to a batch and sailing.
+    const { body } = await createShipment(token, { expectedArrival: "2026-10-12T00:00:00Z" });
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "in_transit" });
+
+    res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+    expect(res.body.data.preorder.stage).toBe("on_the_way");
+
+    // 3. Landed in Ghana, clearing customs — same number, further along.
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "arrived_port" });
+
+    res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+    expect(res.body.data.preorder.stage).toBe("in_ghana");
+
+    // 4. Received and released to the customer. The pre-order block retires and the
+    //    order's own delivery timeline takes over — on the SAME tracking number.
+    await Product.updateOne({ _id: product._id }, { $set: { stock: 5 } });
+    const release = await request(app)
+      .patch(`/api/v1/orders/${order._id}/preorder-release`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(release.status).toBe(200);
+
+    res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+    expect(res.body.data.trackingNumber).toBe(tracking.toUpperCase());
+    expect(res.body.data.preorder).toBeNull();
+    expect(res.body.data.latestEvent.note).toMatch(/Pre-order released/i);
+  });
+
+  it("never reissues the number along the way", async () => {
+    const tracking = `EZWTRK-STABLE${Date.now()}`;
+    const { order } = await makePreorder(tracking);
+    const before = (await Order.findById(order._id)).trackingNumber;
+
+    const token = await tokenFor();
+    const { body } = await createShipment(token);
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "at_shop" });
+
+    expect((await Order.findById(order._id)).trackingNumber).toBe(before);
+  });
+});
