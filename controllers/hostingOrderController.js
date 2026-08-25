@@ -105,6 +105,11 @@ const createOrder = async (req, res, next) => {
     }
 
     const totalAmount = planTotal + addonsTotal + domainFee;
+    // T44 follow-up: computed once here, reused for both the stored
+    // pesewas field and the Paystack init call below — avoids re-deriving
+    // it via a second Math.round(totalAmount * 100) that could (in theory)
+    // diverge from this one.
+    const totalAmountPesewas = Math.round(totalAmount * 100);
 
     const cleanDomain = domain_s || null;
 
@@ -123,6 +128,7 @@ const createOrder = async (req, res, next) => {
         country: (customer?.country || 'Ghana').trim()
       },
       amount: totalAmount,
+      amountPesewas: totalAmountPesewas,
       currency: 'GHS',
       status: 'pending',
       provisioningStatus: 'not_started',
@@ -141,11 +147,10 @@ const createOrder = async (req, res, next) => {
 
     if (isPaystack && paystack) {
       const reference = `HOST_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-      const amountInPesewas = Math.round(totalAmount * 100);
 
       const transaction = await paystack.transaction.initialize({
         email: orderPayload.customer.email,
-        amount: amountInPesewas,
+        amount: totalAmountPesewas,
         currency: 'GHS',
         reference,
         channels: paymentMethod === 'mobile_money' ? ['mobile_money'] : ['card', 'mobile_money'],
@@ -631,6 +636,8 @@ const renewOrder = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Could not determine renewal price' });
     }
 
+    const planTotalPesewas = Math.round(planTotal * 100);
+
     const renewalPayload = {
       user: original.user,
       planType: original.planType,
@@ -639,6 +646,7 @@ const renewOrder = async (req, res, next) => {
       addons: original.addons || [],
       customer: original.customer,
       amount: planTotal,
+      amountPesewas: planTotalPesewas,
       currency: 'GHS',
       status: 'pending',
       provisioningStatus: 'not_started',
@@ -652,11 +660,10 @@ const renewOrder = async (req, res, next) => {
 
     if (isPaystack && paystack) {
       const reference = `RENEW_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-      const amountInPesewas = Math.round(planTotal * 100);
 
       const transaction = await paystack.transaction.initialize({
         email: original.customer.email,
-        amount: amountInPesewas,
+        amount: planTotalPesewas,
         currency: 'GHS',
         reference,
         channels: paymentMethod === 'mobile_money' ? ['mobile_money'] : ['card', 'mobile_money'],
@@ -895,6 +902,7 @@ const staffCreateHostingAccount = async (req, res, next) => {
       } catch { /* Namecheap unavailable — no domain fee added */ }
     }
     const totalAmount = price.total + addonsTotal + domainFee;
+    const totalAmountPesewas = Math.round(totalAmount * 100);
 
     // Find-or-create the customer's user account so the order shows in their dashboard.
     let customerUser = await User.findOne({ email: customerEmail });
@@ -920,6 +928,7 @@ const staffCreateHostingAccount = async (req, res, next) => {
         country: (customer?.country || 'Ghana').trim(),
       },
       amount: totalAmount,
+      amountPesewas: totalAmountPesewas,
       currency: 'GHS',
       status: 'pending',
       provisioningStatus: 'not_started',
@@ -942,7 +951,7 @@ const staffCreateHostingAccount = async (req, res, next) => {
       const mobile_s = sanitizePhone(mobileNumber);
       const transaction = await paystack.transaction.initialize({
         email: customerEmail,
-        amount: Math.round(totalAmount * 100),
+        amount: totalAmountPesewas,
         currency: 'GHS',
         reference,
         channels: method === 'mobile_money' ? ['mobile_money'] : ['card', 'mobile_money'],

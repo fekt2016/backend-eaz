@@ -25,6 +25,7 @@ const hostingOrderSchema = new mongoose.Schema({
   addons: [{
     id: String,
     name: String,
+    // Major GHS float, same intentional exception as `amount` below.
     price: { type: Number, default: 0 }
   }],
   customer: {
@@ -35,10 +36,26 @@ const hostingOrderSchema = new mongoose.Schema({
     city: { type: String, trim: true, default: '' },
     country: { type: String, trim: true, default: 'Ghana' }
   },
+  // ── Money: intentional exception to the app-wide integer-pesewas rule ──
+  // `amount` (and `addons[].price`, `domainRegistrationFee` below) store
+  // major GHS floats, not pesewas. Decided 2026-08-25 (T44) to leave this
+  // as-is rather than migrate: this flow was explicitly carved out as
+  // "Group C" in the original PHASE7_MONEY_MIGRATION_PLAN.md as its own
+  // internally-consistent convention, and a real migration would mean
+  // converting live subscription money, not an empty collection like T8's
+  // rename was. See `controllers/webhookController.js`'s `amountMismatch`
+  // comment for the read-side of this same split. `amountPesewas` below
+  // is the actual pesewas value, computed once at order creation — added
+  // specifically to stop re-deriving it via float arithmetic at every
+  // webhook comparison.
   amount: {
     type: Number,
     required: true,
     min: 0
+  },
+  amountPesewas: {
+    type: Number,
+    default: null,
   },
   currency: {
     type: String,
@@ -95,6 +112,7 @@ const hostingOrderSchema = new mongoose.Schema({
     enum: ['new', 'own', 'skip'],
     default: 'skip'
   },
+  // Major GHS float, same intentional exception as `amount` above.
   domainRegistrationFee: {
     type: Number,
     default: 0

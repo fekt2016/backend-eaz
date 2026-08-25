@@ -19,10 +19,21 @@ const domainOrderSchema = new mongoose.Schema(
       required: [true, "TLD is required"],
       trim: true,
     },
+    // ── Money: intentional exception to the app-wide integer-pesewas rule ──
+    // `price` stores a major GHS float, not pesewas. Decided 2026-08-25 (T44)
+    // to leave this as-is — see the matching comment on `HostingOrder.amount`
+    // for the full reasoning (PHASE7 Group C precedent, live-money migration
+    // risk) and `controllers/webhookController.js`'s `amountMismatch` comment
+    // for the read-side of this split. `amountPesewas` is the actual pesewas
+    // value, computed once at order creation.
     price: {
       type: Number,
       required: [true, "Price is required"],
       min: [0, "Price must be positive"],
+    },
+    amountPesewas: {
+      type: Number,
+      default: null,
     },
     email: {
       type: String,

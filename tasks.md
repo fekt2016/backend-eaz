@@ -1232,7 +1232,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     appear in that list); full suite via `npm test` (`--runInBand`) 33 suites / 219
     tests, all pass.
 
-- [ ] **T44 · Hosting/domain/service amounts stored as major-GHS floats — align to pesewas**
+- [x] **T44 · Hosting/domain/service amounts stored as major-GHS floats — align to pesewas** — ✅ **RESOLVED 2026-08-25 — Option B, intentional exception, not migrated**
   - **Issue:** The integer-pesewas money rule applies to POS/shop, but hosting, domain, and
     service orders still store **major GHS floats** (`hostingOrderController.js` computes
     `Math.round(priceUSD * usdRate * markup * years * 100) / 100`; the webhook then
@@ -1247,6 +1247,34 @@ Not defects; product features that don't exist yet. Scope separately before buil
     as intentional. If migrating, mirror the T8/POS migration approach with a one-time script
     and update the frontend `GH₵{order.amount}` displays (see `frontend-eaz/tasks.md` → T44).
   - **Frontend part:** `frontend-eaz/tasks.md` → T44.
+  - **Decision (2026-08-25):** documented as intentional, permanent — **not migrating**.
+    `PHASE7_MONEY_MIGRATION_PLAN.md` (the actual prior POS/repair pesewas migration,
+    2026-08-14) already carved this exact scope out as "Group C — out of scope," calling it a
+    separate, internally-consistent convention the webhook already handles correctly at its
+    boundary — this decision confirms that prior exclusion rather than reopening it. A real
+    migration would mean converting live subscription money (`HostingOrder` models active
+    billing subscriptions with `expiresAt`/`renewalOrderId` chains), unlike T8's rename, which
+    a pre-check found 0 documents to convert. Full reasoning in
+    `MASTER_TASK_ORDER.md`'s "✅ Resolved decisions" section.
+  - **Shipped instead of migrating:**
+    - Comments on `HostingOrder.amount`/`addons[].price`/`domainRegistrationFee`,
+      `DomainOrder.price`, `ServiceOrder.depositAmount`/`totalAmount` state the exception
+      explicitly and cross-reference `webhookController.js`'s `amountMismatch` comment
+      (updated to point back).
+    - **Follow-up (closes the one real residual risk — float round-trip precision):** added
+      `amountPesewas` (`HostingOrder`, `DomainOrder`) and `depositAmountPesewas`/
+      `totalAmountPesewas` (`ServiceOrder`), populated at all 5 create call sites (hosting
+      create/renew/staff-create in `hostingOrderController.js`, domain create in
+      `domainController.js`, service create in `serviceOrderController.js`) by reusing the
+      pesewas value each site already computes for its Paystack `initialize()` call — not new
+      arithmetic. The 3 webhook `amountMismatch` comparisons now read these fields directly
+      instead of re-deriving via `Math.round(field * 100)`, with a fallback to the old
+      derivation for orders created before this field existed. 10 new tests (`hosting.test.js`
+      + new `domainServiceAmountPesewas.test.js`): field set correctly on creation, webhook
+      decision follows the new field over a deliberately-inconsistent recomputed value
+      (proves the wiring, not just that both formulas agree), and the legacy-order fallback
+      still works — confirmed the fix-specific tests fail without the fix. 46 suites/340 tests
+      pass, lint clean.
 
 - [ ] **T43 · Money display bypasses the single `formatGhs` formatter**
   - **Issue:** The frontend convention (STYLE_GUIDE/CLAUDE.md) is to render money via
