@@ -129,7 +129,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
-- [ ] **T43 · Money display bypasses the single `formatGhs` formatter**
+- [x] **T43 · Money display bypasses the single `formatGhs` formatter** — ✅ done 2026-08-25 (frontend-only, no backend change)
   - **Issue:** The frontend convention (STYLE_GUIDE/CLAUDE.md) is to render money via
     `formatGhs(pesewas)` from `lib/shop.js`. Many pages instead hand-roll `GH₵{...toFixed(2)}`
     or `GH₵{...toLocaleString()}` — raw concatenation that is inconsistent and error-prone.
