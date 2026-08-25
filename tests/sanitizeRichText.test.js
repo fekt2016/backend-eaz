@@ -96,8 +96,14 @@ describe("POST /api/v1/posts — content is sanitised on write (T42)", () => {
 
     expect(res.status).toBe(201);
     const stored = await Post.findById(res.body.data._id).select("+content");
-    expect(looksExecutable(stored.content)).toBe(false);
+    // Post bodies go through sanitizePostContent, which HTML-*encodes* rather than
+    // strips: `<img …onerror=…>` is stored as `&lt;img …onerror=…&gt;`. That is
+    // inert — a browser renders it as visible text, never as a tag — but the
+    // substring "onerror" survives, so looksExecutable() is the wrong lens here.
+    // What matters is that no raw tag delimiter reaches storage.
+    expect(stored.content).not.toMatch(/<\s*(script|img|iframe|svg)\b/i);
     expect(stored.content).toContain("Intro text.");
+    expect(stored.content).toContain("&lt;script&gt;");
   });
 
   it("sanitises on update too, not just create", async () => {

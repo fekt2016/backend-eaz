@@ -28,6 +28,7 @@ jest.mock("../services/namecheap", () => ({
 
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const app = require("../app");
 const whm = require("../services/whm");
 const namecheap = require("../services/namecheap");
@@ -389,5 +390,131 @@ describe("POST /api/v1/hosting/orders — domain fee is server-computed, not cli
     expect(res.status).toBe(200);
     const order = await HostingOrder.findById(res.body.data.orderId);
     expect(order.domainRegistrationFee).toBe(42);
+  });
+});
+
+// T44 follow-up: amount/domainRegistrationFee/addons[].price stay
+// intentional major-GHS floats (see the model comment); amountPesewas is a
+// new field storing the same value in pesewas, computed once at creation
+// instead of re-derived via Math.round(amount * 100) at every webhook
+// comparison.
+describe("HostingOrder.amountPesewas (T44 follow-up)", () => {
+  it("is set to the pesewas equivalent of amount on order creation", async () => {
+    const { token } = await makeUser();
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "shared",
+        tier: "deluxe",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+      });
+
+    expect(res.status).toBe(200);
+    const order = await HostingOrder.findById(res.body.data.orderId);
+    expect(order.amount).toBe(9); // shared/deluxe/monthly base price
+    expect(order.amountPesewas).toBe(900);
+  });
+
+  function paystackSignature(payload) {
+    const secret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
+    return crypto.createHmac("sha512", secret).update(JSON.stringify(payload)).digest("hex");
+  }
+
+  function sendWebhook(payload) {
+    return request(app)
+      .post("/api/webhooks/paystack")
+      .set("Content-Type", "application/json")
+      .set("x-paystack-signature", paystackSignature(payload))
+      .send(payload);
+  }
+
+  it("webhook decision follows amountPesewas, not a recomputed Math.round(amount*100)", async () => {
+    // amount/amountPesewas are deliberately inconsistent here — this is the
+    // regression guard: pre-fix code always recomputed 900 from `amount`
+    // and would reject this exact payment; post-fix it reads amountPesewas
+    // (1234) directly and accepts it.
+    const { user } = await makeUser();
+    const order = await HostingOrder.create({
+      user: user._id,
+      planType: "shared",
+      tier: "deluxe",
+      billingCycle: "monthly",
+      customer: { name: "Cust", email: "cust@t.com" },
+      amount: 9, // would derive 900 pesewas the old way
+      amountPesewas: 1234, // the field the fix should actually use
+      paymentMethod: "cash",
+      status: "pending",
+      paystackReference: `HOST_TEST_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    });
+
+    const res = await sendWebhook({
+      event: "charge.success",
+      data: { reference: order.paystackReference, amount: 1234, currency: "GHS" },
+    });
+
+    expect(res.status).toBe(200);
+    const fresh = await HostingOrder.findById(order._id);
+    // The webhook marks the order paid and then provisioning moves it on to
+    // "active", so either is a pass. What this asserts is that the payment was
+    // ACCEPTED — a mismatch would have left the order sitting at "pending".
+    expect(["paid", "active"]).toContain(fresh.status);
+  });
+
+  it("webhook rejects a payment that doesn't match amountPesewas", async () => {
+    const { user } = await makeUser();
+    const order = await HostingOrder.create({
+      user: user._id,
+      planType: "shared",
+      tier: "deluxe",
+      billingCycle: "monthly",
+      customer: { name: "Cust", email: "cust@t.com" },
+      amount: 9,
+      amountPesewas: 900,
+      paymentMethod: "cash",
+      status: "pending",
+      paystackReference: `HOST_TEST_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    });
+
+    const res = await sendWebhook({
+      event: "charge.success",
+      data: { reference: order.paystackReference, amount: 100, currency: "GHS" },
+    });
+
+    expect(res.status).toBe(400);
+    const fresh = await HostingOrder.findById(order._id);
+    expect(fresh.status).toBe("pending");
+  });
+
+  it("falls back to deriving pesewas from `amount` for a legacy order with no amountPesewas field", async () => {
+    const { user } = await makeUser();
+    // Simulates a document created before this follow-up shipped.
+    const order = await HostingOrder.create({
+      user: user._id,
+      planType: "shared",
+      tier: "deluxe",
+      billingCycle: "monthly",
+      customer: { name: "Cust", email: "cust@t.com" },
+      amount: 9,
+      // amountPesewas intentionally omitted — defaults to null.
+      paymentMethod: "cash",
+      status: "pending",
+      paystackReference: `HOST_TEST_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    });
+    expect(order.amountPesewas).toBeNull();
+
+    const res = await sendWebhook({
+      event: "charge.success",
+      data: { reference: order.paystackReference, amount: 900, currency: "GHS" },
+    });
+
+    expect(res.status).toBe(200);
+    const fresh = await HostingOrder.findById(order._id);
+    // The webhook marks the order paid and then provisioning moves it on to
+    // "active", so either is a pass. What this asserts is that the payment was
+    // ACCEPTED — a mismatch would have left the order sitting at "pending".
+    expect(["paid", "active"]).toContain(fresh.status);
   });
 });

@@ -1,5 +1,5 @@
 const Post = require('../models/Post');
-const { sanitizeText, sanitizeMessage, sanitizeName } = require('../utils/sanitize');
+const { sanitizeText, sanitizePostContent, sanitizeName } = require('../utils/sanitize');
 
 function generateSlug(title) {
   return title
@@ -57,7 +57,7 @@ const createPost = async (req, res, next) => {
   try {
     const title    = sanitizeText(req.body.title, 200);
     const excerpt  = sanitizeText(req.body.excerpt, 500);
-    const content  = sanitizeMessage(req.body.content, 50000);
+    const content  = sanitizePostContent(req.body.content, 50000);
     const category = sanitizeText(req.body.category, 100);
     const author   = sanitizeName(req.body.author, 100);
     const { featured, published } = req.body;
@@ -95,7 +95,7 @@ const updatePost = async (req, res, next) => {
     const { featured, published } = req.body;
     const title    = req.body.title    !== undefined ? sanitizeText(req.body.title, 200)         : undefined;
     const excerpt  = req.body.excerpt  !== undefined ? sanitizeText(req.body.excerpt, 500)        : undefined;
-    const content  = req.body.content  !== undefined ? sanitizeMessage(req.body.content, 50000)   : undefined;
+    const content  = req.body.content  !== undefined ? sanitizePostContent(req.body.content, 50000) : undefined;
     const category = req.body.category !== undefined ? sanitizeText(req.body.category, 100)       : undefined;
     const author   = req.body.author   !== undefined ? sanitizeName(req.body.author, 100)         : undefined;
     const update = {};

@@ -72,10 +72,15 @@ async function applyPaidPartToJob(job, item) {
  * Reject a webhook whose charged amount/currency doesn't match the order.
  * `expectedPesewas` must be in the smallest currency unit (pesewas), the same
  * unit Paystack reports in `event.data.amount`. Hosting/domain/service store
- * amounts in major GHS units, so callers pass `Math.round(field * 100)`; the
- * shop Order stores `total` already in pesewas. When no reliable expected
- * amount is available (missing/zero), we do NOT block — legacy orders without
- * the field must still be able to fulfil.
+ * their major-GHS-float fields (`amount`/`price`/`depositAmount`) as an
+ * intentional exception to the pesewas rule (T44, see the comment on
+ * `models/HostingOrder.js`'s `amount` field for the full reasoning) — but as
+ * of T44's follow-up, callers pass the order's own `amountPesewas`/
+ * `depositAmountPesewas` field (computed once at creation) instead of
+ * re-deriving it via `Math.round(field * 100)` here. The shop Order stores
+ * `total` already in pesewas. When no reliable expected amount is available
+ * (missing/zero — e.g. a pre-T44-followup order with no `*Pesewas` field
+ * yet), we do NOT block — legacy orders must still be able to fulfil.
  */
 function amountMismatch(eventData, expectedPesewas) {
   if (!Number.isFinite(expectedPesewas) || expectedPesewas <= 0) return false;
@@ -132,8 +137,10 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Hosting order (new or renewal) ───────────────────────────────
     const hostingOrder = await HostingOrder.findOne({ paystackReference: reference });
     if (hostingOrder) {
-      // Amount stored in major GHS units → compare against pesewas.
-      if (amountMismatch(event.data, Math.round((hostingOrder.amount || 0) * 100))) {
+      // amount is major GHS (T44, intentional); amountPesewas is the
+      // precomputed pesewas value — fall back to deriving it for orders
+      // created before this field existed.
+      if (amountMismatch(event.data, hostingOrder.amountPesewas ?? Math.round((hostingOrder.amount || 0) * 100))) {
         console.error(`[webhook] Amount mismatch for hosting order ${hostingOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
@@ -239,8 +246,10 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Domain order ─────────────────────────────────────────────────
     const domainOrder = await DomainOrder.findOne({ paystackReference: reference });
     if (domainOrder) {
-      // Price stored in major GHS units → compare against pesewas.
-      if (amountMismatch(event.data, Math.round((domainOrder.price || 0) * 100))) {
+      // price is major GHS (T44, intentional); amountPesewas is the
+      // precomputed pesewas value — fall back to deriving it for orders
+      // created before this field existed.
+      if (amountMismatch(event.data, domainOrder.amountPesewas ?? Math.round((domainOrder.price || 0) * 100))) {
         console.error(`[webhook] Amount mismatch for domain order ${domainOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
@@ -505,8 +514,10 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Service order (web design deposit) ──────────────────────────
     const serviceOrder = await ServiceOrder.findOne({ paystackReference: reference });
     if (serviceOrder) {
-      // depositAmount stored in major GHS units → compare against pesewas.
-      if (amountMismatch(event.data, Math.round((serviceOrder.depositAmount || 0) * 100))) {
+      // depositAmount is major GHS (T44, intentional); depositAmountPesewas
+      // is the precomputed pesewas value — fall back to deriving it for
+      // orders created before this field existed.
+      if (amountMismatch(event.data, serviceOrder.depositAmountPesewas ?? Math.round((serviceOrder.depositAmount || 0) * 100))) {
         console.error(`[webhook] Amount mismatch for service order ${serviceOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,

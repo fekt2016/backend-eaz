@@ -4,6 +4,7 @@
  * NoSQL injection from req.body globally. These helpers add field-level
  * trimming, length capping, and type coercion on top.
  */
+const filterXSS = require('xss');
 
 /** Trim + strip HTML tags. Returns undefined if result is empty. */
 function sanitizeText(str, maxLen = 1000) {
@@ -120,6 +121,28 @@ function sanitizeMessage(str, maxLen = 5000) {
 }
 
 /**
+ * Blog post content (T42, defense-in-depth). Stored content is
+ * markdown-flavoured plain text, rendered client-side by BlogArticle.jsx —
+ * that render-time DOMPurify pass is the primary XSS defense (it sanitizes
+ * the HTML BlogArticle *constructs* from this text, which is the actual
+ * vulnerable step; a write-time filter on the raw markdown source can't see
+ * HTML that doesn't exist yet, e.g. `[x](javascript:...)` has no `<`/`>`).
+ * This still neutralizes any literal HTML tags an author pastes in — an
+ * empty whiteList HTML-*encodes* disallowed tags rather than stripping them
+ * (e.g. `<script>` -> `&lt;script&gt;`), inert either way — legitimate
+ * markdown never contains real tags, so nothing intended is touched — plus
+ * belt-and-suspenders removal of the literal `javascript:` scheme string.
+ * Returns undefined if empty.
+ */
+function sanitizePostContent(str, maxLen = 50000) {
+  if (!str || typeof str !== 'string') return undefined;
+  const cleaned = filterXSS(str.trim(), { whiteList: {} })
+    .replace(/javascript:/gi, '')
+    .slice(0, maxLen);
+  return cleaned || undefined;
+}
+
+/**
  * Validate password strength.
  * Returns an error message string if invalid, or null if valid.
  */
@@ -142,5 +165,6 @@ module.exports = {
   sanitizeDomain,
   sanitizeInt,
   sanitizeMessage,
+  sanitizePostContent,
   validatePassword,
 };

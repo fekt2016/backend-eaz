@@ -123,6 +123,8 @@ const createServicePayment = async (req, res, next) => {
       notes:            notes        || undefined,
       depositAmount:    pkg.deposit,
       totalAmount:      pkg.total,
+      depositAmountPesewas: amountInKobo,
+      totalAmountPesewas:   Math.round(pkg.total * 100),
       paystackReference: reference,
       status:           'pending',
       user:             userId,

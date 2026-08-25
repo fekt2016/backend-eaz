@@ -321,6 +321,7 @@ const createDomainPayment = async (req, res, next) => {
       domain: domain || "",
       tld,
       price,
+      amountPesewas: amountInUnits,
       email,
       customerName: customerName || "",
       phone: phone || undefined,

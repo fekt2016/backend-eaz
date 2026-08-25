@@ -332,7 +332,595 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
-- [ ] **T44 · Hosting/domain/service amounts stored as major-GHS floats — align to pesewas**
+- [x] **T61 · 2FA PIN email logged as `other` — not filterable in EmailLog** ✅ done 2026-08-20
+  - **Issue:** `utils/email.js` `sendTwoFactorPin` calls `send({ type: 'other', ... })` (line 284),
+    so the 2FA code emails are recorded in `EmailLog` with `type: 'other'` and the admin Email
+    log (`(admin)/emails`) has no `2fa` filter — they're lumped under "Other" and can't be
+    isolated from genuine misc logs. All other transactionals use distinct types
+    (`welcome`, `password_reset`, `contact_*`, `account_created`, `order_confirmation`, …).
+  - **Location:** `utils/email.js:281-284`; `frontend-eaz/src/app/dashboard/(admin)/emails/page.jsx`
+    `TYPE_LABELS`/`typeColors` (lines 15-26, 39+).
+  - **Fix:** Change the `type` to `'two_factor'` (keep the enum open — no Mongoose enum on
+    `EmailLog.type`), and add `two_factor: "2FA Pin"` to `TYPE_LABELS` + a color in `typeColors`
+    on the admin emails page.
+  - **Shipped:** `utils/email.js` — `sendTwoFactorPin`'s `send()` call now uses
+    `type: 'two_factor'` (confirmed no Mongoose enum on `EmailLog.type`, and no test
+    referenced the old `'other'` value). **Frontend part:** see `frontend-eaz/tasks.md` →
+    T61 — added `two_factor: "2FA Pin"` to `TYPE_LABELS` (which also drives the filter
+    dropdown, generated from `Object.entries(TYPE_LABELS)`) and an amber `typeColors`
+    entry. Full backend suite (137 tests) and frontend build both pass.
+
+- [x] **T60 · Hosting `createOrder` returns 500 instead of 400 for unknown plan/tier** ✅ done 2026-08-20
+  - **Issue:** `config/hostingPlans.js` `getPlanPrice` **throws** on an unknown `planType` or
+    `tier` (lines 330-336). `hostingOrderController.createOrder` calls it at line 77 inside the
+    try/catch, so a client sending `planType: "bogus"` (or a stale frontend sending a removed
+    tier) propagates as a 500. The `if (planTotal == null)` 400-check at lines 78-80 only
+    handles the `cloud/enterprise` custom tier (which returns `total: null`), not the throw.
+  - **Location:** `config/hostingPlans.js:328-336` (`getPlanPrice`); `controllers/hostingOrderController.js:77`.
+  - **Fix:** Return `{ total: null }` (or a sentinel) from `getPlanPrice` for unknown
+    type/tier instead of throwing, so the existing 400 path fires; add a test asserting
+    `POST /api/v1/hosting/orders` with a bogus plan returns 400 not 500.
+  - **Shipped:**
+    - `config/hostingPlans.js` — `getPlanPrice` now returns `{ basePrice: null, total: null,
+      billingCycle }` for an unknown `planType` or `tier`, same shape already used for the
+      cloud/enterprise custom tier, instead of throwing.
+    - Confirmed all **three** call sites (`hostingOrderController.js` — `createOrder:77`,
+      renewal flow `:628`, staff-create `:875`) already had a `planTotal == null` /
+      `!price || price.total == null` 400-check immediately after the call — they were all
+      equally broken by the throw and are all fixed by this one change, not just `createOrder`.
+    - `tests/hosting.test.js` — added `POST /api/v1/hosting/orders — invalid plan/tier (T60)`:
+      2 tests (unknown `planType`, unknown `tier` on a known `planType`) asserting 400, not
+      500.
+  - **Verified:** full suite 22 suites / 139 tests pass (up from 137 — the 2 new tests); `npm
+    run lint` 0 errors. (One unrelated flaky failure — a `socket hang up` network error,
+    reproduced once then gone on immediate re-run — seen both before and after this change;
+    not caused by it.)
+
+- [x] **T59 · Service orders: free-form status + unclamped pagination** ✅ done 2026-08-20
+  - **Issue:** `serviceOrderController.updateServiceOrder` assigns `status` straight from the
+    body with no enum check, and uses `findByIdAndUpdate` (no `runValidators`), so any string
+    is silently persisted (no 400, no schema validation). `getServiceOrders` takes raw
+    `page`/`limit` from the query with no clamping (a client can pass `limit=100000` or
+    `page=-1`), unlike every other list endpoint's default/min/max pattern.
+  - **Location:** `controllers/serviceOrderController.js` — `getServiceOrders` (133-146),
+    `updateServiceOrder` (151-163).
+  - **Fix:** Validate `status` against the `ServiceOrder` enum (and a forward-only guard, e.g.
+    don't move `paid` → `pending`), and clamp `page`/`limit` to sane bounds. Add a test.
+  - **Shipped:**
+    - `controllers/serviceOrderController.js` — added `SERVICE_ORDER_STATUSES` +
+      `canTransition(from, to)`, mirroring `orderController.js`'s existing
+      `ORDER_STATUSES`/`canTransition` pattern exactly (forward-only by rank; `cancelled`
+      reachable from any live state; `completed`/`cancelled` terminal; same-status is a
+      no-op).
+    - `updateServiceOrder` — 400s on a status outside the enum, 400s on a disallowed
+      transition (checked against the order's current status via `findById`, not blind
+      `findByIdAndUpdate`), otherwise mutates + `.save()`s (runs full schema validation,
+      replacing the old `findByIdAndUpdate` call that skipped it).
+    - `getServiceOrders` — `page`/`limit` clamped with the same `Math.max`/`Math.min`
+      pattern as `productController.getProducts` (limit capped at 100); an invalid
+      `status` filter value is silently ignored rather than erroring, matching
+      `orderController.getOrders`'s existing behavior for the same case.
+    - `tests/serviceOrders.test.js` (new, 8 tests) — invalid status rejected; backward
+      move (`paid`→`pending`) rejected; move out of a terminal state
+      (`completed`→`in_progress`) rejected; reviving a `cancelled` order rejected; full
+      forward chain `pending`→`paid`→`in_progress`→`completed` allowed; cancelling a
+      live order allowed; `adminNote`-only update still works without touching status;
+      oversized `limit`/negative `page`/invalid `status` filter on the list endpoint
+      handled per the above.
+  - **Verified:** full suite 23 suites / 147 tests pass (up from 139); `npm run lint`
+    0 errors.
+
+- [x] **T58 · POS part/repair order status allows backward moves** ✅ done 2026-08-20
+  - **Issue:** `inventoryController.updatePartOrder` (308-332) and `jobController.updateRepairOrder`
+    (802-826) validate the status against `['pending','paid','cancelled']` but enforce no
+    forward-only rule, so `paid → pending` and `paid → cancelled` are allowed. Cancelling a
+    **paid** part order also leaves the linked repair job stuck at `waiting_for_parts`
+    (set by the webhook on payment), with no re-evaluation back to `diagnosing`.
+  - **Location:** `controllers/pos/inventoryController.js` (`updatePartOrder` 308-332);
+    `controllers/pos/jobController.js` (`updateRepairOrder` 802-826).
+  - **Fix:** Mirror `orderController.canTransition` (390-401): forbid leaving `paid` backwards,
+    and when a `paid` part order is cancelled, reset the linked job's `waiting_for_parts` back
+    to `diagnosing` (or require manual status change). Add tests.
+  - **Shipped:**
+    - `controllers/pos/common.js` — new shared `PART_REPAIR_ORDER_STATUSES` constant and
+      `canTransitionPartRepairOrder(from, to)` guard, exported for both controllers to
+      share (rather than duplicating the same guard twice): only `pending` may move — to
+      `paid` or `cancelled`; same-status is a no-op; `paid`/`cancelled` are both terminal
+      (no un-paying, and — per the issue's explicit ask — no cancelling a *paid* order
+      either, since that needs a refund process, not a status flip).
+    - `controllers/pos/inventoryController.js` (`updatePartOrder`) and
+      `controllers/pos/jobController.js` (`updateRepairOrder`) — both now check
+      `canTransitionPartRepairOrder(prevStatus, status)` and 400 on a disallowed move,
+      before applying the change.
+    - `tests/partRepairOrderStatus.test.js` (new, 14 tests via `describe.each` covering
+      both `PartOrder` and `RepairOrder`): invalid status rejected; `pending→paid` and
+      `pending→cancelled` allowed; `paid→pending` and `paid→cancelled` rejected;
+      `cancelled→anything` rejected; same-status no-op allowed.
+    - **Did NOT implement the "reset waiting_for_parts → diagnosing on cancel" half** —
+      took the fix note's explicit fallback ("require manual status change") instead.
+      Reason: `waiting_for_parts` is not exclusively driven by the Paystack webhook —
+      `jobController.updateJob`'s free-form `if (status) job.status = status` (no guard
+      yet; that's the still-open **T53**) lets staff set it manually for unrelated
+      reasons (e.g. waiting on a supplier part with no linked online order). There's no
+      field on `RepairJob` distinguishing "webhook-set because of *this* order" from
+      "staff-set for something else," so an automatic reset risks silently overwriting a
+      status a staff member set deliberately. Flagging as a follow-up worth revisiting
+      once T53 lands (a `waitingForPartsReason`/order-linkage field would make the
+      auto-reset safe).
+  - **Verified:** full suite 24 suites / 161 tests pass (up from 147); `npm run lint`
+    0 errors.
+
+- [x] **T57 · POS `updateJob` accepts money fields from technicians (bill understatement)** ✅ done 2026-08-20
+  - **Issue:** `PATCH /pos/jobs/:id` (`routes/posRoutes.js:62`) sits behind the router-wide
+    `restrictTo('superadmin', 'admin', 'staff', 'technician')` (line 35), and `jobController.updateJob`
+    applies money-bearing fields straight from `req.body` with no role check: `laborCost`
+    (line 327), `depositPaid` (line 328), `diagnosisFee` (lines 331-334), and custom-part
+    `cost`/`costAtTime` (lines 362, 365). Inventory-linked parts are correctly anchored to
+    `Part.sellingPrice`/`costPrice` (lines 341-367), but **non-inventory custom parts accept a
+    client-supplied price**, and `laborCost`/`diagnosisFee`/`depositPaid` are client-trusted.
+    A technician can understate the customer's bill (e.g. `laborCost: 0`, free custom parts) or
+    claim a `depositPaid` without any staff involvement.
+  - **Location:** `controllers/pos/jobController.js` — `updateJob` (lines 327-334, 341-367);
+    `routes/posRoutes.js:62`.
+  - **Fix:** Role-guard the money fields server-side — only `superadmin`/`staff`/`admin` may set
+    `depositPaid` and client-priced custom parts; keep technician `laborCost`/`diagnosisFee` entry
+    only if that's the intended shop workflow (at minimum log it). Add a test: a technician
+    `PATCH /pos/jobs/:id` with `depositPaid: 0` (or a bogus custom part price) leaves the job's
+    money untouched.
+  - **Frontend part:** n/a — enforce server-side; the technician UI already hides the payment
+    section but the save payload still carries the money fields.
+  - **Decision (user, mid-task):** the fix note's own ambiguity ("keep technician
+    laborCost/diagnosisFee entry only if that's the intended workflow") was resolved as
+    **restrict, don't just log** — `laborCost`/`diagnosisFee` locked to the same
+    staff/admin/superadmin roles as `depositPaid` and custom-part pricing, not left open
+    to technicians with an audit-log trail.
+  - **Shipped:**
+    - `controllers/pos/jobController.js` (`updateJob`) — added
+      `isMoneyRole = ['superadmin','admin','staff'].includes(req.user?.role)`, matching
+      the existing `POST /jobs/:id/payments` role list (which already excludes
+      technician for the same reason). `laborCost`, `depositPaid`, and `diagnosisFee`
+      (both the `requiresDiagnosis`-toggle branch and the direct-edit branch) now only
+      apply `if (isMoneyRole)`; a non-money role's request silently leaves them
+      unchanged rather than erroring, since the same request may legitimately be
+      updating other, non-money fields.
+    - Custom (non-inventory) part pricing — snapshotted the job's existing custom-part
+      prices by name *before* the wholesale `job.parts = parts.map(...)` replacement.
+      For a non-money role: a custom part **already on the job** keeps its existing
+      `priceAtTime`/`costAtTime` (so a technician can still edit quantity, add/remove
+      lines) regardless of what price the client payload sent; a **brand-new** custom
+      line from a non-money role prices at 0 (staff must price it in a follow-up edit).
+      Inventory-linked parts were already anchored to `Part.sellingPrice`/`costPrice`
+      and are unaffected by this change.
+    - `tests/updateJobMoneyGuard.test.js` (new, 7 tests): technician's
+      laborCost/depositPaid/diagnosisFee changes ignored; technician can't wipe
+      `diagnosisFee` via `requiresDiagnosis: false`; technician's new custom part prices
+      at 0; technician resubmitting an existing staff-priced custom part (e.g. to bump
+      quantity) keeps the staff price; technician can still edit non-money fields
+      (diagnosis, status); staff/admin/superadmin unaffected (regression check);
+      inventory-linked part pricing unaffected by this guard.
+  - **Verified:** full suite 25 suites / 168 tests pass (up from 161); `npm run lint`
+    0 errors.
+
+- [x] **T56 · POS job detail page missing `waiting_for_parts` status** ✅ done 2026-08-21 — frontend-only, see `frontend-eaz/tasks.md` → T56 for the full Shipped/Verified notes
+  - **Issue:** `src/app/dashboard/pos/jobs/[id]/page.jsx:29` defines
+    `STATUSES = ["received", "diagnosing", "repairing", "ready", "collected", "cancelled"]` —
+    omitting `waiting_for_parts`, which IS a real backend status (`models/RepairJob.js:46` enum)
+    set by the online part-order flow (`webhookController.js:573, 631`) and covered by the
+    notification service (`services/notify.js:30`). A job in `waiting_for_parts` renders an
+    unmapped `<select>` value (lines 306-307 — no matching `<option>`, so the browser shows a
+    blank/first option) and has no quick-action button (the `status ===` cases end at line 501),
+    so staff can only advance it via the generic dropdown — the normal one-tap flow silently skips it.
+  - **Location:** `frontend-eaz/src/app/dashboard/pos/jobs/[id]/page.jsx` — `STATUSES` (line 29),
+    `<select>` (306-307), quick-status buttons (468-501).
+  - **Fix:** Add `waiting_for_parts` to `STATUSES` (with label "Waiting for parts") and add a
+    quick-action case (e.g. `waiting_for_parts → repairing`) so staff can advance the job with one
+    tap. Keep it between `diagnosing` and `repairing` in the flow.
+  - **Backend detail:** n/a — backend already supports the status end-to-end.
+
+- [x] **T55 · Credentials/PINs generated with non-crypto `Math.random()`** ✅ done 2026-08-20
+  - **Issue:** `authController.generatePin` (`controllers/authController.js:11`,
+    `String(Math.floor(100000 + Math.random() * 900000))`) produces every 6-digit verification /
+    2FA PIN (call sites at lines 86, 243, 464, 553) with `Math.random`; `services/whm.js:22-31`
+    and `services/cyberpanel.js:22-28` generate live cPanel/CyberPanel account passwords the same
+    way (`chars[Math.floor(Math.random() * chars.length)]`). `Math.random` is a PRNG, not a CSPRNG
+    — for the PINs this compounds the unthrottled-PIN brute-force risk already tracked as T46.
+  - **Location:** `controllers/authController.js:11` (generatePin + 4 call sites);
+    `services/whm.js:22-31`; `services/cyberpanel.js:22-28`.
+  - **Fix:** Use `crypto.randomInt` for the PIN (`crypto.randomInt(100000, 1000000)`) and
+    `crypto.randomBytes`/`randomInt` for the passwords (they already import `crypto`). The codebase
+    already has the correct pattern in `controllers/pos/common.js:89` (`generatePassword` uses
+    `crypto.randomInt` + Fisher–Yates) — mirror it. Add a test
+    asserting the PIN has the correct 6-digit range/format.
+  - **Frontend part:** n/a.
+  - **Rotation check (user asked before implementing):** queried the live Mongo cluster
+    directly — **0 of 25 users** currently have any stored `verifyPin`/`twoFactorPin`
+    (expired or not), and **0 hosting orders** have ever been provisioned
+    (`cpanelUsername` unset on all — WHM account passwords are never persisted in our DB
+    at all, only handed to WHM's `createAccount` call and the credentials email). Nothing
+    to rotate today; this is a forward-only fix. Noted that any PIN mid-flight at deploy
+    time would still be weak until its ≤15-minute expiry — not worth engineering around.
+  - **Shipped:**
+    - `controllers/authController.js` — `generatePin` now
+      `String(crypto.randomInt(100000, 1000000))` (same [100000, 999999] range/format as
+      before, just CSPRNG-backed). Exported `generatePin` from the module (previously
+      internal-only) so it's directly unit-testable.
+    - `services/whm.js` — `generatePassword` now uses `crypto.randomInt` for every
+      character pick, plus a Fisher–Yates shuffle (mirroring
+      `controllers/pos/common.js`) so the guaranteed upper/lower/digit/special
+      characters aren't always in the first 4 positions. Same 16-char length and
+      character sets as before.
+    - `services/cyberpanel.js` — `generatePassword` switched to `crypto.randomInt`;
+      no shuffle needed there (unlike whm.js, it already picks uniformly across the
+      whole combined charset per position, not from fixed per-class slots).
+    - `tests/generatePin.test.js` (new, 2 tests): 500 draws all match `/^\d{6}$/` and
+      fall in `[100000, 999999]`; a 500-draw uniqueness-spread sanity check
+      (>490 distinct) to catch a broken/constant generator.
+    - **Not touched:** `tests/hosting.test.js`/`hostingStaffCreate.test.js` fully mock
+      `whm.generatePassword`, so they're unaffected by the real implementation change —
+      confirmed, no test updates needed there.
+  - **Verified:** full suite 26 suites / 170 tests pass (up from 168); `npm run lint`
+    0 errors.
+
+- [x] **T54 · Hosting order domain fee is client-trusted — Namecheap price lookup never matches** ✅ done 2026-08-20
+  - **Issue:** `hostingOrderController.createOrder` (`controllers/hostingOrderController.js:84-104`)
+    computes the domain fee server-side with `tld = domain_s.split('.').slice(1).join('.')` (e.g.
+    `"com"`, **no leading dot**) and indexes `namecheap.getPricing()` — whose keys ARE
+    dot-prefixed (`.com`, see `services/namecheap.js:119` and `utils/domainHelper.js:28`).
+    The lookup always misses, so the code always falls back to
+    `Math.min(Number(domainRegistrationFee) || 0, 500)` — **trusting the client-supplied
+    `domainRegistrationFee`** in a GH₵0–500 band. A buyer can zero it out (free domain bundled
+    into a hosting order) or inflate it; the webhook then charges the stored `amount`.
+  - **Latent double-conversion:** `priceUSD` is a misnomer — `getPricing()` already returns GHS
+    (`usdToGhs`, 15.5 rate × 1.2 markup applied). If someone "fixes" the key to `.com`, the code
+    then multiplies by `usdRate * markup` **again** (~18× too high). Compare the correct pattern
+    in `domainController.createDomainPayment` (lines 242-244), which uses `pricing[tld]` directly.
+  - **Location:** `controllers/hostingOrderController.js` — `createOrder` (~lines 84-104).
+  - **Fix:** Use `extractTLD(domain_s)` (returns the dot-prefixed TLD) to index `prices`, drop the
+    redundant `usdRate * markup` conversion (price is already GHS), and keep the GH₵500-capped
+    client fallback only for the Namecheap-unavailable case. Add a test: `createOrder` with a
+    known TLD uses the server price and ignores `domainRegistrationFee`.
+  - **Frontend part:** n/a — the checkout already displays the correct server price from domain search.
+  - **Shipped:**
+    - `controllers/hostingOrderController.js` — imported `extractTLD` from
+      `utils/domainHelper.js`. In `createOrder`'s domain-fee block: `tld = extractTLD(domain_s)`
+      (dot-prefixed, matches `getPricing()`'s keys), renamed the misleading `priceUSD` var to
+      `priceGHS`, and dropped the `usdRate * markup` re-multiplication — `domainFee = Math.round(priceGHS
+      * years * 100) / 100`. The unknown-TLD and Namecheap-unavailable fallbacks (capped
+      client value) are unchanged.
+    - **Found and fixed a second occurrence of the identical bug** — the staff-create flow
+      (`POST /hosting/orders/staff-create`, ~line 882) had the exact same
+      `split('.').slice(1)` + `priceUSD * usdRate * markup` pattern. Not named in the task's
+      location note, but it's the same code duplicated, not a new issue — fixed the same way.
+      This one previously had no client-fallback branch at all (domain fee always landed at 0
+      for a "new domain" order, since the lookup always missed) — that's now replaced by a
+      correct server-computed fee when the TLD is known.
+    - `tests/hosting.test.js` — added `getPricing: jest.fn(async () => ({ ".com": 85, ".net":
+      75 }))` to the file's existing `namecheap` mock (previously absent — none of the
+      existing tests hit the `domainMode: 'new'` path, so it was never needed until now).
+      New describe block (4 tests): known TLD uses the server price over a zeroed client
+      value; price multiplies correctly by `domainRegistrationYears` (proves the
+      double-conversion is gone — `75 × 2 = 150`, not `75 × 15.5 × 1.2 × 2`); unknown TLD
+      falls back to the capped client value; Namecheap throwing falls back to the capped
+      client value.
+  - **Verified:** full suite 26 suites / 174 tests pass (up from 170); `npm run lint`
+    0 errors.
+
+- [x] **T53 · POS `updateJob` allows backward / terminal-to-live status transitions** ✅ done 2026-08-20
+  - **Issue:** `jobController.updateJob` (`controllers/pos/jobController.js:318`) does
+    `if (status) job.status = status;` with no transition validation — unlike
+    `orderController.canTransition` (`controllers/orderController.js:390-401`), which enforces
+    forward-only moves and treats `delivered`/`cancelled` as terminal. As written, a
+    staff/technician can move a repair job backwards (`collected`→`received`,
+    `ready`→`diagnosing`) or out of a terminal state (`cancelled`→`repairing`). Worse,
+    `completedAt` is set when a job reaches `collected` (line 373) but is **never cleared** on a
+    backward move, and `warrantyExpires` (set at collection when `warrantyDays > 0`) goes stale
+    the same way — corrupting warranty + uncollected-reminder logic.
+  - **Location:** `controllers/pos/jobController.js` — `updateJob` (~lines 318, 373-381);
+    `models/RepairJob.js` — `status` enum (line 44-48), `completedAt` (line 59),
+    `warrantyExpires` (line 64).
+  - **Fix:** Mirror `orderController.canTransition`: a `STATUS_RANK` order over
+    `['received','diagnosing','waiting_for_parts','repairing','ready','collected']`, reject
+    moves to lower rank, treat `cancelled` as terminal (only reachable from a live state, per the
+    existing T18 cancel guard), and allow same-status no-op. When a job is moved off `collected`
+    (backwards), clear `completedAt`/`warrantyExpires`; set them only on `collected`. Add a test:
+    `collected`→`received` is rejected with 400; `cancelled`→`repairing` is rejected.
+  - **Frontend part:** n/a (see `frontend-eaz/tasks.md` → T53 for the UI side of the cancel guard).
+  - **Shipped:**
+    - `controllers/pos/common.js` — new `JOB_STATUS_RANK` + `canTransitionJobStatus(from, to)`
+      guard, mirroring `orderController.canTransition`: forward-only over
+      `received→diagnosing→waiting_for_parts→repairing→ready→collected` (skips allowed);
+      `collected` and `cancelled` are both fully terminal (no moves out of either — same
+      precedent as orders' `delivered`/`cancelled`, so the "clear `completedAt`/
+      `warrantyExpires` on a backward move off `collected`" half of the fix note is now
+      unreachable and was deliberately **not** added — the guard rejects the move before
+      `job.save()` runs, so those fields can no longer go stale); `cancelled` reachable from
+      any live status except `ready` (the T18 rule, folded in here since T18 itself is still
+      unshipped).
+    - **One deliberate exception, not in the original fix note:** `waiting_for_parts` →
+      `diagnosing` is explicitly allowed as a backward move. T58 shipped a guard on
+      `PartOrder`/`RepairOrder` but explicitly skipped auto-resetting a linked job stuck at
+      `waiting_for_parts` when its paid order is cancelled, deferring to "require manual
+      status change" instead — a plain forward-only guard here would have silently closed
+      off that exact fallback. Documented inline in `common.js` with the T58 cross-reference.
+    - `controllers/pos/jobController.js` (`updateJob`) — checks
+      `canTransitionJobStatus(prevStatus, status)` and 400s on a disallowed move before
+      applying the change.
+    - `tests/jobStatusTransition.test.js` (new, 11 tests): forward move + skip allowed;
+      same-status no-op allowed; backward move rejected; `collected`→anything rejected
+      (terminal); `cancelled`→anything rejected (terminal); `ready`→`cancelled` rejected
+      (T18); a live non-`ready` status → `cancelled` allowed; `waiting_for_parts`→`diagnosing`
+      allowed (T58 fallback); other backward moves out of `waiting_for_parts` still rejected;
+      `completedAt` set on reaching `collected`.
+  - **Verified:** full suite 27 suites / 185 tests, 184 pass (1 pre-existing/unrelated
+    `seedCatalog.test.js` timeout under full-suite load — passes standalone, confirmed
+    unaffected by this change by re-running it against `main` via `git stash`); `npm run
+    lint` 0 errors.
+  - **T58 follow-up — does this change the calculus on the deferred auto-reset?** No, on the
+    substantive question, but it does affect the manual fallback:
+    - **Auto-reset is still unsafe, and T53 doesn't fix why.** T58's blocker was that
+      nothing on `RepairJob` distinguishes "webhook set `waiting_for_parts` because of
+      *this* order" from "staff set it manually for something else" (no
+      `waitingForPartsReason`/order-linkage field). T53 is a pure status-transition guard —
+      it adds no such field. An automatic reset on order-cancel would still risk silently
+      overwriting a status a staff member set deliberately. That's unchanged.
+    - **What T53 *does* change: it would have silently broken the manual fallback T58
+      fell back to, if left as a strict forward-only guard.** A plain forward-only rule
+      blocks *all* backward moves, including `waiting_for_parts`→`diagnosing` — the exact
+      correction staff need after cancelling a paid order. Without the explicit exception
+      added above, T53 would have shipped and quietly taken away the one escape hatch T58
+      relied on, with no other route back to `diagnosing`. The exception keeps that
+      fallback alive; it does not make auto-reset any safer.
+    - **Net:** stays a manual-only fix, same as T58 concluded — T53 doesn't unlock a safe
+      auto-reset path. If auto-reset is wanted later, it still needs the linkage field
+      T58 flagged, as its own separate task.
+
+- [x] **T52 · Frontend dashboard admin gates exclude superadmin** ✅ done 2026-08-21 — frontend-only, see `frontend-eaz/tasks.md` → T52 for the full Shipped/Verified notes
+  - **Issue:** Admin pages gate on `user?.role === "admin"` (or `!== "admin"`), so a superadmin
+    (site owner) is redirected to `/dashboard` or the admin data never loads.
+  - **Location:** frontend — `src/app/dashboard/(admin)/hosting-orders/page.jsx:107`;
+    `domain-orders/page.jsx:35,38,41,57`; `consultations/page.jsx:187,207,231`;
+    `blog/page.jsx:126,140,186`; `chats/page.jsx:58,63`; `users/page.jsx:511`;
+    `emails/page.jsx:71`; `src/app/dashboard/hosting/[orderId]/page.jsx:176`.
+  - **Fix:** Use `["admin", "superadmin"].includes(user?.role)` everywhere admin views are
+    gated (ideally a small shared helper). `middleware.js` and `DashboardShell` already handle
+    superadmin correctly.
+  - **Backend part:** see `backend-eaz/tasks.md` → T51.
+
+- [x] **T51 · Superadmin excluded by controller-level `role === 'admin'` checks** ✅ done 2026-08-20
+  - **Issue:** `restrictTo('admin')` grants superadmin implicit access
+    (`middleware/auth.js:46`), but several `protect`-only routes re-check
+    `req.user.role === 'admin'` inside the controller, so a superadmin passes the route yet is
+    treated as a regular user: sees only their own hosting/domain orders, and gets 403 on other
+    users' orders, invoices, cPanel SSO, service status, and cPanel password resets.
+  - **Location:** `controllers/hostingOrderController.js` — `getOrders:204`, `getOrder:425`,
+    `getInvoice:446`, `getCpanelLoginUrl:584`, `getServiceStatus:741`, `changeHostingPassword:781`;
+    `controllers/domainController.js` — `getDomainOrders:354`, `getDomainOrder:388`.
+  - **Fix:** Route-level: add `restrictTo('admin')` to the admin-capable routes (`/hosting/orders`,
+    `/hosting/orders/:id`, `/hosting/orders/:id/invoice`, `/hosting/orders/:id/cpanel-login`,
+    `/hosting/orders/:id/status`, `/hosting/orders/:id/password`, `/domains/orders`,
+    `/domains/orders/:id`) OR replace the manual checks with `['admin', 'superadmin'].includes(...)`.
+    Prefer route-level `restrictTo` for list endpoints and a superadmin-aware helper for
+    ownership-or-admin checks.
+  - **Frontend part:** see `frontend-eaz/tasks.md` → T52.
+  - **Shipped:** All 8 sites turned out to be mixed owner-or-admin endpoints (a regular
+    customer legitimately hits the same route for their own order/hosting account), so
+    route-level `restrictTo` wasn't an option for any of them — went with the manual-check
+    replacement instead, matching the inline `[...].includes(role)` convention already used
+    elsewhere (`reportsController.js`, `jobController.js`); no new shared helper introduced
+    for 8 call sites.
+    - `controllers/hostingOrderController.js` — `getOrders`, `getOrder`, `getInvoice`,
+      `getCpanelLoginUrl`, `getServiceStatus`, `changeHostingPassword`: `req.user?.role ===
+      'admin'` (or `!== 'admin'`) → `['admin', 'superadmin'].includes(req.user?.role)`.
+    - `controllers/domainController.js` — `getDomainOrders`, `getDomainOrder`: same swap.
+    - `tests/hosting.test.js` (new `describe` block, 6 tests): superadmin sees every order
+      via `GET /orders`; can read another customer's order, invoice, service status,
+      cPanel SSO session, and reset another customer's cPanel password.
+    - `tests/domainOrdersRoleGuard.test.js` (new, 4 tests): superadmin sees every domain
+      order via `GET /orders`; a regular user's list stays filtered to their own; superadmin
+      can read another customer's order by id; a non-owner, non-admin user is still 403'd
+      (regression guard on the ownership check itself, not just the superadmin gap).
+  - **Verified:** `tests/hosting.test.js` + `tests/domainOrdersRoleGuard.test.js` 24/24 pass
+    (10 new); `npm run lint` on touched files 0 errors (2 pre-existing unrelated warnings in
+    `hostingOrderController.js`). Full-suite run showed 2 failing suites/20 tests, both in
+    `tests/productReviews.test.js` (unrelated to T51 — `mongodb-memory-server` failing to
+    start / mongoose buffering timeouts, i.e. resource contention across parallel Jest
+    workers) — confirmed pre-existing and unrelated: that file passes 19/19 standalone, and
+    all T51/T53/T58 status-guard tests together (49 tests, 4 suites) pass clean.
+
+- [x] **T19 · "Customer will bring device in" → "Device received" when diagnosing starts**
+  - **Issue:** Once a repair job leaves the `received` stage, the customer/device card label
+    should read "Device received" instead of the dropoff-based "Customer will bring device in".
+  - **Location:** frontend — `frontend-eaz/src/app/dashboard/pos/jobs/[id]/_components/CustomerDeviceCard.jsx`
+  - **Fix:** Frontend-only display change keyed off `job.status`; **no backend change required**
+    (see `frontend-eaz/tasks.md` → T19, implemented there).
+
+- [x] **T50 · `resetPassword` / `verifyPin` don't check `isBlocked`** ✅ done 2026-08-21
+  - **Issue:** `login` rejects blocked accounts, but `resetPassword` (~line 350) and
+    `verifyPin` (~line 397) issue a fresh token via `sendTokenResponse` without checking
+    `user.isBlocked`. A blocked user who still has a valid reset link or verification PIN can
+    obtain a valid session token. Impact is limited (`protect` rejects blocked users on the
+    next request) but the token is still issued and the flows are inconsistent.
+  - **Location:** `controllers/authController.js` — `resetPassword`, `verifyPin`.
+  - **Fix:** After loading the user in both flows, if `user.isBlocked` return the same 403
+    used by `login` (with `blockedReason`). Add a test: blocked user with valid reset token
+    / PIN gets 403, not a token.
+  - **Frontend part:** n/a.
+  - **Shipped:**
+    - `controllers/authController.js` — extracted `blockedAccountError(user)` (the
+      message logic `login` already had) and reused it in all three spots; `login`'s
+      inline duplicate replaced with a call to the same helper.
+    - `resetPassword` — `isBlocked` check inserted right after the token-validity lookup,
+      before the password-length validation.
+    - `verifyPin` — `isBlocked` check inserted right after the user-lookup 404, before
+      the `isVerified` check.
+    - No schema/query change needed — `isBlocked`/`blockedReason` aren't `select: false`
+      on `User`, so they're already present on both queries.
+    - `tests/authBlockedUser.test.js` (new, 4 tests): blocked user's valid reset token →
+      403, no `Set-Cookie`; non-blocked user's reset still succeeds; blocked user's valid
+      PIN → 403, no `Set-Cookie`; non-blocked user's PIN verification still succeeds.
+  - **Verified:** `tests/authBlockedUser.test.js` 4/4 pass; `npm run lint` on touched files
+    0 errors (2 pre-existing unrelated warnings — unused `protect`/`restrictTo` imports,
+    not introduced by this change); full suite via `npm test` (`--runInBand`) 29 suites /
+    199 tests, all pass.
+
+- [x] **T49 · `verifyPin` / `twoFactorPin` stored and compared in plaintext** ✅ done 2026-08-21
+  - **Issue:** 6-digit PINs are stored unhashed on `User` (`verifyPin`, `twoFactorPin`) and
+    compared with plain `!==` (not a constant-time compare). A DB read exposes usable codes,
+    and timing side-channel on comparison is possible.
+  - **Location:** `models/User.js` (verifyPin/twoFactorPin fields), `controllers/authController.js`
+    (verifyPin ~line 424, verifyTwoFactor ~line 617, confirmTwoFactor ~line 570).
+  - **Fix (low risk):** Hash the PIN before storing (e.g. `crypto.createHash('sha256')` like
+    `resetPasswordToken`) and compare digests, or compare with `crypto.timingSafeEqual`.
+    Keep the 6-digit format for UX. Do NOT send the stored PIN anywhere; the plain code is
+    emailed at generation time only.
+  - **Frontend part:** n/a.
+  - **Decision (user, before implementing):** SHA-256 + `timingSafeEqual` (matching
+    `resetPasswordToken`'s existing pattern in this file), not bcrypt — these are
+    short-lived (≤15 min), low-entropy 6-digit codes; hashing defends against DB-read
+    exposure at rest, not online brute force (that's the still-open T46 rate-limit gap),
+    so bcrypt's per-op cost buys nothing and doesn't fit the existing
+    hash-and-compare-digests shape. Confirmed forward-only, no migration: same live-DB
+    check T55 already ran found 0/25 users with a stored PIN; the only caveat (a PIN
+    mid-flight at the exact deploy moment stops matching, user just hits resend,
+    self-heals within the PIN's own ≤15 min expiry) is the same call T55 made and
+    explicitly declined to engineer around. No user-facing format change — the plaintext
+    6-digit code is still what's emailed/generated; only the DB write is hashed.
+  - **Shipped:**
+    - `controllers/authController.js` — `hashPin(pin)` (sha256 digest, exported for tests)
+      and `pinMatches(storedHash, candidate)` (`timingSafeEqual` on the two digests,
+      exported for tests). Wired into all 4 write sites (`register`, `login`'s 2FA
+      trigger, `resendPin`, `enableTwoFactor` — each now stores `hashPin(pin)` instead of
+      the plaintext) and all 3 compare sites (`verifyPin`, `confirmTwoFactor`,
+      `verifyTwoFactor` — each now uses `pinMatches(...)` instead of `!==`). Email/SMS
+      delivery (`sendVerificationPin`/`sendTwoFactorPin`) still receives the plaintext
+      `pin` generated before hashing — unaffected.
+    - `tests/pinHashing.test.js` (new, 6 tests): `hashPin`/`pinMatches` unit tests
+      (deterministic, matches only the right plaintext, safe on missing input);
+      `register` stores a digest (not the emailed plaintext) and only the correct code
+      verifies; `2fa/enable`→`2fa/confirm` stores a digest and only the correct code
+      confirms; login-triggered 2FA stores a digest and `2fa/verify` accepts the correct
+      code.
+    - **Fixed two pre-existing tests that read the plaintext PIN straight off the DB**
+      (broken by this change, since the DB no longer holds plaintext):
+      `tests/productReviews.test.js`'s E2E flow now mocks `sendVerificationPin` and reads
+      the code from the (mocked) send call, same as the real emailed code would arrive;
+      `tests/authBlockedUser.test.js` (T50) now seeds its fixture with `hashPin(...)`
+      instead of a raw string.
+  - **Verified:** `tests/pinHashing.test.js` 6/6 pass; `tests/productReviews.test.js` and
+    `tests/authBlockedUser.test.js` re-verified 19/19 and 4/4 after the fix; `npm run lint`
+    0 errors (2 pre-existing unrelated warnings); full suite via `npm test`
+    (`--runInBand`) 30 suites / 205 tests, all pass.
+
+- [x] **T48 · `api.js` drops the `requiresVerification` flag from error responses** ✅ done 2026-08-21 — frontend-only, see `frontend-eaz/tasks.md` → T48 for the full Shipped/Verified notes
+  - **Issue:** When login returns 403 for an unverified account, the backend body includes
+    `requiresVerification: true` + `email`, but `lib/api.js` (`request`, ~lines 20–26) only
+    copies `error`/`errors`/`status` onto the thrown Error. `AuthContext.login` then depends on
+    `err.message.toLowerCase().includes('verify')` (message text is `'Please verify your email
+    before logging in.'`) — brittle; breaks if the message text changes.
+  - **Location:** `frontend-eaz/src/lib/api.js` (error construction ~lines 20–26),
+    `frontend-eaz/src/context/AuthContext.jsx` (login ~lines 32–40).
+  - **Fix:** In `api.js`, spread the rest of `data` onto the Error (e.g. `Object.assign(err,
+    data)`) so `requiresVerification`, `email`, etc. survive; in `AuthContext.login`, check
+    `err.requiresVerification` instead of message matching; pass `err.email` through to the
+    verify redirect.
+  - **Backend:** none needed (see `backend-eaz/tasks.md` → T48).
+
+- [x] **T47 · `updateProfile` missing phone-uniqueness pre-check** ✅ done 2026-08-21
+  - **Issue:** `updateProfile` (~line 497) does `User.findByIdAndUpdate` with
+    `phone: phone || ''` and no duplicate check. If a user sets a phone already in use, the
+    partial unique index throws a 11000 duplicate-key error → unhandled 500. `register` and
+    `adminCreateUser`/`adminUpdateUser` all pre-check and return a friendly 409.
+  - **Location:** `controllers/authController.js` — `updateProfile` (~lines 497–511).
+  - **Fix:** Before updating, if `phone` is non-empty, `User.findOne({ phone, _id: { $ne:
+    req.user._id } })` and return 409 if taken (mirror `adminUpdateUser` ~line 790). Clear the
+    phone field (`phone: ''`) is fine — the partial index ignores empty strings.
+  - **Frontend part:** n/a (error surfaces in the settings profile form).
+  - **Shipped:** `controllers/authController.js` (`updateProfile`) — pre-check inserted
+    verbatim from `adminUpdateUser`'s existing pattern (same query shape, same 409
+    message), right after the name-required check and before `findByIdAndUpdate`.
+    `tests/updateProfilePhoneUnique.test.js` (new, 4 tests): taken phone → 409, not 500;
+    an unused phone succeeds; re-saving your own existing phone doesn't false-positive
+    against yourself; clearing to `''` still works.
+  - **Verified:** 4/4 new tests pass; `npm run lint` 0 errors (2 pre-existing unrelated
+    warnings); full suite via `npm test` (`--runInBand`) 31 suites / 209 tests, all pass.
+
+- [x] **T46 · `/api/v1/auth/verify` rate limit is dead code — PIN endpoints unthrottled** ✅ done 2026-08-21
+  - **Issue:** `app.js:158` mounts a strict limiter at `app.use('/api/v1/auth/verify', 10/15min)`.
+    Express path matching means it only hits the literal `/api/v1/auth/verify` route — which
+    doesn't exist. The real routes `/api/v1/auth/verify-pin`, `/api/v1/auth/resend-pin`, and
+    `/api/v1/auth/2fa/verify` are protected **only** by the global 150/15min limit, so the
+    6-digit PIN endpoints can be brute-forced far beyond the intended 10 attempts/15min.
+  - **Location:** `app.js` (~line 158); routes are `routes/authRoutes.js` lines 32 (`verify-pin`),
+    33 (`resend-pin`), 47 (`2fa/verify`).
+  - **Fix:** Replace the dead mount with limits on the actual paths, e.g.
+    `app.use('/api/v1/auth/verify-pin', 10/15min)` and `app.use('/api/v1/auth/2fa/verify', 10/15min)`
+    (or a `router`-level limiter inside `authRoutes.js`). Add `resend-pin` a gentler limit
+    (e.g. 5/60min) to prevent PIN-resend spam. Verify with a rate-limit test.
+  - **Frontend part:** n/a.
+  - **Discussion (user asked before implementing):** exposure is IP rotation, not a
+    single-IP attack — one PIN's 900,000-value keyspace vs. its ≤15 min expiry already
+    makes a single-IP brute force impractical even under just the global 150/15min limit
+    (~0.017% keyspace coverage per PIN lifetime), but a distributed attacker gets a fresh
+    150-request budget per IP, and a hit here yields a live session token
+    (`sendTokenResponse`), not just an "account confirmed" flag — so a dedicated,
+    order-of-magnitude-tighter per-route limit still meaningfully raises the cost.
+  - **Shipped:** `app.js` — replaced the dead `/api/v1/auth/verify` mount with three
+    real-path mounts: `/api/v1/auth/verify-pin` and `/api/v1/auth/2fa/verify` at
+    10/15min (same values the dead code already had, matching `login`'s precedent);
+    `/api/v1/auth/resend-pin` at a gentler 5/60min (matching `forgot-password`'s
+    precedent, since resend abuse is spam, not guessing).
+    `tests/authRateLimitWiring.test.js` (new, 2 tests) — can't test this behaviorally
+    (the limiter's own `skip` deliberately no-ops when `NODE_ENV === 'test'`, set
+    globally by `tests/setup.js` before any test file loads `../app`), so it verifies
+    the wiring itself via Express's own `Layer#match()`: a path-specific limiter layer
+    exists on all 3 real paths, and none remains on the dead literal `/verify` path.
+    Confirmed the test actually catches the bug by stashing `app.js` back to the dead
+    mount and re-running — both assertions fail as expected, restored after.
+  - **Verified:** 2/2 new tests pass (and fail correctly against the pre-fix code);
+    `npm run lint` 0 errors (2 pre-existing unrelated warnings); full suite via
+    `npm test` (`--runInBand`) 32 suites / 211 tests, all pass.
+
+- [x] **T45 · `expenseController`: unescaped supplier regex + no activity logs** ✅ done 2026-08-21
+  - **Issue:** `getSuppliers` uses `{ $regex: q }` with no `escapeRegex` (vs.
+    `customerController.getCustomers` which escapes it) — a `q` with regex metacharacters
+    can match unintended rows. Also `createExpense`, `updateExpense`, `deleteExpense`,
+    supplier create/update/delete never call `logFromRequest`, so POS expense/supplier
+    mutations are invisible in activity logs (unlike customer/job mutations).
+  - **Location:** `controllers/pos/expenseController.js` (supplier search ~lines 88–92;
+    no `logFromRequest` anywhere in the file).
+  - **Fix:** Use `escapeRegex(q)` in the supplier `$or`, and add `logFromRequest` entries
+    for expense + supplier mutations (actions `EXPENSE_CREATED`/`UPDATED`/`DELETED`,
+    `SUPPLIER_CREATED`/`UPDATED`/`DELETED` — add to `services/activityLogService.js` if
+    the ACTIONS enum lacks them).
+  - **Frontend part:** n/a.
+  - **Shipped:**
+    - `services/activityLogService.js` — added `EXPENSE_CREATED`/`UPDATED`/`DELETED` and
+      `SUPPLIER_CREATED`/`UPDATED`/`DELETED` to `ACTIONS`, and `EXPENSE`/`SUPPLIER` to
+      `RESOURCES` (no schema migration needed — `ActivityLog.action`/`resourceType` are
+      plain strings, not a Mongoose enum).
+    - `controllers/pos/expenseController.js` — `getSuppliers` wraps `q` in
+      `escapeRegex(q)` (was already imported, unused, in this file's destructure).
+      `createExpense`/`createSupplier` log on create (no diff, matches the
+      `createCustomer`/`createPart` precedent). `updateExpense`/`updateSupplier` capture
+      a before/after snapshot and log via `buildChanges`, mirroring
+      `inventoryController.updatePart`'s exact pattern. `deleteExpense`/`deleteSupplier`
+      log using the deleted doc's own name/id after the delete succeeds.
+    - `tests/expenseSupplierActivityLog.test.js` (new, 8 tests): a regex-metacharacter
+      query (`"(unmatched"`) returns an empty result instead of throwing; a real match
+      still works; all 3 expense mutations and all 3 supplier mutations each write the
+      expected `ACTIONS.*` log entry, and the two update tests assert the specific
+      before/after diff values.
+    - Confirmed the tests actually catch the original bug: stashed
+      `expenseController.js` back to the pre-fix version and reran — 7/8 fail (the
+      regex-throw case and all 6 logging assertions), only the plain-match control test
+      passes either way, as expected; restored after.
+  - **Verified:** 8/8 new tests pass; `npm run lint` 0 errors (33 pre-existing unrelated
+    warnings — the shared `controllers/pos/*.js` destructure-import pattern, same as
+    every other file in this directory; none of the 5 imports this fix actually uses
+    appear in that list); full suite via `npm test` (`--runInBand`) 33 suites / 219
+    tests, all pass.
+
+- [x] **T44 · Hosting/domain/service amounts stored as major-GHS floats — align to pesewas** — ✅ **RESOLVED 2026-08-25 — Option B, intentional exception, not migrated**
   - **Issue:** The integer-pesewas money rule applies to POS/shop, but hosting, domain, and
     service orders still store **major GHS floats** (`hostingOrderController.js` computes
     `Math.round(priceUSD * usdRate * markup * years * 100) / 100`; the webhook then
@@ -347,6 +935,34 @@ Not defects; product features that don't exist yet. Scope separately before buil
     as intentional. If migrating, mirror the T8/POS migration approach with a one-time script
     and update the frontend `GH₵{order.amount}` displays (see `frontend-eaz/tasks.md` → T44).
   - **Frontend part:** `frontend-eaz/tasks.md` → T44.
+  - **Decision (2026-08-25):** documented as intentional, permanent — **not migrating**.
+    `PHASE7_MONEY_MIGRATION_PLAN.md` (the actual prior POS/repair pesewas migration,
+    2026-08-14) already carved this exact scope out as "Group C — out of scope," calling it a
+    separate, internally-consistent convention the webhook already handles correctly at its
+    boundary — this decision confirms that prior exclusion rather than reopening it. A real
+    migration would mean converting live subscription money (`HostingOrder` models active
+    billing subscriptions with `expiresAt`/`renewalOrderId` chains), unlike T8's rename, which
+    a pre-check found 0 documents to convert. Full reasoning in
+    `MASTER_TASK_ORDER.md`'s "✅ Resolved decisions" section.
+  - **Shipped instead of migrating:**
+    - Comments on `HostingOrder.amount`/`addons[].price`/`domainRegistrationFee`,
+      `DomainOrder.price`, `ServiceOrder.depositAmount`/`totalAmount` state the exception
+      explicitly and cross-reference `webhookController.js`'s `amountMismatch` comment
+      (updated to point back).
+    - **Follow-up (closes the one real residual risk — float round-trip precision):** added
+      `amountPesewas` (`HostingOrder`, `DomainOrder`) and `depositAmountPesewas`/
+      `totalAmountPesewas` (`ServiceOrder`), populated at all 5 create call sites (hosting
+      create/renew/staff-create in `hostingOrderController.js`, domain create in
+      `domainController.js`, service create in `serviceOrderController.js`) by reusing the
+      pesewas value each site already computes for its Paystack `initialize()` call — not new
+      arithmetic. The 3 webhook `amountMismatch` comparisons now read these fields directly
+      instead of re-deriving via `Math.round(field * 100)`, with a fallback to the old
+      derivation for orders created before this field existed. 10 new tests (`hosting.test.js`
+      + new `domainServiceAmountPesewas.test.js`): field set correctly on creation, webhook
+      decision follows the new field over a deliberately-inconsistent recomputed value
+      (proves the wiring, not just that both formulas agree), and the legacy-order fallback
+      still works — confirmed the fix-specific tests fail without the fix. 46 suites/340 tests
+      pass, lint clean.
 
 - [ ] **T43 · Money display bypasses the single `formatGhs` formatter**
   - **Issue:** The frontend convention (STYLE_GUIDE/CLAUDE.md) is to render money via
@@ -358,7 +974,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     pesewas as the pages expect.
   - **Frontend part:** `frontend-eaz/tasks.md` → T43.
 
-- [x] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk** — ✅ done 2026-08-24 (both halves)
+- [x] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk** — ✅ done 2026-08-25
   - **Issue:** Blog post content from `GET /api/v1/posts/:slug` is converted markdown→HTML
     with regex and injected via `dangerouslySetInnerHTML` with **no escaping/sanitization**.
     If an admin-authored (or compromised) post body contains HTML/JS, it executes for every
@@ -406,8 +1022,33 @@ Not defects; product features that don't exist yet. Scope separately before buil
       nothing executable is persisted. Detection normalises control characters the way a
       browser does, so an obfuscated scheme cannot pass the assertion either.
   - **Frontend part:** `frontend-eaz/tasks.md` → T42.
+  - **Shipped:** new `sanitizePostContent` (`utils/sanitize.js`), used only for `Post.content` in
+    `createPost`/`updatePost` — deliberately did **not** touch the existing `sanitizeMessage`
+    helper it replaced there, since that's shared by five other unrelated controllers (chat,
+    reviews, contact, settings, product reviews) and changing its behavior was out of scope.
+    Tried `sanitize-html` first (matches the design doc) but it pulls in `htmlparser2@12`, which
+    is ESM-only and breaks Jest's CJS-only transform pipeline with no babel config in this repo;
+    rather than bolt on ESM-transform infra for one dependency, or pin `sanitize-html` to an
+    older version, checked that older version against a known CVE first — `sanitize-html
+    <=2.17.4` has a real published advisory (GHSA-vccv-cmxp-4j9h, incomplete URI-scheme
+    validation) — and declined to knowingly ship a vulnerable version of the library doing the
+    XSS fix itself, even though my `allowedTags: []` config happens to sidestep that specific
+    flaw. Switched to `xss` (js-xss) instead: CJS-native, zero dependency vulnerabilities,
+    same allowlist approach (empty `whiteList` HTML-*encodes* disallowed tags rather than
+    stripping them — inert either way, confirmed by test). Plus a stripped-and-restored belt of
+    literal `javascript:`-substring removal for the markdown-link vector, which isn't real HTML
+    so no HTML sanitizer's tag/attribute allowlist ever sees it. Also wrote (and live-tested
+    against a disposable local MongoDB, never the real DB) `scripts/resanitizePostContent.js` —
+    an idempotent hygiene pass that re-sanitizes already-stored `Post.content` rows to match
+    what a fresh write produces today; supports `--dry-run`. Confirmed with the frontend fix
+    that this is genuinely optional, not load-bearing — the frontend sanitizes at *render* time,
+    on every request, so old malicious content is already safe to view without it; whether to
+    run it against the real database is a separate call for the user. 8 new tests
+    (`postXss.test.js`, unit + integration) — confirmed the 5 security-relevant ones fail
+    without the fix (temporarily reverted `sanitizePostContent`) before restoring it. 45
+    suites/330 tests pass, lint clean, `npm audit`: 0 vulnerabilities (unchanged).
 
-- [x] **T41 · Public track page part-order cart mixes float-GHS and pesewas** — ✅ done 2026-08-24
+- [x] **T41 · Public track page part-order cart mixes float-GHS and pesewas** — ✅ done 2026-08-25
   - **Issue:** On the `/track/:token` page, `addToCart` stores `unitPriceGhs: sellingPrice / 100`
     (float GHS) then recomputes `totalPesewas = partsSubtotalGhs * 100 + shippingPesewas`
     (float × 100), while `addPartToShopCart` stores integer pesewas directly. Two cart paths,
@@ -429,33 +1070,40 @@ Not defects; product features that don't exist yet. Scope separately before buil
     Stock is also re-checked against `part.quantity` before the order is accepted.
   - No backend code changed.
   - **Frontend part:** `frontend-eaz/tasks.md` → T41.
+  - **Confirmed:** independently re-verified `submitOrder` sends only `{ partId, quantity }` per
+    line before touching anything — matches this note exactly, no backend change needed. See
+    `frontend-eaz/tasks.md` → T41 for what shipped.
 
-- [x] **T39 · Product detail tabs + `shortDescription` field** — ✅ done 2026-08-24 (both halves)
+- [x] **T40 · `authController.logout` calls `jwt.decode` but never imports `jsonwebtoken`** ✅ done 2026-08-20
+  - **Issue:** `logout()` (line ~283) runs `jwt.decode(token)` to resolve the actor identity
+    for the activity log, but `jsonwebtoken` is **not required** in `authController.js`. The
+    ReferenceError is swallowed by the surrounding try/catch, so logout "works" — but the
+    actor is always `null` and the logout activity entry never records who logged out.
+  - **Location:** `controllers/authController.js` (imports lines 1–6; logout ~lines 276–303).
+  - **Fix:** Add `const jwt = require('jsonwebtoken');` to the imports (verified: no other
+    `jwt` reference exists in the file). Optionally add a test asserting logout logs the
+    actor identity when a valid token cookie is present.
+  - **Frontend part:** n/a.
+  - **Shipped:** picked up out of queue order — the new ESLint setup (T10) flagged this as
+    a live `no-undef` error on its first run. Added `const jwt = require('jsonwebtoken');`
+    to `controllers/authController.js`'s imports (user confirmed fixing it now rather than
+    waiting for T40's own turn). No test added for the actor-identity assertion the original
+    fix note suggested — full suite (137 tests) still passes; flagging as unclaimed if
+    wanted later.
+
+- [x] **T39 · Product detail tabs (Description / Reviews) — no backend change** — ✅ done 2026-08-25
   - **Issue:** The frontend product detail page (`/shop/[slug]`) should show **tabs** for
-    Description and Reviews instead of stacking them as one long page.
-  - **Originally filed as frontend-only** ("no API/model/route work required"). That turned
-    out to be wrong: with the full description moved behind a tab, the buy column needed a
-    short summary of its own, and the decision was that it should be a real editor-authored
-    field rather than text derived on the client. So this grew a backend half.
-  - **Shipped:**
-    - `models/Product.js` — new optional `shortDescription` (String, trimmed, `maxlength:
-      200`, defaults to `""`). Optional by design: every product that predates the field
-      stays valid, and the storefront falls back to summarising `description`.
-    - `controllers/productController.js` — `createProduct` destructures its fields
-      explicitly, so `shortDescription` had to be added there and passed to
-      `Product.create`. `updateProduct` spreads `req.body`, so it needed no change —
-      mongoose drops unknown keys, and the field flows through once it is on the schema.
-    - **No projection changes needed:** `productController` has no `.select()` anywhere,
-      so the new field is already returned by both the list and detail endpoints.
-    - `tests/productShortDescription.test.js` (new, 5 tests): persists on create, defaults
-      to `""` when omitted, updates without clobbering `description`, rejects >200 chars
-      with a 400, and is present on the public `GET /api/v1/products/:slug` the page reads.
-  - **Note:** retail parts surface in the catalogue under a synthetic `part-<id>` slug and
-    resolve to a `Part`, which has no `shortDescription` — those fall back to the derived
-    summary on the client. Giving `Part` its own field was left out of scope.
-  - **Verified:** full backend suite passes; `eslint` clean on the changed files.
+    Description and Reviews instead of stacking them as one long page. This is a
+    **frontend-only** UI change; no API/model/route work required.
+  - **Location:** n/a (backend) — see `frontend-eaz/tasks.md` → T39 for the fix.
+  - **Fix:** None on the backend. Verify the endpoints backing the tabs still work:
+    `GET /api/v1/products/:slug` (description + specs), `GET /api/v1/products/:productId/reviews`
+    (public review list), and the review submit/eligibility routes.
+  - **Confirmed:** the frontend fix reuses `useProductBySlug` and `<ProductReviews>` completely
+    untouched — no new endpoint calls, no changed request shapes — so there's nothing here that
+    could have broken. See `frontend-eaz/tasks.md` → T39 for what shipped.
 
-- [x] **T38 · Cart overlay viewport fit — no backend change** — ✅ done 2026-08-24
+- [x] **T38 · Cart overlay viewport fit — no backend change** — ✅ done 2026-08-25
   - **Issue:** The cart overlay that opens on **Add to Cart** from a product detail page
     (frontend `CartDrawer`) should fit all content within one viewport. This is a
     **frontend-only** layout fix; no API/model/route work required.
@@ -463,10 +1111,51 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None on the backend. After the frontend drawer change, verify cart flow
     endpoints used from the drawer still work: `POST /api/v1/cart/sync` (if present),
     `GET /api/v1/products`, and checkout `POST /api/v1/orders`.
-  - **Outcome:** confirmed frontend-only — the fix was a CSS flexbox correction in
-    `CartDrawer.jsx` (a missing `min-h-0`), touching no API. No backend code changed.
-    The cart-flow endpoints named above are unaffected and still covered by the
-    existing suite (48 suites / 344 tests green).
+  - **Confirmed:** the fix was a pure CSS/flexbox change (3 Tailwind classes) — `CartDrawer`
+    doesn't call any endpoint itself (Checkout is a `<Link>` to `/checkout`, not an API call from
+    this component), so there was nothing here that could have broken. See
+    `frontend-eaz/tasks.md` → T38 for what shipped.
+
+- [x] **T37 · POS inventory search: return product images** — ✅ done 2026-08-23 (both
+  halves)
+  - **Issue:** When the sell page searches with `includeProducts=true`, the shop product
+    query does `.select('name sku price stock category')` — **no `images`** — so product
+    thumbnails can't render in the sell page results/cart. Parts already return their full
+    `images` array (Part model has `images`).
+  - **Location:** `controllers/pos/inventoryController.js` (getParts product query ~line 32 —
+    add `images` to `.select(...)`); scan lookup (`scanLookup` ~line 74) already returns full
+    docs but confirm `images` survives `normalizeProduct`
+  - **Fix:** Added `images` to the product `.select(...)` so `GET /pos/inventory?...` returns
+    them. `normalizeProduct` spreads the full product, so `images` flows through untouched —
+    no model change needed. `scanLookup`'s SKU-fallback branch already returns the full
+    (unselected) product doc via `normalizeProduct`, so it needed no change.
+  - **Tests:** `tests/partImages.test.js` gained a `T37` describe block — a matched product
+    returns its `images` array (previously omitted), and a product with none returns `[]`,
+    not `undefined`.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T37.
+
+- [x] **T36 · Supplier model: add WhatsApp and WeChat fields** — ✅ done 2026-08-23 (both
+  halves)
+  - **Issue:** Parts/products are sourced from China — vendors are contacted via **WhatsApp**
+    and **WeChat**, not just phone/email. The `Supplier` schema needs fields for both.
+  - **Location:** `models/Supplier.js` (add `whatsapp`, `wechat` strings), sanitization +
+    validation in `controllers/pos/expenseController.js` (createSupplier/updateSupplier),
+    include in `GET /pos/suppliers` + `GET /pos/suppliers/:id` responses (already returned via
+    find).
+  - **Fix:** Added `whatsapp` (maxlength 30) and `wechat` (maxlength 50) optional fields to
+    `Supplier`; wired into `createSupplier`/`updateSupplier` (incl. `buildChanges` activity-log
+    diffing). `getSuppliers`/`getSupplier` do a plain `.find()`/`.findById()` with no
+    `.select()`, so both new fields flow through untouched — no read-side change needed.
+  - **Deviated from the fix note's "sanitize like phone":** used `sanitizeText`, not
+    `sanitizePhone`. `sanitizePhone` (`utils/sanitize.js`) is Ghana-specific — it strips every
+    non-digit character (including a leading `+`) and only accepts a 9/10-digit local number
+    or a `233` country code; a China WhatsApp number (`+86138...`) would come out mangled or
+    empty. `sanitizeText` just trims/strips tags, which is what the fix note's own "allow a
+    leading `+`" actually needs.
+  - **Tests:** new `tests/supplierContact.test.js` (4 tests) — create/read/update persist both
+    fields, whatsapp keeps its leading `+`, and an unset supplier returns `undefined` for both
+    (not empty strings). Full suite: 44 suites/314 tests pass. Lint clean (0 errors).
+  - **Frontend part:** `frontend-eaz/tasks.md` → T36.
 
 - [x] **T35 · Variant model: support a per-variant price** — ✅ done 2026-08-24
   - **Issue:** `Product.variants[]` only has `sku`, `attributes`, `stock`, `images` — no price.
@@ -502,7 +1191,41 @@ Not defects; product features that don't exist yet. Scope separately before buil
     `UploadButton` → `POST /uploads` → `{ url }` flow already exercised by the variant/gallery
     fields; see `frontend-eaz/tasks.md` → T34 for what shipped.
 
-- [ ] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity**
+- [x] **T33 · `Part` model + inventory endpoint should support an image** — ✅ done
+  2026-08-23 (both halves; frontend upload UI shipped in `frontend-eaz` on the matching
+  branch)
+  - **Issue:** Repair parts have no image field; the inventory form can't attach a photo. Shop
+    products already support images (`Product.images`). Parts need the same.
+  - **Location:** `models/Part.js`, `controllers/pos/inventoryController.js`,
+    upload route (Cloudinary) used by products
+  - **Fix:** Add an image field to `Part` (e.g. `image`/`images`), accept it in the inventory
+    create/update handlers, and expose it in `GET /pos/inventory` + scan/search responses.
+    Frontend part: `frontend-eaz/tasks.md` → T33.
+  - **Found already shipped, not new work:** `Part.images` (schema), `createPart`/
+    `updatePart` accepting and persisting it, `GET /pos/inventory` (unrestricted
+    `.find()`, no `.select()`), and `GET /track/parts` (`getPublicParts`, explicit
+    `.select(...images)`) were all already correct before this task touched anything —
+    this fix note pre-dated whatever earlier work actually added the field. No code
+    change was needed for any of that; added `tests/partImages.test.js` (5 tests) to lock
+    it in, since none existed.
+  - **The actual gap found and fixed:** the fix note's own "upload route (Cloudinary) used
+    by products" is `POST /api/v1/uploads` (`routes/uploadRoutes.js`) — it was
+    `restrictTo('admin')` only, while `createProduct`/`updateProduct`
+    (`routes/productRoutes.js`) and `createPart`/`updatePart` are both
+    `restrictTo('superadmin','staff','admin')`. This is a **pre-existing bug, not
+    introduced here**: `ProductForm.jsx` on the frontend already calls this endpoint
+    today, so a staff member using the live product form already gets 403'd trying to
+    upload an image, independent of Part work. Confirmed via a full frontend grep that
+    this route has exactly one other consumer (`ProductForm.jsx`) — the job-photo upload
+    (`usePosJobs.js`) hits a completely separate dedicated route, unaffected — so
+    widening this one to `restrictTo('admin', 'staff')` is scoped exactly to its two real
+    callers, not a blanket loosening. `tests/uploadRoute.test.js` (6 tests, mocked
+    Cloudinary): technician/plain-user still 403, unauthenticated still 401, staff/admin/
+    superadmin now 200.
+  - **Verified:** full suite 43 suites/308 tests pass (up from 41/297); `npm run lint` 0
+    errors.
+
+- [x] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity** — ✅ done 2026-08-25
   - **Issue:** `getReportsAnalytics` returns **shop-wide** figures to every role (only
     technicians blocked). Staff must see **only their own** numbers; admin must see **all
     staff** and drill into each staff member's activity.
@@ -513,6 +1236,23 @@ Not defects; product features that don't exist yet. Scope separately before buil
     regardless of the query param (never trust client ids). For admin/superadmin, allow
     selecting a staff member and return a per-staff activity breakdown. Add tests.
   - **Frontend part:** `frontend-eaz/tasks.md` → T32.
+  - **Shipped:** each collection scoped by the field that actually attributes it to a person —
+    `Sale.cashier`, `PosPayment.receivedBy`, `RepairJob.createdBy` (matches `getMyOverview`'s
+    existing convention for non-technician roles; `assignedTo` is the technician-ownership
+    concept and technicians can't reach this route at all) — never combined with `$or`, so no
+    document can match twice. Verified before implementing that `Sale`/`PosPayment`/`Order` are
+    disjoint collections with no cross-references, so summing revenue across them can't
+    double-count one underlying transaction; a dedicated test seeds a job where the same person
+    is both `createdBy` and `receivedBy` and confirms it's counted once, not twice. Shop `Order`s
+    are excluded entirely (not shown shop-wide) under a staff-scoped view, since online orders
+    are never attributable to a specific staff member. Invalid `staffId` from admin is silently
+    ignored (falls back to shop-wide), matching the existing pattern for optional id filters
+    elsewhere in this controller. Response gained `scope: { staffId, staffName, isOwnReport,
+    staffList }` — `staffList` (admin/superadmin only) is the same roles already allowed on this
+    route, since only they can appear as `cashier`/`receivedBy`/`createdBy`. 5 new tests in
+    `reportsAnalytics.test.js` (own-scope forced for staff, admin per-staff filter, shop-wide
+    unchanged + union-equals-shop-wide check, same-person double-count guard, invalid id
+    fallback) — 44 suites/322 tests pass.
 
 ---
 
