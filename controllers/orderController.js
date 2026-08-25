@@ -5,6 +5,7 @@ const Product = require("../models/Product");
 const Part = require("../models/Part");
 const DeliveryZone = require("../models/DeliveryZone");
 const { fulfilShopOrder, restockOrderItems } = require("../utils/fulfilShopOrder");
+const { generateTrackingNumber } = require("../utils/trackingNumber");
 const { formatGhs } = require("../utils/money");
 const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 const { normalizePhone } = require("../utils/phone");
@@ -26,12 +27,6 @@ function generateOrderNumber() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = crypto.randomBytes(2).toString("hex").toUpperCase();
   return `EZW-${ts}${rand}`;
-}
-
-function generateTrackingNumber() {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = crypto.randomBytes(3).toString("hex").toUpperCase();
-  return `EZWTRK-${ts}${rand}`;
 }
 
 /**
