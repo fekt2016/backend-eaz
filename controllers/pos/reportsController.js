@@ -262,20 +262,49 @@ const getReportsAnalytics = async (req, res, next) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // ── Staff scope ──────────────────────────────────────────────────────────
+    // `staff` role: always forced to their own id — a client-supplied staffId
+    // is never trusted for that role. admin/superadmin: optional, selects a
+    // single staff member's activity; omitted = shop-wide (unchanged
+    // behaviour). Invalid ids are silently ignored (shop-wide), matching the
+    // existing pattern for optional id filters elsewhere in this controller.
+    let staffIdParam = req.query.staffId;
+    if (req.user.role === 'staff') {
+      staffIdParam = String(req.user._id);
+    } else if (staffIdParam && !mongoose.Types.ObjectId.isValid(staffIdParam)) {
+      staffIdParam = undefined;
+    }
+    const staffObjectId = staffIdParam ? new mongoose.Types.ObjectId(staffIdParam) : null;
+
+    // Each collection is scoped by the field that actually attributes it to a
+    // person — never combined with $or, so a person can't be matched twice
+    // for the same document. Sale/PosPayment/RepairJob are disjoint
+    // collections (no shared references), so summing revenue across them
+    // never double-counts one underlying transaction.
+    const saleMatch    = { ...rangeMatch, voided: { $ne: true }, ...(staffObjectId && { cashier: staffObjectId }) };
+    const paymentMatch = { ...rangeMatch, ...(staffObjectId && { receivedBy: staffObjectId }) };
+    const jobMatch      = { ...rangeMatch, ...(staffObjectId && { createdBy: staffObjectId }) };
+    // Shop orders are placed online by customers — never attributable to a
+    // staff member — so a staff-scoped report excludes them entirely rather
+    // than showing shop-wide numbers under a personal report.
+    const ordersInScope = !staffObjectId;
+
     // ── Revenue sources (all integer pesewas) ──────────────────────────────────
     const [repairPay, posSales, orderRevenueAgg] = await Promise.all([
       PosPayment.aggregate([
-        { $match: rangeMatch },
+        { $match: paymentMatch },
         { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
       ]),
       Sale.aggregate([
-        { $match: { ...rangeMatch, voided: { $ne: true } } },
+        { $match: saleMatch },
         { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
       ]),
-      Order.aggregate([
-        { $match: { ...rangeMatch, status: { $in: REVENUE_ORDER_STATUSES } } },
-        { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
-      ]),
+      ordersInScope
+        ? Order.aggregate([
+            { $match: { ...rangeMatch, status: { $in: REVENUE_ORDER_STATUSES } } },
+            { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
+          ])
+        : Promise.resolve([]),
     ]);
 
     const repairRevenue  = repairPay[0]?.total     || 0;
@@ -285,15 +314,19 @@ const getReportsAnalytics = async (req, res, next) => {
 
     // ── Shop order counts + status distribution ────────────────────────────────
     const [ordersByStatus, ordersRecent] = await Promise.all([
-      Order.aggregate([
-        { $match: rangeMatch },
-        { $group: { _id: '$status', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ]),
-      Order.find(rangeMatch)
-        .sort({ createdAt: -1 })
-        .limit(8)
-        .select('orderNumber customer total status createdAt trackingNumber'),
+      ordersInScope
+        ? Order.aggregate([
+            { $match: rangeMatch },
+            { $group: { _id: '$status', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+          ])
+        : Promise.resolve([]),
+      ordersInScope
+        ? Order.find(rangeMatch)
+            .sort({ createdAt: -1 })
+            .limit(8)
+            .select('orderNumber customer total status createdAt trackingNumber')
+        : Promise.resolve([]),
     ]);
 
     const orderTotal    = ordersByStatus.reduce((s, x) => s + x.count, 0);
@@ -309,17 +342,19 @@ const getReportsAnalytics = async (req, res, next) => {
 
     const [dailyRepair, dailySales, dailyOrders] = await Promise.all([
       PosPayment.aggregate([
-        { $match: seriesMatch },
+        { $match: { ...seriesMatch, ...(staffObjectId && { receivedBy: staffObjectId }) } },
         { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, total: { $sum: '$amount' } } },
       ]),
       Sale.aggregate([
-        { $match: { ...seriesMatch, voided: { $ne: true } } },
+        { $match: { ...seriesMatch, voided: { $ne: true }, ...(staffObjectId && { cashier: staffObjectId }) } },
         { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, total: { $sum: '$total' } } },
       ]),
-      Order.aggregate([
-        { $match: { ...seriesMatch, status: { $in: REVENUE_ORDER_STATUSES } } },
-        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, total: { $sum: '$total' } } },
-      ]),
+      ordersInScope
+        ? Order.aggregate([
+            { $match: { ...seriesMatch, status: { $in: REVENUE_ORDER_STATUSES } } },
+            { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, total: { $sum: '$total' } } },
+          ])
+        : Promise.resolve([]),
     ]);
 
     const seriesMap = new Map();
@@ -351,9 +386,20 @@ const getReportsAnalytics = async (req, res, next) => {
       const prevMatch = { createdAt: { $gte: prevStart, $lte: prevEnd } };
 
       const [prevRepair, prevSales, prevOrders] = await Promise.all([
-        PosPayment.aggregate([{ $match: prevMatch }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-        Sale.aggregate([{ $match: { ...prevMatch, voided: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$total' } } }]),
-        Order.aggregate([{ $match: { ...prevMatch, status: { $in: REVENUE_ORDER_STATUSES } } }, { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } }]),
+        PosPayment.aggregate([
+          { $match: { ...prevMatch, ...(staffObjectId && { receivedBy: staffObjectId }) } },
+          { $group: { _id: null, total: { $sum: '$amount' } } },
+        ]),
+        Sale.aggregate([
+          { $match: { ...prevMatch, voided: { $ne: true }, ...(staffObjectId && { cashier: staffObjectId }) } },
+          { $group: { _id: null, total: { $sum: '$total' } } },
+        ]),
+        ordersInScope
+          ? Order.aggregate([
+              { $match: { ...prevMatch, status: { $in: REVENUE_ORDER_STATUSES } } },
+              { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
+            ])
+          : Promise.resolve([]),
       ]);
 
       const prevRevenue = (prevRepair[0]?.total || 0) + (prevSales[0]?.total || 0) + (prevOrders[0]?.total || 0);
@@ -370,11 +416,11 @@ const getReportsAnalytics = async (req, res, next) => {
     // ── Payment methods (repair payments + POS sales) ───────────────────────────
     const [payMethods, saleMethods] = await Promise.all([
       PosPayment.aggregate([
-        { $match: rangeMatch },
+        { $match: paymentMatch },
         { $group: { _id: '$method', total: { $sum: '$amount' }, count: { $sum: 1 } } },
       ]),
       Sale.aggregate([
-        { $match: { ...rangeMatch, voided: { $ne: true } } },
+        { $match: saleMatch },
         { $group: { _id: '$paymentMethod', total: { $sum: '$total' }, count: { $sum: 1 } } },
       ]),
     ]);
@@ -386,14 +432,17 @@ const getReportsAnalytics = async (req, res, next) => {
     const paymentMethods = [...methodMap.entries()].map(([k, v]) => ({ _id: k, ...v })).sort((a, b) => b.total - a.total);
 
     // ── Repair jobs ─────────────────────────────────────────────────────────────
+    // Staff ownership = createdBy (matches getMyOverview's convention for
+    // non-technician roles — technicians can't reach this endpoint at all, so
+    // assignedTo never needs to be considered here).
     const [jobsByStatus, topParts] = await Promise.all([
       RepairJob.aggregate([
-        { $match: rangeMatch },
+        { $match: jobMatch },
         { $group: { _id: '$status', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
       RepairJob.aggregate([
-        { $match: rangeMatch },
+        { $match: jobMatch },
         { $unwind: '$parts' },
         { $group: {
           _id:      '$parts.name',
@@ -415,13 +464,15 @@ const getReportsAnalytics = async (req, res, next) => {
 
     // ── Top products (online orders + POS sales, revenue-bearing only) ──────────
     const [orderTop, saleTop] = await Promise.all([
-      Order.aggregate([
-        { $match: { ...rangeMatch, status: { $in: REVENUE_ORDER_STATUSES } } },
-        { $unwind: '$items' },
-        { $group: { _id: '$items.name', unitsSold: { $sum: '$items.qty' }, revenue: { $sum: { $multiply: ['$items.price', '$items.qty'] } } } },
-      ]),
+      ordersInScope
+        ? Order.aggregate([
+            { $match: { ...rangeMatch, status: { $in: REVENUE_ORDER_STATUSES } } },
+            { $unwind: '$items' },
+            { $group: { _id: '$items.name', unitsSold: { $sum: '$items.qty' }, revenue: { $sum: { $multiply: ['$items.price', '$items.qty'] } } } },
+          ])
+        : Promise.resolve([]),
       Sale.aggregate([
-        { $match: { ...rangeMatch, voided: { $ne: true } } },
+        { $match: saleMatch },
         { $unwind: '$items' },
         { $group: { _id: '$items.name', unitsSold: { $sum: '$items.quantity' }, revenue: { $sum: '$items.subtotal' } } },
       ]),
@@ -476,10 +527,27 @@ const getReportsAnalytics = async (req, res, next) => {
       netProfit = totalRevenue - expenseTotal;
     }
 
+    // ── Staff scope metadata (name for the active filter; picker list for
+    // admin/superadmin — the same roles allowed on this route in the first
+    // place, since only they can appear as cashier/receivedBy/createdBy) ────
+    const isAdminRole = ['superadmin', 'admin'].includes(req.user.role);
+    const [staffUser, staffList] = await Promise.all([
+      staffObjectId ? User.findById(staffObjectId).select('name role') : Promise.resolve(null),
+      isAdminRole
+        ? User.find({ role: { $in: ['staff', 'admin', 'superadmin'] } }).select('name role').sort({ name: 1 })
+        : Promise.resolve([]),
+    ]);
+
     res.json({
       success: true,
       data: {
         range: { from: rangeStart ? formatDateOnly(rangeStart) : null, to: rangeEnd ? formatDateOnly(rangeEnd) : null },
+        scope: {
+          staffId: staffObjectId ? String(staffObjectId) : null,
+          staffName: staffUser?.name || null,
+          isOwnReport: req.user.role === 'staff',
+          staffList,
+        },
         previous,
         kpi: {
           revenue:     { total: totalRevenue, repair: repairRevenue, posSales: posSalesRevenue, shopOrders: shopOrderRevenue },

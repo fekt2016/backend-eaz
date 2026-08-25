@@ -1428,7 +1428,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Verified:** full suite 43 suites/308 tests pass (up from 41/297); `npm run lint` 0
     errors.
 
-- [ ] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity**
+- [x] **T32 · Scope analytics: staff own report only; admin sees all staff + per-staff activity** — ✅ done 2026-08-25
   - **Issue:** `getReportsAnalytics` returns **shop-wide** figures to every role (only
     technicians blocked). Staff must see **only their own** numbers; admin must see **all
     staff** and drill into each staff member's activity.
@@ -1439,6 +1439,23 @@ Not defects; product features that don't exist yet. Scope separately before buil
     regardless of the query param (never trust client ids). For admin/superadmin, allow
     selecting a staff member and return a per-staff activity breakdown. Add tests.
   - **Frontend part:** `frontend-eaz/tasks.md` → T32.
+  - **Shipped:** each collection scoped by the field that actually attributes it to a person —
+    `Sale.cashier`, `PosPayment.receivedBy`, `RepairJob.createdBy` (matches `getMyOverview`'s
+    existing convention for non-technician roles; `assignedTo` is the technician-ownership
+    concept and technicians can't reach this route at all) — never combined with `$or`, so no
+    document can match twice. Verified before implementing that `Sale`/`PosPayment`/`Order` are
+    disjoint collections with no cross-references, so summing revenue across them can't
+    double-count one underlying transaction; a dedicated test seeds a job where the same person
+    is both `createdBy` and `receivedBy` and confirms it's counted once, not twice. Shop `Order`s
+    are excluded entirely (not shown shop-wide) under a staff-scoped view, since online orders
+    are never attributable to a specific staff member. Invalid `staffId` from admin is silently
+    ignored (falls back to shop-wide), matching the existing pattern for optional id filters
+    elsewhere in this controller. Response gained `scope: { staffId, staffName, isOwnReport,
+    staffList }` — `staffList` (admin/superadmin only) is the same roles already allowed on this
+    route, since only they can appear as `cashier`/`receivedBy`/`createdBy`. 5 new tests in
+    `reportsAnalytics.test.js` (own-scope forced for staff, admin per-staff filter, shop-wide
+    unchanged + union-equals-shop-wide check, same-person double-count guard, invalid id
+    fallback) — 44 suites/322 tests pass.
 
 - [x] **T31 · `createSale` must support shop products (accessories) too** ✅ done 2026-08-21
   - **Issue:** The POS Sell page should sell **both** repair parts **and** shop

@@ -137,3 +137,146 @@ describe("GET /api/v1/pos/reports/analytics", () => {
     expect(res.body.data.kpi.revenue.shopOrders).toBe(12000);
   });
 });
+
+// T32: staff see only their own activity; admin can scope to any staff
+// member or stay shop-wide. Server-side scoping — a client-supplied staffId
+// is never trusted for the staff role itself.
+describe("GET /api/v1/pos/reports/analytics — staff scope (T32)", () => {
+  async function seedTwoStaffActivity() {
+    const staffA = await makeUser("staff");
+    const staffB = await makeUser("staff");
+    const customer = await PosCustomer.create({ name: "Kofi", phone: "0244000000" });
+
+    // Staff A: one repair payment (GH₵50), one POS sale (GH₵30), one job they created.
+    const jobA = await RepairJob.create({
+      customer: customer._id, faultDescription: "Cracked screen", createdBy: staffA.user._id,
+    });
+    await PosPayment.create({ job: jobA._id, amount: 5000, method: "cash", receivedBy: staffA.user._id });
+    await Sale.create({
+      items: [{ name: "Case", quantity: 1, unitPrice: 3000, subtotal: 3000 }],
+      subtotal: 3000, total: 3000, paymentMethod: "cash", amountPaid: 3000, cashier: staffA.user._id,
+    });
+
+    // Staff B: one repair payment (GH₵70), one POS sale (GH₵40), one job they created.
+    const jobB = await RepairJob.create({
+      customer: customer._id, faultDescription: "Battery swap", createdBy: staffB.user._id,
+    });
+    await PosPayment.create({ job: jobB._id, amount: 7000, method: "momo", receivedBy: staffB.user._id });
+    await Sale.create({
+      items: [{ name: "Charger", quantity: 1, unitPrice: 4000, subtotal: 4000 }],
+      subtotal: 4000, total: 4000, paymentMethod: "momo", amountPaid: 4000, cashier: staffB.user._id,
+    });
+
+    // A shop order — never staff-attributable, must never leak into either scope.
+    await Order.create({
+      orderNumber: `EZW-${Date.now()}`,
+      items: [{ name: "Case", price: 12000, qty: 1 }],
+      subtotal: 12000, total: 12000,
+      customer: { name: "Ama", phone: "0245000000" },
+      status: "delivered",
+    });
+
+    return { staffA, staffB };
+  }
+
+  it("scopes a staff caller to their own activity regardless of a passed staffId", async () => {
+    const { staffA, staffB } = await seedTwoStaffActivity();
+
+    // Staff A tries to pass staff B's id — must be ignored server-side.
+    const res = await request(app)
+      .get(`/api/v1/pos/reports/analytics?staffId=${staffB.user._id}`)
+      .set("Authorization", `Bearer ${staffA.token}`);
+
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(d.scope.staffId).toBe(String(staffA.user._id));
+    expect(d.scope.isOwnReport).toBe(true);
+    expect(d.scope.staffList).toEqual([]); // staff never gets the picker list
+
+    // Only staff A's numbers — not staff B's, not the shop order.
+    expect(d.kpi.revenue.repair).toBe(5000);
+    expect(d.kpi.revenue.posSales).toBe(3000);
+    expect(d.kpi.revenue.shopOrders).toBe(0);
+    expect(d.kpi.revenue.total).toBe(8000);
+    expect(d.kpi.repairs.total).toBe(1);
+  });
+
+  it("lets admin scope to a specific staff member's activity via staffId", async () => {
+    const { staffB } = await seedTwoStaffActivity();
+    const { token: adminToken } = await makeUser("admin");
+
+    const res = await request(app)
+      .get(`/api/v1/pos/reports/analytics?staffId=${staffB.user._id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(d.scope.staffId).toBe(String(staffB.user._id));
+    expect(d.scope.staffName).toBe("staff");
+    expect(d.scope.isOwnReport).toBe(false);
+
+    // Only staff B's numbers.
+    expect(d.kpi.revenue.repair).toBe(7000);
+    expect(d.kpi.revenue.posSales).toBe(4000);
+    expect(d.kpi.revenue.shopOrders).toBe(0);
+    expect(d.kpi.revenue.total).toBe(11000);
+    expect(d.kpi.repairs.total).toBe(1);
+  });
+
+  it("admin without staffId stays shop-wide, unchanged, and gets the staff picker list", async () => {
+    await seedTwoStaffActivity();
+    const { token: adminToken } = await makeUser("admin");
+
+    const res = await request(app)
+      .get("/api/v1/pos/reports/analytics")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(d.scope.staffId).toBeNull();
+
+    // Combined staff A + staff B + the shop order — nothing double-counted,
+    // nothing missing (proves the per-staff filters union back to the
+    // original shop-wide totals with no overlap).
+    expect(d.kpi.revenue.repair).toBe(12000); // 5000 + 7000
+    expect(d.kpi.revenue.posSales).toBe(7000); // 3000 + 4000
+    expect(d.kpi.revenue.shopOrders).toBe(12000);
+    expect(d.kpi.revenue.total).toBe(31000);
+    expect(d.kpi.repairs.total).toBe(2);
+
+    expect(d.scope.staffList.length).toBeGreaterThanOrEqual(3); // staffA, staffB, admin caller
+  });
+
+  it("does not double-count a staff member who both created the job and received its payment", async () => {
+    const { user, token } = await makeUser("staff");
+    const customer = await PosCustomer.create({ name: "Ama", phone: "0245000000" });
+    // Same person is both createdBy AND (via PosPayment) receivedBy for the same job.
+    const job = await RepairJob.create({
+      customer: customer._id, faultDescription: "Water damage", createdBy: user._id,
+    });
+    await PosPayment.create({ job: job._id, amount: 5000, method: "cash", receivedBy: user._id });
+
+    const res = await request(app)
+      .get("/api/v1/pos/reports/analytics")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    // One job counted once (not twice), one payment summed once (not twice).
+    expect(d.kpi.repairs.total).toBe(1);
+    expect(d.kpi.revenue.repair).toBe(5000);
+  });
+
+  it("ignores an invalid staffId from admin and falls back to shop-wide", async () => {
+    await seedShopData();
+    const { token: adminToken } = await makeUser("admin");
+
+    const res = await request(app)
+      .get("/api/v1/pos/reports/analytics?staffId=not-a-valid-id")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.scope.staffId).toBeNull();
+    expect(res.body.data.kpi.revenue.total).toBe(20000); // unfiltered, matches the admin shop-wide test
+  });
+});
