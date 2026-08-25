@@ -1258,7 +1258,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     pesewas as the pages expect.
   - **Frontend part:** `frontend-eaz/tasks.md` → T43.
 
-- [ ] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk**
+- [x] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk** — ✅ done 2026-08-25
   - **Issue:** Blog post content from `GET /api/v1/posts/:slug` is converted markdown→HTML
     with regex and injected via `dangerouslySetInnerHTML` with **no escaping/sanitization**.
     If an admin-authored (or compromised) post body contains HTML/JS, it executes for every
@@ -1271,6 +1271,31 @@ Not defects; product features that don't exist yet. Scope separately before buil
     (`frontend-eaz/tasks.md` → T42) — escape HTML before the markdown regex, or use a
     safe renderer.
   - **Frontend part:** `frontend-eaz/tasks.md` → T42.
+  - **Shipped:** new `sanitizePostContent` (`utils/sanitize.js`), used only for `Post.content` in
+    `createPost`/`updatePost` — deliberately did **not** touch the existing `sanitizeMessage`
+    helper it replaced there, since that's shared by five other unrelated controllers (chat,
+    reviews, contact, settings, product reviews) and changing its behavior was out of scope.
+    Tried `sanitize-html` first (matches the design doc) but it pulls in `htmlparser2@12`, which
+    is ESM-only and breaks Jest's CJS-only transform pipeline with no babel config in this repo;
+    rather than bolt on ESM-transform infra for one dependency, or pin `sanitize-html` to an
+    older version, checked that older version against a known CVE first — `sanitize-html
+    <=2.17.4` has a real published advisory (GHSA-vccv-cmxp-4j9h, incomplete URI-scheme
+    validation) — and declined to knowingly ship a vulnerable version of the library doing the
+    XSS fix itself, even though my `allowedTags: []` config happens to sidestep that specific
+    flaw. Switched to `xss` (js-xss) instead: CJS-native, zero dependency vulnerabilities,
+    same allowlist approach (empty `whiteList` HTML-*encodes* disallowed tags rather than
+    stripping them — inert either way, confirmed by test). Plus a stripped-and-restored belt of
+    literal `javascript:`-substring removal for the markdown-link vector, which isn't real HTML
+    so no HTML sanitizer's tag/attribute allowlist ever sees it. Also wrote (and live-tested
+    against a disposable local MongoDB, never the real DB) `scripts/resanitizePostContent.js` —
+    an idempotent hygiene pass that re-sanitizes already-stored `Post.content` rows to match
+    what a fresh write produces today; supports `--dry-run`. Confirmed with the frontend fix
+    that this is genuinely optional, not load-bearing — the frontend sanitizes at *render* time,
+    on every request, so old malicious content is already safe to view without it; whether to
+    run it against the real database is a separate call for the user. 8 new tests
+    (`postXss.test.js`, unit + integration) — confirmed the 5 security-relevant ones fail
+    without the fix (temporarily reverted `sanitizePostContent`) before restoring it. 45
+    suites/330 tests pass, lint clean, `npm audit`: 0 vulnerabilities (unchanged).
 
 - [ ] **T41 · Public track page part-order cart mixes float-GHS and pesewas**
   - **Issue:** On the `/track/:token` page, `addToCart` stores `unitPriceGhs: sellingPrice / 100`
