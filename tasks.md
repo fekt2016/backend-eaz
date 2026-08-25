@@ -1297,7 +1297,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     without the fix (temporarily reverted `sanitizePostContent`) before restoring it. 45
     suites/330 tests pass, lint clean, `npm audit`: 0 vulnerabilities (unchanged).
 
-- [ ] **T41 · Public track page part-order cart mixes float-GHS and pesewas**
+- [x] **T41 · Public track page part-order cart mixes float-GHS and pesewas** — ✅ done 2026-08-25
   - **Issue:** On the `/track/:token` page, `addToCart` stores `unitPriceGhs: sellingPrice / 100`
     (float GHS) then recomputes `totalPesewas = partsSubtotalGhs * 100 + shippingPesewas`
     (float × 100), while `addPartToShopCart` stores integer pesewas directly. Two cart paths,
@@ -1308,6 +1308,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
     client's price and re-prices from the `Part` model (it does — items carry only
     `partId`+`quantity`).
   - **Frontend part:** `frontend-eaz/tasks.md` → T41.
+  - **Confirmed:** independently re-verified `submitOrder` sends only `{ partId, quantity }` per
+    line before touching anything — matches this note exactly, no backend change needed. See
+    `frontend-eaz/tasks.md` → T41 for what shipped.
 
 - [x] **T40 · `authController.logout` calls `jwt.decode` but never imports `jsonwebtoken`** ✅ done 2026-08-20
   - **Issue:** `logout()` (line ~283) runs `jwt.decode(token)` to resolve the actor identity
