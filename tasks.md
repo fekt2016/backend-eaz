@@ -1276,7 +1276,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
       still works — confirmed the fix-specific tests fail without the fix. 46 suites/340 tests
       pass, lint clean.
 
-- [ ] **T43 · Money display bypasses the single `formatGhs` formatter**
+- [x] **T43 · Money display bypasses the single `formatGhs` formatter** — ✅ done 2026-08-25 (fully closed, both scopes)
   - **Issue:** The frontend convention (STYLE_GUIDE/CLAUDE.md) is to render money via
     `formatGhs(pesewas)` from `lib/shop.js`. Many pages instead hand-roll `GH₵{...toFixed(2)}`
     or `GH₵{...toLocaleString()}` — raw concatenation that is inconsistent and error-prone.
@@ -1285,6 +1285,11 @@ Not defects; product features that don't exist yet. Scope separately before buil
     happens client-side). Verify any backend money fields these pages consume are integer
     pesewas as the pages expect.
   - **Frontend part:** `frontend-eaz/tasks.md` → T43.
+  - **Confirmed:** the hosting/domain/service fields these 10 pages consume (`amount`, `price`,
+    `depositAmount`, `totalAmount`) are, per DECISION 1 (T44), *intentionally* major-GHS floats,
+    not pesewas — so "verify integer pesewas" no longer applies; the frontend fix wraps them in
+    a new `formatGhsMajor` (not `formatGhs`, which would double-divide). See
+    `frontend-eaz/tasks.md` → T43 for what shipped.
 
 - [x] **T42 · `BlogArticle` renders markdown via `dangerouslySetInnerHTML` — stored-XSS risk** — ✅ done 2026-08-25
   - **Issue:** Blog post content from `GET /api/v1/posts/:slug` is converted markdown→HTML
