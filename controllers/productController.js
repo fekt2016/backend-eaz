@@ -102,6 +102,12 @@ const getProducts = async (req, res, next) => {
           _id: 1, slug: 1, name: 1, description: 1, price: 1, category: 1,
           stock: 1, sku: 1, variants: 1, isActive: 1, images: 1,
           createdAt: 1, updatedAt: 1,
+          // T48 popularity counters. This list is an aggregation with an explicit
+          // $project, so a new schema field does NOT reach the client until it is
+          // named here. $ifNull because products created before T48 have no such
+          // field stored at all — an aggregation applies no schema defaults.
+          views: { $ifNull: ["$views", 0] },
+          sold: { $ifNull: ["$sold", 0] },
         },
       },
       { $addFields: { kind: "product", partId: null } },

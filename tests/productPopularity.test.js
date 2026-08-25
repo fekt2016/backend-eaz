@@ -112,6 +112,40 @@ describe("Product views (T48)", () => {
   });
 });
 
+describe("Product list exposes the counters (T48)", () => {
+  // The list endpoint is an aggregation with an explicit $project, so a new
+  // schema field does NOT reach the client for free. It shipped missing once:
+  // the homepage cards had nothing to render.
+  it("returns views and sold on every list row", async () => {
+    const product = await makeProduct();
+    await request(app).get(`/api/v1/products/${product.slug}`); // one view
+
+    const res = await request(app).get("/api/v1/products?kind=product");
+
+    expect(res.status).toBe(200);
+    const row = res.body.data.find((p) => p.slug === product.slug);
+    expect(row).toBeDefined();
+    expect(row.views).toBe(1);
+    expect(row.sold).toBe(0);
+  });
+
+  it("reports zero for products stored before the fields existed", async () => {
+    // Straight into the collection, with no views/sold keys — an aggregation
+    // applies no schema defaults, so the projection has to supply them.
+    const product = await makeProduct();
+    await Product.collection.updateOne(
+      { _id: product._id },
+      { $unset: { views: "", sold: "" } },
+    );
+
+    const res = await request(app).get("/api/v1/products?kind=product");
+
+    const row = res.body.data.find((p) => p.slug === product.slug);
+    expect(row.views).toBe(0);
+    expect(row.sold).toBe(0);
+  });
+});
+
 describe("Product sold count (T48)", () => {
   it("adds the paid quantity when an order is fulfilled", async () => {
     const product = await makeProduct({ stock: 5 });

@@ -233,10 +233,18 @@ Not defects; product features that don't exist yet. Scope separately before buil
     (`controllers/pos/salesController.js`, items sent as `productId`) should also
     bump `sold`. Recommend yes (it's real demand), implemented in the same `$inc`
     that already deducts product stock there.
-  - **API exposure:** `productController` has no `.select()` projections (confirmed in
+  - **API exposure:** ~~`productController` has no `.select()` projections (confirmed in
     T39), so once the fields are on the schema they flow through list + detail
-    automatically. Keep them out of any admin create/update payload parsing so they
-    can only change via the counters, not client input.
+    automatically.~~ **This was wrong, and it shipped wrong.** `getProducts` builds its
+    response with an aggregation carrying an explicit `$project`, so a new schema field
+    does *not* reach the client for free — list rows came back with no `views`/`sold` at
+    all and the homepage cards had nothing to render. Fixed by naming both in the
+    `$project`, with `$ifNull` → 0 because an aggregation applies no schema defaults and
+    products predating T48 have no such key stored. Retail parts (the `$unionWith`
+    branch) deliberately get neither field: they have no view tracking, and absent reads
+    as "not tracked" on the card rather than as "0 views". Keep both out of any admin
+    create/update payload parsing so they can only change via the counters, not client
+    input.
   - **Decisions taken:** POS sales **do** count toward `sold` (the spec's own
     recommendation — an over-the-counter sale is real demand), and **every** public
     detail fetch counts as a view. Staff previews are not excluded, because
@@ -269,8 +277,15 @@ Not defects; product features that don't exist yet. Scope separately before buil
     webhook retry, variant lines, no count when the stock guard fails, restock
     reversal, and the clamp for a pre-T48 order. Plus 3 in `tests/posSale.test.js`
     (replica set) for the POS sale, the void reversal, and parts not counting.
-  - **Verified:** full backend suite 51 suites / 404 tests, exit 0; no new lint
+  - **Follow-up (same day):** the list projection above. Two tests now pin it —
+    a list row carries `views`/`sold`, and a product with the keys `$unset` still
+    reports 0 — so the next field added to this schema fails loudly instead of
+    silently missing from every card.
+  - **Verified:** full backend suite 51 suites / 406 tests, exit 0; no new lint
     warnings (`salesController` stays at its existing 36, everything else clean).
+    Also checked against the running dev stack: three detail reads of a live product
+    moved its `views` 0 → 3 and the homepage's own query
+    (`/products?limit=8&sort=newest&kind=product`) returned it.
   - **Frontend part:** `frontend-eaz/tasks.md` → T48 — done.
 
 ---
