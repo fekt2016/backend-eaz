@@ -1329,7 +1329,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     fix note suggested — full suite (137 tests) still passes; flagging as unclaimed if
     wanted later.
 
-- [ ] **T39 · Product detail tabs (Description / Reviews) — no backend change**
+- [x] **T39 · Product detail tabs (Description / Reviews) — no backend change** — ✅ done 2026-08-25
   - **Issue:** The frontend product detail page (`/shop/[slug]`) should show **tabs** for
     Description and Reviews instead of stacking them as one long page. This is a
     **frontend-only** UI change; no API/model/route work required.
@@ -1337,6 +1337,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None on the backend. Verify the endpoints backing the tabs still work:
     `GET /api/v1/products/:slug` (description + specs), `GET /api/v1/products/:productId/reviews`
     (public review list), and the review submit/eligibility routes.
+  - **Confirmed:** the frontend fix reuses `useProductBySlug` and `<ProductReviews>` completely
+    untouched — no new endpoint calls, no changed request shapes — so there's nothing here that
+    could have broken. See `frontend-eaz/tasks.md` → T39 for what shipped.
 
 - [ ] **T38 · Cart overlay viewport fit — no backend change**
   - **Issue:** The cart overlay that opens on **Add to Cart** from a product detail page
