@@ -1341,7 +1341,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     untouched — no new endpoint calls, no changed request shapes — so there's nothing here that
     could have broken. See `frontend-eaz/tasks.md` → T39 for what shipped.
 
-- [ ] **T38 · Cart overlay viewport fit — no backend change**
+- [x] **T38 · Cart overlay viewport fit — no backend change** — ✅ done 2026-08-25
   - **Issue:** The cart overlay that opens on **Add to Cart** from a product detail page
     (frontend `CartDrawer`) should fit all content within one viewport. This is a
     **frontend-only** layout fix; no API/model/route work required.
@@ -1349,6 +1349,10 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** None on the backend. After the frontend drawer change, verify cart flow
     endpoints used from the drawer still work: `POST /api/v1/cart/sync` (if present),
     `GET /api/v1/products`, and checkout `POST /api/v1/orders`.
+  - **Confirmed:** the fix was a pure CSS/flexbox change (3 Tailwind classes) — `CartDrawer`
+    doesn't call any endpoint itself (Checkout is a `<Link>` to `/checkout`, not an API call from
+    this component), so there was nothing here that could have broken. See
+    `frontend-eaz/tasks.md` → T38 for what shipped.
 
 - [x] **T37 · POS inventory search: return product images** — ✅ done 2026-08-23 (both
   halves)
