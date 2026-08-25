@@ -119,11 +119,47 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
 
 Not defects; product features that don't exist yet. Scope separately before building.
 
-- [ ] **T45 · Pre-order support for products** — items that are out of stock, or not yet available in Ghana, currently can't be ordered at all (the shop blocks add-to-cart / checkout on zero stock). Add a pre-order capability so customers can place these ahead of availability.
+- [x] **T45 · Pre-order support for products** — ✅ backend done 2026-08-25 — items that are out of stock, or not yet available in Ghana, currently can't be ordered at all (the shop blocks add-to-cart / checkout on zero stock). Add a pre-order capability so customers can place these ahead of availability.
   - **Model (`models/Product.js`):** add a `preorder` sub-object — e.g. `preorder.enabled` (bool), `preorder.availableFrom` (date | null), `preorder.note` (string, e.g. "ships from abroad, ~3 weeks"), and a cap field if pre-order quantity is limited. Decide how this interacts with `stock`/availability so a pre-order-enabled item bypasses the existing "out of stock → can't buy" guard *only when* `preorder.enabled`.
   - **Order flow:** flag pre-order line items on the `Order` so ops can tell them apart from in-stock items, and decide fulfilment/notification when the item actually lands. **Payment decision to make before building:** pay upfront via Paystack (same as a normal order) vs. deposit / pay-on-arrival — money-movement change, so scope explicitly.
   - **Storefront (mirror in `frontend-eaz/tasks.md`):** product card/detail shows a "Pre-order" badge + expected-availability copy instead of "Out of stock"; the add-to-cart button becomes "Pre-order".
-  - **Open questions to resolve before building:** upfront payment vs. deposit; per-item pre-order quantity cap; whether a pre-order auto-converts to a normal order once stock arrives; customer comms (SMS/email) when the item becomes available.
+  - **Decisions taken (2026-08-25), which shaped everything below:**
+    - **Paid in full up front**, same Paystack flow as any order — so checkout, the
+      webhook and idempotent fulfilment are untouched; a pre-order is just a flagged line.
+    - **Optional per-product cap** (`preorder.maxQty`, null = uncapped), enforced in
+      the controller, not merely hidden in the storefront.
+    - **Released manually by staff.** Stock moves for plenty of reasons — a
+      correction, a return, a POS void — and none of them should ship anything.
+    - **Email only** at release, via the Resend path already wired.
+  - **Shipped (backend):**
+    - `models/Product.js` — `preorder { enabled, availableFrom, note, maxQty }` as a
+      nested schema with its own default, so products predating T45 read as
+      `{ enabled: false }` rather than undefined.
+    - `models/Order.js` — per-item `isPreorder` + `preorderReleasedAt`.
+    - `controllers/orderController.js` — a line becomes a pre-order only when the
+      stock genuinely is not there **and** the product is marked for it, so enabling
+      the flag cannot change how an in-stock product sells. Works for variant lines
+      too. The cap is checked here.
+    - `utils/fulfilShopOrder.js` — an unreleased pre-order line is skipped on
+      fulfilment (a decrement would fail its guard and log a false alarm) and on
+      restock (nothing was deducted, so giving stock back would invent inventory).
+    - `GET /orders/preorders` — the queue: paid orders with an unreleased pre-order
+      line, oldest first. Unpaid ones are excluded; nothing is owed until the money
+      lands. Registered before `/:id` or Express reads "preorders" as an id.
+    - `PATCH /orders/:id/preorder-release` — moves stock through the same guarded
+      decrement fulfilment uses, counts `sold`, stamps the line, appends tracking
+      history, and emails. A line whose stock has **not** arrived stays queued rather
+      than being released against inventory that does not exist, so a partial release
+      is reported back in `meta`.
+    - `utils/email.js` — `sendPreorderReadyEmail`, logged under its own
+      `preorder_ready` type rather than `other` (T61's reasoning). No email on the
+      order is not a failure: shop checkout is phone-first here.
+  - **Tests:** `tests/preorder.test.js` (new, 16) — the guard both ways, the cap at
+    and over the limit, uncapped, the default for existing products, fulfilment and
+    restock leaving pre-order stock alone, the queue including/excluding by paid
+    status, release moving stock and counting the sale, refusing to release against
+    stock that has not arrived, double-release, the email, and staff-only access.
+  - **Verified:** full backend suite 55 suites / 458 tests, exit 0; lint clean.
 
 ---
 

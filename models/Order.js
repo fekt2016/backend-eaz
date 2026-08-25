@@ -24,6 +24,17 @@ const orderSchema = new mongoose.Schema({
       required: true,
       trim: true
     },
+    // T45: this line was bought with no stock on hand. It is paid for like any
+    // other line, but no stock moves until staff release it once the item lands —
+    // so fulfilment skips it and `releasedAt` records when it was actually filled.
+    isPreorder: {
+      type: Boolean,
+      default: false
+    },
+    preorderReleasedAt: {
+      type: Date,
+      default: null
+    },
     // Which variant was purchased (structured variants feature). Absent for
     // products bought as a single implicit SKU and for retail parts.
     variant: new mongoose.Schema(

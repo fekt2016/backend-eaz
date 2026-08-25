@@ -8,6 +8,8 @@ const {
   trackOrder,
   getOrderTracking,
   getOrders,
+  getPreorders,
+  releasePreorder,
   getOrder,
   updateOrderStatus,
   addTrackingEvent,
@@ -23,6 +25,10 @@ router.get('/track/:trackingNumber', getOrderTracking); // public — must stay 
 router.get('/mine', protect, getMyOrders); // logged-in customer's own shop orders
 router.get('/mine/:id', protect, getMyOrderById); // a customer's own order detail
 router.get('/', protect, restrictTo('admin', 'staff'), getOrders);
+// T45 — pre-order release queue. Must precede '/:id', or Express reads
+// "preorders" as an order id.
+router.get('/preorders', protect, restrictTo('admin', 'staff'), getPreorders);
+router.patch('/:id/preorder-release', protect, restrictTo('admin', 'staff'), releasePreorder);
 router.get('/by-reference/:reference', getOrderByReference);
 router.post('/:id/tracking', protect, restrictTo('admin', 'staff'), addTrackingEvent);
 router.patch('/:id', protect, restrictTo('admin', 'staff'), updateOrderStatus);

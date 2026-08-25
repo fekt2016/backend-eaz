@@ -347,8 +347,44 @@ async function sendAccountCreatedEmail(user, password) {
   });
 }
 
+/**
+ * T45 — tell a customer their pre-ordered item has landed and their order is
+ * moving. Sent when staff release the pre-order, not when stock changes, so the
+ * customer only ever hears from us once the order is genuinely being filled.
+ */
+async function sendPreorderReadyEmail(order, items) {
+  const BASE = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const to = order?.customer?.email;
+  // Shop checkout is phone-first in Ghana, so an order may carry no email at all.
+  // That is not a failure — there is simply nobody to write to.
+  if (!to) return false;
+
+  const lines = (items || [])
+    .map((i) => `<li>${i.name}${i.qty > 1 ? ` × ${i.qty}` : ''}</li>`)
+    .join('');
+
+  return send({
+    to,
+    type: 'preorder_ready',
+    orderId: order._id,
+    subject: `Your pre-order has arrived — ${order.orderNumber}`,
+    html: `
+      <h2>Good news, ${order.customer?.name || 'there'} 👋</h2>
+      <p>The item you pre-ordered is now in stock and your order is being prepared.</p>
+      <ul>${lines}</ul>
+      <p>Order <strong>${order.orderNumber}</strong></p>
+      ${order.trackingNumber
+        ? `<p>Track it here: <a href="${BASE}/track/order/${order.trackingNumber}">${order.trackingNumber}</a></p>`
+        : ''}
+      <p>Thank you for waiting.</p>
+    `,
+    meta: { orderNumber: order.orderNumber, itemCount: (items || []).length },
+  });
+}
+
 module.exports = {
   send,
+  sendPreorderReadyEmail,
   sendWelcomeEmail,
   sendAccountCreatedEmail,
   sendPasswordResetEmail,

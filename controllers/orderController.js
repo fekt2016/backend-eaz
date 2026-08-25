@@ -10,6 +10,7 @@ const { formatGhs } = require("../utils/money");
 const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 const { normalizePhone } = require("../utils/phone");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
+const { sendPreorderReadyEmail } = require("../utils/email");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -96,7 +97,7 @@ const createOrder = async (req, res, next) => {
             error: `Variant "${item.variant.sku}" not found for ${product.name}.`,
           });
         }
-        if (variant.stock < qty) {
+        if (variant.stock < qty && !product.preorder?.enabled) {
           const label = Object.values(variant.attributes || {}).join(" ");
           return res.status(400).json({
             success: false,
@@ -113,15 +114,38 @@ const createOrder = async (req, res, next) => {
         resolvedPrice = variant.price != null ? variant.price : product.price;
       }
 
-      if (product.stock < qty && !variantInfo) {
-        return res.status(400).json({ success: false, error: `${product.name} only has ${product.stock} in stock.` });
+      // T45: how much stock this line is actually drawing on — the variant's when
+      // one was chosen, the product's otherwise.
+      const availableStock = variantInfo
+        ? (product.variants || []).find((v) => v.sku === variantInfo.sku)?.stock ?? 0
+        : product.stock;
+
+      // A line becomes a pre-order only when the stock genuinely isn't there AND
+      // the product is marked for it. An in-stock product is never sold as a
+      // pre-order, so enabling the flag cannot change how normal orders behave.
+      const isPreorder = availableStock < qty && Boolean(product.preorder?.enabled);
+
+      if (availableStock < qty && !isPreorder) {
+        return res.status(400).json({ success: false, error: `${product.name} only has ${availableStock} in stock.` });
       }
+
+      // The cap is supply-side, so it is enforced here rather than only hidden in
+      // the storefront — a hand-rolled request must not be able to exceed it.
+      const cap = product.preorder?.maxQty;
+      if (isPreorder && cap != null && qty > cap) {
+        return res.status(400).json({
+          success: false,
+          error: `${product.name} is limited to ${cap} per pre-order.`,
+        });
+      }
+
       orderItems.push({
         product: product._id,
         name: product.name,
         ...(variantInfo && { variant: variantInfo }),
         price: resolvedPrice,
         qty,
+        ...(isPreorder && { isPreorder: true }),
       });
     }
 
@@ -415,6 +439,121 @@ const getOrders = async (req, res, next) => {
       .limit(limit)
       .lean();
     res.status(200).json({ success: true, count: orders.length, data: orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/orders/preorders — the release queue (admin/staff).
+ *
+ * Paid orders carrying at least one pre-order line that has not been released.
+ * Unpaid ones are excluded: nothing is owed to the customer until the money has
+ * actually landed, and releasing one would move stock for an order that may never
+ * be paid.
+ */
+const getPreorders = async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const orders = await Order.find({
+      status: { $in: ['paid', 'processing'] },
+      items: { $elemMatch: { isPreorder: true, preorderReleasedAt: null } },
+    })
+      .sort({ createdAt: 1 }) // oldest first — longest-waiting customer at the top
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({ success: true, count: orders.length, data: orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/v1/orders/:id/preorder-release — the stock has landed (admin/staff).
+ *
+ * This is the moment a pre-order becomes a normal line: stock moves, `sold`
+ * counts it, and the customer is told. Deliberately manual — stock changes for
+ * plenty of reasons (a correction, a return, a POS void) and none of those should
+ * ship anything by themselves.
+ */
+const releasePreorder = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    if (!['paid', 'processing'].includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Only a paid order can have its pre-order released.',
+      });
+    }
+
+    const pending = order.items.filter((i) => i.isPreorder && !i.preorderReleasedAt);
+    if (!pending.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'This order has no pre-order lines waiting to be released.',
+      });
+    }
+
+    const released = [];
+    const short = [];
+
+    for (const item of pending) {
+      // The same guarded decrement fulfilment uses, for the same reason: never
+      // oversell. If the stock is not actually there yet, this line stays queued
+      // rather than being marked released against inventory that does not exist.
+      const filter = item.variant?.sku
+        ? { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku, stock: { $gte: item.qty } } } }
+        : { _id: item.product, stock: { $gte: item.qty } };
+      const update = item.variant?.sku
+        ? { $inc: { 'variants.$.stock': -item.qty, sold: item.qty } }
+        : { $inc: { stock: -item.qty, sold: item.qty } };
+
+      const result = await Product.findOneAndUpdate(filter, update);
+      if (!result) {
+        short.push(item.name);
+        continue;
+      }
+      item.preorderReleasedAt = new Date();
+      released.push(item);
+    }
+
+    if (!released.length) {
+      return res.status(400).json({
+        success: false,
+        error: `Not enough stock to release: ${short.join(', ')}.`,
+      });
+    }
+
+    order.trackingHistory.push({
+      status: order.status,
+      note: `Pre-order released: ${released.map((i) => i.name).join(', ')}.`,
+      updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
+      timestamp: new Date(),
+    });
+    await order.save();
+
+    // Best-effort: a mail failure must not undo a release that already moved stock.
+    sendPreorderReadyEmail(order, released).catch(() => {});
+
+    await logFromRequest(req, {
+      action: ACTIONS.ORDER_UPDATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order.orderNumber,
+      resourceName: order.orderNumber,
+      description: `Pre-order released for ${order.orderNumber} — ${released.map((i) => i.name).join(', ')}`,
+      metadata: { released: released.length, short },
+    });
+
+    res.status(200).json({
+      success: true,
+      data: order,
+      // Named so the caller can tell a full release from a partial one.
+      meta: { released: released.length, short },
+    });
   } catch (error) {
     next(error);
   }
@@ -758,6 +897,8 @@ const syncRefund = async (req, res, next) => {
 
 module.exports = {
   createOrder,
+  getPreorders,
+  releasePreorder,
   getMyOrders,
   getMyOrderById,
   getOrderByReference,

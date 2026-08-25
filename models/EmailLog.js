@@ -15,6 +15,9 @@ const emailLogSchema = new mongoose.Schema(
         'contact_autoreply',
         'order_confirmation',
         'payment_received',
+        // T45 — "your pre-order has arrived". Its own type rather than 'other',
+        // so it stays filterable in the admin Email log (same reasoning as T61).
+        'preorder_ready',
         'hosting_credentials',
         'renewal_reminder',
         'expired_notice',

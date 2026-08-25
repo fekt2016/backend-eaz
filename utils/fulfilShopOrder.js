@@ -66,6 +66,11 @@ async function fulfilShopOrder(reference) {
       continue;
     }
 
+    // T45: a pre-order line has no stock behind it yet — that is the whole point.
+    // Skip it here (a decrement would fail its guard and log a false alarm); the
+    // stock move and the `sold` bump happen when staff release it on arrival.
+    if (item.isPreorder && !item.preorderReleasedAt) continue;
+
     // Variant lines decrement that variant's stock; plain product lines keep
     // the original top-level stock decrement.
     let result;
@@ -100,6 +105,10 @@ async function fulfilShopOrder(reference) {
  */
 async function restockOrderItems(order) {
   for (const item of order.items) {
+    // Nothing was ever deducted for an unreleased pre-order, so there is nothing
+    // to give back — restocking it would invent inventory.
+    if (item.isPreorder && !item.preorderReleasedAt) continue;
+
     if (item.part) {
       await Part.findByIdAndUpdate(item.part, { $inc: { quantity: item.qty } });
       continue;
