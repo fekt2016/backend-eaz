@@ -6,7 +6,7 @@ const {
   addPayment,
   getParts, createPart, updatePart, deletePart,
   scanLookup,
-  createSale, getSales, getSale, voidSale,
+  createSale, getSales, getSalesSummary, getSale, voidSale,
   initiateMomoCharge, checkMomoCharge, initiateCardCharge,
   getStaff, createStaff,
   getTechnicians,
@@ -74,6 +74,8 @@ router.get( '/jobs/:id/card-charge/:reference', restrictTo('superadmin', 'staff'
 
 // ── Sales (all POS roles) ────────────────────────────────────────────────────
 router.route('/sales').get(getSales).post(createSale);
+// Must precede '/sales/:id' — otherwise Express matches 'summary' as an id.
+router.get('/sales/summary', getSalesSummary);
 router.route('/sales/:id').get(getSale);
 router.patch('/sales/:id/void', restrictTo('superadmin'), voidSale);
 

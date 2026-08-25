@@ -88,3 +88,63 @@ describe("GET /api/v1/track/parts", () => {
     expect(res.body.data.find((p) => p.name === "Unpriced")).toBeFalsy();
   });
 });
+
+// The POS search dropdown asks for a fixed number of rows, so the merged
+// parts+products response has to honour `limit`. It used to fetch `limit` parts AND a
+// further `limit` products and concatenate them, so ?limit=10 could return 20.
+describe("GET /api/v1/pos/inventory — merged limit (T46 follow-up)", () => {
+  async function staffToken() {
+    const jwt = require("jsonwebtoken");
+    const User = require("../models/User");
+    const u = await User.create({
+      name: "Staff",
+      email: `staff-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@t.com`,
+      password: "Password123!",
+      role: "staff",
+    });
+    return jwt.sign({ id: u._id.toString() }, process.env.JWT_SECRET);
+  }
+
+  it("never returns more than `limit` rows when products are merged in", async () => {
+    const Part = require("../models/Part");
+    const Product = require("../models/Product");
+    const token = await staffToken();
+
+    for (let i = 0; i < 8; i++) {
+      await Part.create({ name: `Widget part ${i}`, costPrice: 500, sellingPrice: 1000, quantity: 5, isRetail: true });
+    }
+    for (let i = 0; i < 8; i++) {
+      await Product.create({
+        name: `Widget product ${i}`, slug: `widget-product-${i}`,
+        price: 2000, category: "widgets", stock: 5, isActive: true,
+      });
+    }
+
+    const res = await require("supertest")(require("../app"))
+      .get("/api/v1/pos/inventory?q=Widget&includeProducts=true&limit=10")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeLessThanOrEqual(10);
+  });
+
+  it("still surfaces products when parts do not fill the limit", async () => {
+    const Part = require("../models/Part");
+    const Product = require("../models/Product");
+    const token = await staffToken();
+
+    await Part.create({ name: "Gadget part", costPrice: 500, sellingPrice: 1000, quantity: 5, isRetail: true });
+    await Product.create({
+      name: "Gadget product", slug: "gadget-product",
+      price: 2000, category: "widgets", stock: 5, isActive: true,
+    });
+
+    const res = await require("supertest")(require("../app"))
+      .get("/api/v1/pos/inventory?q=Gadget&includeProducts=true&limit=10")
+      .set("Authorization", `Bearer ${token}`);
+
+    const names = res.body.data.map((d) => d.name);
+    expect(names).toContain("Gadget part");
+    expect(names).toContain("Gadget product");
+  });
+});

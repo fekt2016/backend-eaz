@@ -102,6 +102,12 @@ const getProducts = async (req, res, next) => {
           _id: 1, slug: 1, name: 1, description: 1, price: 1, category: 1,
           stock: 1, sku: 1, variants: 1, isActive: 1, images: 1,
           createdAt: 1, updatedAt: 1,
+          // T48 popularity counters. This list is an aggregation with an explicit
+          // $project, so a new schema field does NOT reach the client until it is
+          // named here. $ifNull because products created before T48 have no such
+          // field stored at all — an aggregation applies no schema defaults.
+          views: { $ifNull: ["$views", 0] },
+          sold: { $ifNull: ["$sold", 0] },
         },
       },
       { $addFields: { kind: "product", partId: null } },
@@ -195,6 +201,33 @@ const getProductBySlug = async (req, res, next) => {
       success: true,
       data: { ...product.toObject(), ratingSummary },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /products/:slug/view — record one product-page view.
+//
+// Deliberately NOT folded into the detail GET. That endpoint is called by
+// `generateMetadata`, by the server render of /shop/[slug], and again by the
+// client, so a single visit counted about three times — and Next prefetches the
+// route on link hover, so a view was recorded for products nobody ever opened.
+// A POST from the browser after the page mounts counts people, not fetches: it
+// also means crawlers, which never run the script, cannot inflate the figure.
+const recordProductView = async (req, res, next) => {
+  try {
+    const product = await Product.findOneAndUpdate(
+      { slug: req.params.slug, isActive: true },
+      { $inc: { views: 1 } },
+      // $inc rather than read-modify-write, so simultaneous visitors each count.
+      { new: true, projection: { views: 1 } },
+    );
+
+    if (!product) {
+      return res.status(404).json({ success: false, error: "Product not found" });
+    }
+
+    res.status(200).json({ success: true, data: { views: product.views } });
   } catch (error) {
     next(error);
   }
@@ -327,6 +360,7 @@ const deleteProduct = async (req, res, next) => {
 
 module.exports = {
   getProducts,
+  recordProductView,
   getProductBySlug,
   getAdminProducts,
   createProduct,

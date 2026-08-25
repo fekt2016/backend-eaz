@@ -2,6 +2,7 @@ const express = require('express');
 const { protect, restrictTo } = require('../middleware/auth');
 const {
   getProducts,
+  recordProductView,
   getProductBySlug,
   getAdminProducts,
   createProduct,
@@ -35,5 +36,8 @@ router.patch('/:productId/reviews/mine', protect, updateMyProductReview);
 router.get('/:productId/reviews', getProductReviews);
 
 router.get('/:slug', getProductBySlug);
+// Public: the storefront calls this once when a visitor actually opens the
+// product page. Kept off the GET so prefetches and crawlers do not count (T48).
+router.post('/:slug/view', recordProductView);
 
 module.exports = router;

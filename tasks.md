@@ -127,11 +127,184 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
 
 Not defects; product features that don't exist yet. Scope separately before building.
 
+- [x] **T46 · Sales endpoints: scope by cashier + per-staff summary** — ✅ done 2026-08-24 (both halves)
+  - **Request:** back the Sell page's per-staff sales section (see
+    `frontend-eaz/tasks.md` → T46).
+  - **Found while implementing — this was also an access-control gap.** `GET /pos/sales`
+    had no `restrictTo` and no cashier scoping, so **any authenticated POS user could
+    list every cashier's sales**, and `GET /pos/sales/:id` would open any sale by id.
+  - **Shipped:** `controllers/pos/salesController.js`, `routes/posRoutes.js`
+    - `getSales` scopes to `req.user._id` for everyone except admin/superadmin. The
+      scope comes from `req.user`, never from the query string, so a staff member
+      passing `?cashierId=` cannot widen it. Admins may use `?cashierId=` to filter,
+      validated as an ObjectId.
+    - `getSale` applies the same rule, returning **404 rather than 403** so the endpoint
+      does not confirm that another cashier's sale id exists.
+    - `page`/`limit` are now clamped (limit max 100). They were unbounded, so one
+      request could pull the entire sales history into a 512MB heap.
+    - Search terms go through `escapeRegex` — they were interpolated raw into `$regex`.
+    - New `GET /pos/sales/summary`: own totals (all-time + today) for every role, plus a
+      per-cashier `byStaff` aggregate for admin/superadmin. A sale whose cashier account
+      was deleted still counts, labelled "Unknown", rather than vanishing from the totals.
+    - The summary route is registered **before** `/sales/:id`, or Express would match
+      "summary" as an id.
+    - `tests/salesScoping.test.js` (new, 16 tests) covering the scoping, the
+      cannot-widen case, admin filtering, the 404-not-403 behaviour, voided exclusion,
+      the limit clamp, and every summary shape.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T46.
+  - **Verified:** full backend suite 50 suites / 382 tests, exit 0; no new lint warnings
+    (salesController went 37 → 36).
+
+- [x] **T47 · `Sale.saleNumber` collides when two cashiers check out at once** — ✅ done 2026-08-24
+  - **Issue:** `models/Sale.js`'s pre-save hook builds the sale number from a document
+    count: `const count = await mongoose.model('Sale').countDocuments()` then
+    `SAL-YYYYMM-{count+1}`. Two concurrent creates read the same count, generate the
+    same number, and the unique index rejects one with
+    `E11000 duplicate key error ... saleNumber_1`. The losing cashier gets a 500 and the
+    sale is not recorded.
+  - **Reproduced 2026-08-24** while writing T46's tests: three sequential creates
+    succeed (`SAL-202608-00001..3`); three concurrent creates produce two successes and
+    one E11000. The window is the whole `countDocuments()` round-trip, so this is not a
+    narrow race — two cashiers ringing up at the same moment is enough.
+  - **Also wrong regardless of the race:** the count includes voided sales but a voided
+    sale keeps its number, and any future delete would cause reuse.
+  - **Shipped:** `models/Counter.js` (new), `models/Sale.js`, `controllers/pos/salesController.js`
+    - `Counter` is a small `{ _id: String, seq: Number }` collection keyed per period
+      (`sale:202608`). `Counter.next(key, session)` is a single `findOneAndUpdate`
+      `$inc`, so the number is issued atomically instead of read-modify-write.
+    - The pre-save hook passes `this.$session()` into it — **verified that a document
+      created via `Sale.create([...], { session })` really does expose the transaction's
+      session inside the hook.** So the counter and the sale commit together, and an
+      aborted sale rolls its number back rather than burning it.
+    - Numbering is now genuinely per-month: a new month starts at `00001`. Within the
+      current month it continues from wherever the old scheme left off — the counter
+      row is seeded from the highest `SAL-<period>-` number already issued
+      (`Sale.ensureNumberCounter`), so no existing number can be handed out twice.
+      **No migration needed**: the counter is created lazily on the first sale.
+    - `ensureNumberCounter()` runs in `createSale` **before** the transaction opens.
+      That placement is the point: two transactions upserting the same *missing*
+      counter row race into an E11000, and `withTransaction` will not retry it (a
+      duplicate-key error carries no `TransientTransactionError` label). With the row
+      already there, concurrent `$inc`s collide as `WriteConflict`, which *is* labelled
+      transient and so retries on its own.
+    - The hook also skips any document that already has a `saleNumber`, so a caller
+      can supply one (the legacy-seeding test does) without it being overwritten.
+  - **Tests:** 5 added to `tests/posSale.test.js` (which already runs on a replica set).
+    The API-level 5-concurrent-checkout test **passes even against the old code** —
+    auth and body parsing stagger the requests enough to hide the race — so there is
+    also a model-level test that opens six transactions at once, which reproduced the
+    exact `E11000 ... saleNumber_1` before the fix. Plus: number format/sequence, no
+    reuse after a delete, and continuation from a pre-counter number.
+  - **Verified:** full backend suite 50 suites / 389 tests, exit 0; `posSale.test.js` run
+    3× back to back with no flakes; no new lint warnings (the new files are clean,
+    `salesController` stays at its existing 36).
+  - **Frontend part:** none — surfaced as the same "Sale failed" error T30 added.
+
 - [ ] **T45 · Pre-order support for products** — items that are out of stock, or not yet available in Ghana, currently can't be ordered at all (the shop blocks add-to-cart / checkout on zero stock). Add a pre-order capability so customers can place these ahead of availability.
   - **Model (`models/Product.js`):** add a `preorder` sub-object — e.g. `preorder.enabled` (bool), `preorder.availableFrom` (date | null), `preorder.note` (string, e.g. "ships from abroad, ~3 weeks"), and a cap field if pre-order quantity is limited. Decide how this interacts with `stock`/availability so a pre-order-enabled item bypasses the existing "out of stock → can't buy" guard *only when* `preorder.enabled`.
   - **Order flow:** flag pre-order line items on the `Order` so ops can tell them apart from in-stock items, and decide fulfilment/notification when the item actually lands. **Payment decision to make before building:** pay upfront via Paystack (same as a normal order) vs. deposit / pay-on-arrival — money-movement change, so scope explicitly.
   - **Storefront (mirror in `frontend-eaz/tasks.md`):** product card/detail shows a "Pre-order" badge + expected-availability copy instead of "Out of stock"; the add-to-cart button becomes "Pre-order".
   - **Open questions to resolve before building:** upfront payment vs. deposit; per-item pre-order quantity cap; whether a pre-order auto-converts to a normal order once stock arrives; customer comms (SMS/email) when the item becomes available.
+
+- [x] **T48 · Product popularity metrics: view count + sold count** — ✅ done 2026-08-24 (both halves)
+  - **Request:** product cards should show how many times a product has been **viewed**
+    and how many units have been **sold**; the product detail page should show the
+    live **stock count** and **sold count**. Backend half — schema fields, counters,
+    and API exposure (storefront half: `frontend-eaz/tasks.md` → T48).
+  - **Current state:** `models/Product.js` has no `views` or `sold` fields. Stock
+    exists (`stock` top-level + per-variant) but nothing tracks cumulative sales or
+    detail-page traffic.
+  - **Schema (`models/Product.js`):** add `views: { type: Number, default: 0 }` and
+    `sold: { type: Number, default: 0 }`, both `min: 0`. Existing products default to
+    0 without migration.
+  - **Views (`controllers/productController.js`):** increment `views` atomically when
+    the public `GET /api/v1/products/:slug` detail endpoint is read (`$inc`, not
+    read-modify-write — concurrent readers must not clobber each other). Do **not**
+    count list-endpoint reads. Decide whether admin/staff requests (JWT present)
+    should be excluded so staff previews don't inflate the count; simplest correct
+    version counts every public detail fetch and never trusts a client-supplied count.
+  - **Sold (`utils/fulfilShopOrder.js`):** `sold` must be incremented in the same
+    place stock is decremented on payment — `fulfilShopOrder`'s `$inc` — so it stays
+    idempotent with the existing `stockDeducted` guard (no double-count on webhook
+    retries) and reverses correctly in `restockOrderItems` if an order is
+    cancelled/refunded after fulfilment. Sum quantities across order line items for
+    that product.
+  - **Decision needed:** whether in-store POS sales of products
+    (`controllers/pos/salesController.js`, items sent as `productId`) should also
+    bump `sold`. Recommend yes (it's real demand), implemented in the same `$inc`
+    that already deducts product stock there.
+  - **API exposure:** ~~`productController` has no `.select()` projections (confirmed in
+    T39), so once the fields are on the schema they flow through list + detail
+    automatically.~~ **This was wrong, and it shipped wrong.** `getProducts` builds its
+    response with an aggregation carrying an explicit `$project`, so a new schema field
+    does *not* reach the client for free — list rows came back with no `views`/`sold` at
+    all and the homepage cards had nothing to render. Fixed by naming both in the
+    `$project`, with `$ifNull` → 0 because an aggregation applies no schema defaults and
+    products predating T48 have no such key stored. Retail parts (the `$unionWith`
+    branch) deliberately get neither field: they have no view tracking, and absent reads
+    as "not tracked" on the card rather than as "0 views". Keep both out of any admin
+    create/update payload parsing so they can only change via the counters, not client
+    input.
+  - **Decisions taken:** POS sales **do** count toward `sold` (the spec's own
+    recommendation — an over-the-counter sale is real demand), and **every** public
+    detail fetch counts as a view. Staff previews are not excluded, because
+    `GET /products/:slug` is mounted with no auth middleware at all — there is no
+    `req.user` on that route to exclude by, and adding one to serve a counter would
+    be the wrong trade.
+  - **Shipped:** `models/Product.js`, `controllers/productController.js`,
+    `utils/fulfilShopOrder.js`, `controllers/pos/salesController.js`
+    - `views` / `sold` added with `default: 0`, so existing products need no migration.
+      `min: 0` on both is documentation, not enforcement: `$inc` is a raw update and
+      skips validators — the clamp lives in `Product.decrementSold`.
+    - ~~The detail read is now one `findOneAndUpdate` with `$inc: { views: 1 }`.~~
+      **Replaced same day — counting on the GET counted fetches, not visitors.**
+      See the "views are recorded by the browser" follow-up below.
+    - `sold` rides on the *same* update that deducts stock, in all three places
+      (plain line, variant line, POS sale). That is what keeps it honest: it inherits
+      `fulfilShopOrder`'s pending→paid idempotence so a Paystack retry cannot
+      double-count, and a line that fails the no-oversell guard is not counted as sold.
+      Variant lines count against the parent product — `sold` is product-level.
+    - `Product.decrementSold(id, qty, session)` reverses it on cancel/restock and on a
+      POS void. It is a **pipeline update** (`$max: [0, …]`) rather than a plain
+      `$inc: -qty` for a specific reason: orders paid *before* this shipped deducted
+      stock without ever bumping `sold`, so cancelling one of those now would drive
+      the counter negative.
+    - `createProduct`/`updateProduct` destructure named fields, so neither counter can
+      be set from a client payload — verified with a test that posts `views: 9999`.
+  - **Tests:** `tests/productPopularity.test.js` (new, 12) — defaults, the admin
+    payload being ignored, one view per detail read, 8 concurrent readers all counted,
+    list reads not counted, a 404 not counted, sold on fulfil, no double-count on
+    webhook retry, variant lines, no count when the stock guard fails, restock
+    reversal, and the clamp for a pre-T48 order. Plus 3 in `tests/posSale.test.js`
+    (replica set) for the POS sale, the void reversal, and parts not counting.
+  - **Follow-up (same day) — views are recorded by the browser, not by the fetch.**
+    Counting inside `GET /products/:slug` was wrong in both directions:
+    - **Over-counted a real visit ~3x.** `src/app/shop/[slug]/page.jsx` calls
+      `getProductBySlug` in `generateMetadata` *and* again in the page component, and
+      `lib/products.js` fetches with `cache: "no-store"` so Next dedupes neither. The
+      client `ProductDetail` then fetches a third time.
+    - **Counted visits nobody made.** Next prefetches `<Link>` targets on hover/viewport,
+      which renders the route server-side — so hovering a shop card counted a view.
+      Any SEO crawler hitting the page did the same.
+    - **Now:** `POST /api/v1/products/:slug/view` (public, new) does the `$inc` and
+      returns the new figure; the detail GET is a plain `findOne` again. `ProductDetail`
+      posts once after the product renders, guarded by a ref so React's development
+      double-mount doesn't count twice, and skips `part-` slugs (parts have no counter).
+      Because it takes a script running in a browser, crawlers can no longer inflate it.
+      The response's count is what the page displays, so a visitor sees a figure that
+      includes their own visit rather than a stale one.
+    - **Checked against the running dev stack:** three plain detail GETs left the count
+      at 3; one POST took it to 4.
+  - **Follow-up (same day):** the list projection above. Two tests now pin it —
+    a list row carries `views`/`sold`, and a product with the keys `$unset` still
+    reports 0 — so the next field added to this schema fails loudly instead of
+    silently missing from every card.
+  - **Verified:** full backend suite 51 suites / 409 tests, exit 0; no new lint
+    warnings (`salesController` stays at its existing 36, everything else clean).
+    Also checked against the running dev stack: three detail reads of a live product
+    moved its `views` 0 → 3 and the homepage's own query
+    (`/products?limit=8&sort=newest&kind=product`) returned it.
+  - **Frontend part:** `frontend-eaz/tasks.md` → T48 — done.
 
 ---
 

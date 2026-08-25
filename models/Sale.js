@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter  = require('./Counter');
 
 const saleItemSchema = new mongoose.Schema({
   part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' },
@@ -43,15 +44,41 @@ const saleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Auto-generate sale number before save
+// 'YYYYMM' — the period a sale number belongs to, and the counter key behind it.
+function periodOf(date = new Date()) {
+  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Prepare this month's counter. Must run OUTSIDE the sale transaction (see
+// Counter.ensure), so createSale calls it before opening one. Seeds from the
+// highest number already issued this month, so sales numbered under the old
+// countDocuments() scheme never get a number handed out a second time.
+saleSchema.statics.ensureNumberCounter = async function (date = new Date()) {
+  const period = periodOf(date);
+  const key    = `sale:${period}`;
+  if (await Counter.exists({ _id: key })) return;
+
+  const last = await this.findOne({ saleNumber: new RegExp(`^SAL-${period}-\\d+$`) })
+    .sort({ saleNumber: -1 })
+    .select('saleNumber')
+    .lean();
+
+  await Counter.ensure(key, last ? Number(last.saleNumber.split('-').pop()) || 0 : 0);
+};
+
+// Auto-generate sale number before save. The number comes from an atomic
+// counter, not a document count: a count is read-modify-write, so two cashiers
+// checking out at the same moment produced the same number and the unique index
+// rejected one of them with E11000 (T47). A counter also never reissues a number
+// after a sale is deleted, and never reuses a voided sale's.
 saleSchema.pre('save', async function (next) {
-  if (this.isNew) {
-    const count = await mongoose.model('Sale').countDocuments();
-    const pad   = String(count + 1).padStart(5, '0');
-    const year  = new Date().getFullYear();
-    const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    this.saleNumber = `SAL-${year}${month}-${pad}`;
-  }
+  if (!this.isNew || this.saleNumber) return next();
+
+  const period = periodOf();
+  // $session() carries createSale's transaction, so the counter and the sale
+  // commit together — or neither does, leaving no gap in the numbering.
+  const seq = await Counter.next(`sale:${period}`, this.$session());
+  this.saleNumber = `SAL-${period}-${String(seq).padStart(5, '0')}`;
   next();
 });
 
