@@ -113,13 +113,35 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
     it was an oversight.
   - **Source:** AUDIT.md §7 note, §23
 
-- [ ] **T18 · Backend guard: reject `cancelled` from `ready` repair jobs**
+- [x] **T18 · Backend guard: reject `cancelled` from `ready` repair jobs** — ✅ done 2026-08-25
   - **Issue:** Frontend hides "Cancel Job" once a job is `ready` (see
     `frontend-eaz/tasks.md` → T18). For parity, the backend status-transition guard should
     also reject a transition from `ready` → `cancelled`.
   - **Location:** POS repair job controller (status update handler)
   - **Fix:** Add a guard so a `ready`/`collected` job cannot be transitioned to `cancelled`;
     return a friendly 400. Add a test.
+  - **Found already implemented** — this was absorbed into T53's forward-only transition
+    work and the checkbox here was simply never ticked. `canTransitionJobStatus` in
+    `controllers/pos/common.js` carries the rule explicitly:
+    - line 81 — `if (to === 'cancelled') return from !== 'ready';  // T18 guard`
+    - line 80 — `collected`/`cancelled` are terminal, which is what blocks
+      `collected → cancelled`.
+    `jobController.js:353` is the single gate in front of the only line that writes a
+    client-supplied status (`:356`), returning
+    `400 Cannot change status from ready to cancelled.`
+  - **Checked for bypasses:** the only other writes to a repair job's status are
+    `webhookController.js:599,657`, which set `waiting_for_parts` on payment and never
+    cancel. `orderController.js:711` (`claimed.status = 'cancelled'`) is a **shop Order**,
+    not a RepairJob. So the guard has no way around it.
+  - **Gap closed:** T18 names `ready`/`collected`, but only `ready → cancelled` was
+    tested — the `collected` cases exercised `received` and `repairing`, so the exact
+    transition the task names was never asserted for `collected`. Added
+    `rejects collected -> cancelled (T18)` to `tests/jobStatusTransition.test.js`
+    (12 tests there now), pinning the transition rather than trusting that the terminal
+    rule and the ready rule happen to cover it between them.
+  - **Frontend half already shipped:** the Cancel Job button is hidden once a job is
+    `ready` and confirmed via a modal, covered by
+    `src/app/dashboard/pos/jobs/[id]/page.test.jsx`.
 
 ---
 

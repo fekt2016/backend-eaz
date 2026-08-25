@@ -104,6 +104,20 @@ describe("PATCH /api/v1/pos/jobs/:id — status transition guard (T53)", () => {
     expect(fresh.status).toBe("ready");
   });
 
+  it("rejects collected -> cancelled (T18)", async () => {
+    // The ready guard has its own rule; `collected` is blocked by the terminal
+    // rule instead, and T18 names both — so pin the transition itself rather
+    // than trusting that the two rules together happen to cover it.
+    const { token } = await makeUser();
+    const job = await makeJob("collected");
+
+    const res = await patchStatus(token, job, "cancelled");
+
+    expect(res.status).toBe(400);
+    const fresh = await RepairJob.findById(job._id);
+    expect(fresh.status).toBe("collected");
+  });
+
   it("allows cancelling a live job that is not yet ready (e.g. repairing -> cancelled)", async () => {
     const { token } = await makeUser();
     const job = await makeJob("repairing");
