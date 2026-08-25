@@ -11,6 +11,7 @@ const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activit
 const { normalizePhone } = require("../utils/phone");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
 const { sendPreorderReadyEmail } = require("../utils/email");
+const { CUSTOMER_STAGES } = require("../models/Shipment");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -298,10 +299,28 @@ const getOrderTracking = async (req, res, next) => {
 
     const order = await Order.findOne({ trackingNumber })
       .populate('deliveryZone', 'name')
+      .populate('items.shipment', 'stage expectedArrival')
       .lean();
     if (!order) {
       return res.status(404).json({ success: false, error: 'Tracking number not found' });
     }
+
+    // T45: where an unreleased pre-order line actually is. Eight operational
+    // stages collapse to four the customer can act on, and nothing identifying
+    // the supplier, the container or any internal note crosses this line — the
+    // rest of this payload is deliberately minimal for the same reason.
+    const waiting = (order.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
+    const withShipment = waiting.find((i) => i.shipment?.stage);
+    const preorder = waiting.length
+      ? {
+          items: waiting.map((i) => ({ name: i.name, qty: i.qty })),
+          stage: withShipment ? CUSTOMER_STAGES[withShipment.shipment.stage]?.key || null : null,
+          label: withShipment
+            ? CUSTOMER_STAGES[withShipment.shipment.stage]?.label || null
+            : 'Confirmed — awaiting shipment',
+          expectedArrival: withShipment ? withShipment.shipment.expectedArrival || null : null,
+        }
+      : null;
 
     const history = (order.trackingHistory || [])
       .map((e) => ({
@@ -322,6 +341,8 @@ const getOrderTracking = async (req, res, next) => {
         createdAt: order.createdAt,
         history,
         latestEvent: history.length ? history[history.length - 1] : null,
+        // Null for an ordinary order, so existing clients are unaffected.
+        preorder,
       },
     });
   } catch (error) {

@@ -212,6 +212,7 @@ app.use('/api/v1/pos',      posRoutes);
 app.use('/api/v1/track',   trackRoutes);   // public — no auth
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/orders',   orderRoutes);
+app.use('/api/v1/shipments', require('./routes/shipmentRoutes'));
 app.use('/api/v1/delivery-zones', deliveryZoneRoutes);
 app.use('/api/v1/activity-logs', activityLogRoutes); // admin/superadmin only
 app.use('/api/v1/product-reviews', productReviewRoutes);
