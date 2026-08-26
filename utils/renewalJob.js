@@ -18,7 +18,9 @@ const logger = require("./logger");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const FROM = process.env.EMAIL_FROM || 'EazWorld <onboarding@resend.dev>';
+// From-address precedence: RESEND_FROM_EMAIL (.env, what Resend actually accepts)
+// → legacy EMAIL_FROM → default.
+const FROM = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'EazWorld <onboarding@resend.dev>';
 const FRONTEND_URL = require('../utils/frontendUrl')();
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

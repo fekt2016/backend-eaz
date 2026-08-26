@@ -7,10 +7,9 @@ const {
   extractTLD,
   extractSLD,
   generateFallbackSuggestions,
-  getDefaultPrice,
   normalizeDomain,
 } = require("../utils/domainHelper");
-const namecheap = require("../services/namecheap");
+const spaceship = require("../services/spaceship");
 const { registerDomainOrder } = require("../utils/registerDomainOrder");
 const {
   sanitizeName,
@@ -51,15 +50,16 @@ const checkDomain = async (req, res, next) => {
     }
 
     let result;
-    if (namecheap.hasConfig()) {
-      result = await namecheap.checkDomain(domain);
+    if (spaceship.hasConfig()) {
+      result = await spaceship.checkDomain(domain);
     } else {
       const tldFallback = extractTLD(domain);
       result = {
         domain,
         available: false,
-        price: getDefaultPrice(tldFallback),
-        currency: "USD",
+        // T65: was the retired GH₵ table, labelled "USD" — wrong twice over.
+        price: spaceship.tldPriceGhs(tldFallback),
+        currency: "GHS",
         tld: tldFallback,
         error: "Domain search not configured",
       };
@@ -115,14 +115,14 @@ const checkDomainBatch = async (req, res, next) => {
       });
     }
 
-    if (!namecheap.hasConfig()) {
+    if (!spaceship.hasConfig()) {
       return res.status(503).json({
         success: false,
         error: "Domain search is not configured",
       });
     }
 
-    const results = await namecheap.checkMultipleDomains(domains.join(","), []);
+    const results = await spaceship.checkMultipleDomains(domains.join(","), []);
     const normalized = results.map((r) => ({
       domain: r.domain,
       available: r.available,
@@ -172,14 +172,14 @@ const checkDomainBulk = async (req, res, next) => {
       });
     }
 
-    if (!namecheap.hasConfig()) {
+    if (!spaceship.hasConfig()) {
       return res.status(503).json({
         success: false,
         error: "Domain search is not configured",
       });
     }
 
-    const results = await namecheap.checkMultipleDomains(domains.join(","), []);
+    const results = await spaceship.checkMultipleDomains(domains.join(","), []);
     const normalized = results.map((r) => ({
       domain: r.domain,
       available: r.available,
@@ -239,8 +239,8 @@ const createDomainPayment = async (req, res, next) => {
     // ── Server-side price validation ─────────────────────────────────
     let expectedGHS = null;
     try {
-      if (namecheap.hasConfig()) {
-        const pricing = await namecheap.getPricing();
+      if (spaceship.hasConfig()) {
+        const pricing = await spaceship.getPricing();
         if (pricing?.[tld]) {
           expectedGHS = pricing[tld] * safeYears;
         }
@@ -250,11 +250,14 @@ const createDomainPayment = async (req, res, next) => {
     }
 
     if (expectedGHS == null) {
-      const usdRate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
-      const markup = parseFloat(process.env.DOMAIN_MARKUP) || 1.2;
-      const defaultUsd = getDefaultPrice(tld);
-      if (defaultUsd) {
-        expectedGHS = defaultUsd * usdRate * markup * safeYears;
+      // T65: this read `getDefaultPrice(tld)` — a table already in GH₵ — and then
+      // converted it AGAIN by rate × markup, so a .com came out at 85 × 15.5 × 1.2
+      // = GH₵1,581 against a true price of 190. The guard below is a ±5% band, so
+      // the customer's correct payment was rejected as "Invalid payment amount".
+      // One source of truth now, already in cedis.
+      const fallbackGhs = spaceship.tldPriceGhs(tld);
+      if (fallbackGhs != null) {
+        expectedGHS = fallbackGhs * safeYears;
       }
     }
 
@@ -379,7 +382,7 @@ const getDomainOrders = async (req, res, next) => {
 /**
  * GET /api/v1/domain/my
  * The caller's actually-registered domains (not order records) — pushed to
- * `User.domains` by the Paystack webhook once Namecheap registration
+ * `User.domains` by the Paystack webhook once Spaceship registration
  * succeeds. Sorted soonest-expiring first so renewals due surface at the top.
  */
 const getMyRegisteredDomains = async (req, res, next) => {
@@ -532,14 +535,14 @@ const searchDomain = async (req, res, next) => {
     const normalizedDomain = normalizeDomain(domain);
     const baseName = extractSLD(normalizedDomain);
 
-    if (!namecheap.hasConfig()) {
+    if (!spaceship.hasConfig()) {
       return res.status(503).json({
         success: false,
         error: "Domain search is not configured. Please contact support.",
       });
     }
 
-    const allPrices = await namecheap.getPricing();
+    const allPrices = await spaceship.getPricing();
     const wantedTlds = [
       ".com",
       ".net",
@@ -555,7 +558,7 @@ const searchDomain = async (req, res, next) => {
     ];
     const tlds = wantedTlds.filter((t) => allPrices[t]);
 
-    const results = await namecheap.checkMultipleDomains(
+    const results = await spaceship.checkMultipleDomains(
       baseName,
       tlds.length > 0 ? tlds : wantedTlds,
     );
@@ -578,7 +581,7 @@ const searchDomain = async (req, res, next) => {
 
 /**
  * POST /api/v1/domain/orders/:id/retry-registration  (admin)
- * Re-attempt Namecheap registration for a paid order whose registration failed.
+ * Re-attempt Spaceship registration for a paid order whose registration failed.
  * Only valid once the order is paid (status 'completed'); succeeds idempotently.
  */
 const retryDomainRegistration = async (req, res, next) => {

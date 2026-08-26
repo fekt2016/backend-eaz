@@ -12,10 +12,11 @@ const RepairJob = require('../models/RepairJob');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const { fulfilShopOrder } = require('../utils/fulfilShopOrder');
+const { sendDomainConfirmationEmail, sendServiceConfirmationEmail } = require('../utils/email');
 const { notifyCustomer } = require('../services/notify');
 const { deductPartStock } = require('../utils/deductPartStock');
 const Part = require('../models/Part');
-const namecheap = require('../services/namecheap');
+const spaceship = require('../services/spaceship');
 const whm = require('../services/whm');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
 const { applyRefundOutcome } = require('../utils/refunds');
@@ -284,8 +285,8 @@ const handlePaystackWebhook = async (req, res) => {
 
       let registrationSucceeded = false;
 
-      if (namecheap.hasConfig() && domainOrder.registrantInfo) {
-        const regResult = await namecheap.registerDomain(
+      if (spaceship.hasConfig() && domainOrder.registrantInfo) {
+        const regResult = await spaceship.registerDomain(
           domainOrder.domain,
           domainOrder.years || 1,
           {
@@ -354,6 +355,10 @@ const handlePaystackWebhook = async (req, res) => {
           console.error('[webhook] Failed to link domain to user account:', err.message);
         }
       }
+
+      // T62 — the customer's only record of a domain purchase used to be a
+      // database row. One email covering both registration outcomes; best-effort.
+      sendDomainConfirmationEmail(domainOrder, { registered: registrationSucceeded }).catch(() => {});
     }
 
     // ── E-commerce order ────────────────────────────────────────
@@ -551,6 +556,10 @@ const handlePaystackWebhook = async (req, res) => {
       console.log(
         `[webhook] Service order paid: ${serviceOrder._id} — ${serviceOrder.package} for ${serviceOrder.email}`
       );
+
+      // T62 — the project itself never said hello (only account creation did).
+      // Deposit receipt + what happens next; best-effort.
+      sendServiceConfirmationEmail(serviceOrder).catch(() => {});
     }
 
     res.status(200).json({ received: true });

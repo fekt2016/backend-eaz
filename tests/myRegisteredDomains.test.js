@@ -1,6 +1,6 @@
 // GET /api/v1/domain/my (T26): the Paystack webhook already pushes a
 // { domain, years, registeredAt, expiresAt, status } entry to `User.domains`
-// once Namecheap registration succeeds — nothing ever exposed it back to the
+// once Spaceship registration succeeds — nothing ever exposed it back to the
 // frontend. This endpoint reads it, sorted soonest-expiring first.
 const request = require("supertest");
 const jwt = require("jsonwebtoken");

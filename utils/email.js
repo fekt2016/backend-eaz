@@ -1,9 +1,12 @@
 const { Resend } = require('resend');
 const EmailLog = require('../models/EmailLog');
+const { formatGhs } = require('./money');
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-const FROM = process.env.EMAIL_FROM || 'EazWorld <noreply@eazworld.com>';
+// From-address precedence: RESEND_FROM_EMAIL (.env, what Resend actually accepts)
+// → legacy EMAIL_FROM → default.
+const FROM = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'EazWorld <noreply@eazworld.com>';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@eazworld.com';
 
 async function send({ to, subject, html, type = 'other', orderId = null, meta = {} }) {
@@ -347,8 +350,280 @@ async function sendAccountCreatedEmail(user, password) {
   });
 }
 
+/**
+ * T45 — tell a customer their pre-ordered item has landed and their order is
+ * moving. Sent when staff release the pre-order, not when stock changes, so the
+ * customer only ever hears from us once the order is genuinely being filled.
+ */
+async function sendPreorderReadyEmail(order, items) {
+  const BASE = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const to = order?.customer?.email;
+  // Shop checkout is phone-first in Ghana, so an order may carry no email at all.
+  // That is not a failure — there is simply nobody to write to.
+  if (!to) return false;
+
+  const lines = (items || [])
+    .map((i) => `<li>${i.name}${i.qty > 1 ? ` × ${i.qty}` : ''}</li>`)
+    .join('');
+
+  return send({
+    to,
+    type: 'preorder_ready',
+    orderId: order._id,
+    subject: `Your pre-order has arrived — ${order.orderNumber}`,
+    html: `
+      <h2>Good news, ${order.customer?.name || 'there'} 👋</h2>
+      <p>The item you pre-ordered is now in stock and your order is being prepared.</p>
+      <ul>${lines}</ul>
+      <p>Order <strong>${order.orderNumber}</strong></p>
+      ${order.trackingNumber
+        ? `<p>Track it here: <a href="${BASE}/track/order/${order.trackingNumber}">${order.trackingNumber}</a></p>`
+        : ''}
+      <p>Thank you for waiting.</p>
+    `,
+    meta: { orderNumber: order.orderNumber, itemCount: (items || []).length },
+  });
+}
+
+// ─── Shop order emails (T62) ─────────────────────────────────────────────────
+// The shop emailed customers nothing at all: pay, close the tab, and the order
+// number existed only on the confirmation page. These close that gap. Every send
+// rides Resend via `send()` so it lands in EmailLog under its own type, a missing
+// customer email returns quietly (shop checkout here is phone-first), and no
+// caller ever waits on or fails because of a mail problem.
+
+const SHOP_BASE = () => process.env.FRONTEND_URL || 'http://localhost:3000';
+
+function shopTrackingSection(order) {
+  if (!order.trackingNumber) return '';
+  const url = `${SHOP_BASE()}/track/order/${order.trackingNumber}`;
+  return `
+    <p>
+      <a href="${url}"
+         style="display:inline-block;padding:12px 24px;background:#111827;color:#fff;border-radius:50px;text-decoration:none;font-weight:600;">
+        Track your order →
+      </a>
+    </p>
+    <p style="color:#6b7280;font-size:13px;">Tracking number: <strong>${order.trackingNumber}</strong></p>
+  `;
+}
+
+/**
+ * T62 gap #1 — the shop receipt. Sent once, at payment (fulfilShopOrder), with
+ * the tracking number and link so the T45 journey is reachable from the inbox.
+ * A pre-order line gets its own expectation-setting section instead of silence:
+ * the customer now knows why part of the order hasn't shipped and what happens
+ * next — and per the T62 decision there are NO further emails until the goods
+ * physically reach the shop (that one is sendPreorderReadyEmail).
+ */
+async function sendShopOrderConfirmationEmail(order, { deliveryZoneName = '', preorderNotes = [] } = {}) {
+  const to = order?.customer?.email;
+  if (!to) return false; // phone-first checkout — an order may carry no email
+
+  const rows = (order.items || [])
+    .map((i) => `
+      <tr>
+        <td style="padding:6px 0;color:#374151;">${i.name}${i.qty > 1 ? ` × ${i.qty}` : ''}${i.isPreorder ? ' <span style="color:#92400e;font-size:12px;">(pre-order)</span>' : ''}</td>
+        <td style="padding:6px 0;text-align:right;color:#111827;font-weight:600;">${formatGhs((i.price || 0) * (i.qty || 1))}</td>
+      </tr>`)
+    .join('');
+
+  const preorderSection = (preorderNotes || []).length
+    ? `
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px;margin:20px 0;">
+        <p style="margin:0 0 8px;font-weight:600;color:#1e40af;">📦 About your pre-order</p>
+        ${preorderNotes.map((n) => `<p style="margin:4px 0;font-size:14px;color:#1e3a8a;">${n}</p>`).join('')}
+        <p style="margin:8px 0 0;font-size:13px;color:#1e40af;">You'll be emailed as soon as it reaches our shop — follow the tracking number to see where things stand anytime.</p>
+      </div>`
+    : '';
+
+  return send({
+    to,
+    type: 'order_confirmation',
+    orderId: order._id,
+    subject: `Order confirmed — ${order.orderNumber}`,
+    html: `
+      <h2>Thank you for your order, ${order.customer?.name?.split(' ')[0] || 'there'}!</h2>
+      <p>Your payment has been confirmed and your order is in.</p>
+      <table style="border-collapse:collapse;width:100%;font-size:14px;margin:16px 0;">
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;width:130px;">Order number</td><td style="font-weight:700;">${order.orderNumber}</td></tr>
+        ${order.trackingNumber ? `<tr><td style="padding:4px 8px 4px 0;color:#6b7280;">Tracking number</td><td style="font-family:monospace;">${order.trackingNumber}</td></tr>` : ''}
+      </table>
+      <table style="border-collapse:collapse;width:100%;font-size:14px;border-top:1px solid #e5e7eb;padding-top:8px;">
+        ${rows}
+        <tr><td style="padding:8px 0 2px;color:#6b7280;">Subtotal</td><td style="text-align:right;">${formatGhs(order.subtotal)}</td></tr>
+        <tr><td style="padding:2px 0;color:#6b7280;">Delivery${deliveryZoneName ? ` (${deliveryZoneName})` : ''}</td><td style="text-align:right;">${formatGhs(order.deliveryFee)}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:700;">Total</td><td style="text-align:right;font-weight:700;">${formatGhs(order.total)}</td></tr>
+      </table>
+      ${preorderSection}
+      ${shopTrackingSection(order)}
+      <p style="color:#6b7280;font-size:13px;">Questions? Reply to this email or message us on WhatsApp.</p>
+      <p>— The EazWorld Team</p>
+    `,
+    meta: { orderNumber: order.orderNumber, hasPreorder: (order.items || []).some((i) => i.isPreorder) },
+  });
+}
+
+/**
+ * T62 gap #3 — status moves. Repair jobs already tell the customer every
+ * meaningful step (services/notify.js); shop orders never did. Same shape here:
+ * a per-status subject/body map, rendered into one email. `paid` and `pending`
+ * are deliberately absent — paid IS the confirmation email above, and pending
+ * means nothing has happened yet.
+ */
+const SHOP_STATUS_MESSAGES = {
+  processing: {
+    subject: (o) => `We're preparing your order — ${o.orderNumber}`,
+    headline: 'Order in progress',
+    body: 'Your order is being picked and packed.',
+  },
+  shipped: {
+    subject: (o) => `Your order is on its way — ${o.orderNumber}`,
+    headline: 'Order shipped',
+    body: 'Your order has left our shop and is on its way to you.',
+  },
+  delivered: {
+    subject: (o) => `Your order has been delivered — ${o.orderNumber}`,
+    headline: 'Order delivered',
+    body: 'Your order has been delivered. Thank you for shopping with us!',
+  },
+  cancelled: {
+    subject: (o) => `Your order has been cancelled — ${o.orderNumber}`,
+    headline: 'Order cancelled',
+    body: 'Your order has been cancelled. If you paid, any refund will be processed to your original payment method.',
+  },
+};
+
+async function sendShopStatusEmail(order) {
+  const to = order?.customer?.email;
+  if (!to) return false;
+  const msg = SHOP_STATUS_MESSAGES[order.status];
+  if (!msg) return false;
+
+  return send({
+    to,
+    type: 'shop_status_update',
+    orderId: order._id,
+    subject: msg.subject(order),
+    html: `
+      <h2>${msg.headline}</h2>
+      <p>Hi ${order.customer?.name?.split(' ')[0] || 'there'},</p>
+      <p>${msg.body}</p>
+      <p>Order <strong>${order.orderNumber}</strong></p>
+      ${shopTrackingSection(order)}
+      <p>— The EazWorld Team</p>
+    `,
+    meta: { orderNumber: order.orderNumber, status: order.status },
+  });
+}
+
+/**
+ * T62 gap #4 — refund word. Hooked inside applyRefundOutcome, so the customer
+ * hears the outcome no matter which path learned it first (webhook, manual sync,
+ * or the reconcile job). Money-side failures are not hidden from the person they
+ * happened to.
+ */
+async function sendRefundOutcomeEmail(order) {
+  const to = order?.customer?.email;
+  if (!to) return false;
+  const outcome = order.refund?.status;
+  if (!['completed', 'failed'].includes(outcome)) return false;
+
+  const completed = outcome === 'completed';
+  return send({
+    to,
+    type: completed ? 'refund_completed' : 'refund_failed',
+    orderId: order._id,
+    subject: completed
+      ? `Your refund is on its way — ${order.orderNumber}`
+      : `Issue with your refund — ${order.orderNumber}`,
+    html: `
+      <h2>${completed ? 'Refund processed' : 'Refund could not be processed'}</h2>
+      <p>Hi ${order.customer?.name?.split(' ')[0] || 'there'},</p>
+      ${completed
+        ? `<p>We've refunded <strong>${formatGhs(order.refund.amount)}</strong> for order <strong>${order.orderNumber}</strong> to your original payment method. Depending on your bank or mobile-money provider, it can take a few days to appear.</p>`
+        : `<p>We tried to refund <strong>${formatGhs(order.refund.amount)}</strong> for order <strong>${order.orderNumber}</strong>, but the payment provider declined it. Our team is looking into it and will contact you shortly.</p>`}
+      ${order.refund.reason ? `<blockquote style="border-left:3px solid #e5e7eb;padding-left:12px;color:#6b7280;margin:16px 0;">Reason: ${order.refund.reason}</blockquote>` : ''}
+      <p>— The EazWorld Team</p>
+    `,
+    meta: { orderNumber: order.orderNumber, outcome, amountPesewas: order.refund.amount },
+  });
+}
+
+/**
+ * T62 gap #5 — domains used to email nothing: pay for a domain and the only
+ * record was a database row. One email at payment covering both outcomes of the
+ * registration attempt that follows it: registered (with the years + renewal
+ * framing) or handed to the team (Spaceship hiccups must not leave a paying
+ * customer in silence). Expiry warnings are already covered by renewalJob.
+ */
+async function sendDomainConfirmationEmail(order, { registered }) {
+  const to = order?.email;
+  if (!to) return false;
+
+  const expiresYear = new Date().getFullYear() + (order.years || 1);
+  return send({
+    to,
+    type: 'domain_confirmation',
+    orderId: order._id,
+    subject: registered
+      ? `${order.domain} is yours 🎉`
+      : `We received your domain order — ${order.domain}`,
+    html: `
+      <h2>${registered ? 'Domain registered!' : 'Domain order received'}</h2>
+      <p>Hi ${order.customerName?.split(' ')[0] || 'there'},</p>
+      ${registered
+        ? `<p><strong>${order.domain}</strong> has been registered for <strong>${order.years || 1} year${(order.years || 1) > 1 ? 's' : ''}</strong>. It's yours until <strong>${expiresYear}</strong> — we'll remind you before it needs renewing.</p>`
+        : `<p>We've received your payment for <strong>${order.domain}</strong>. Our team is finishing the registration and will confirm by email shortly — you don't need to do anything.</p>`}
+      <p>Paid: <strong>GH₵${order.price}</strong></p>
+      <p>— The EazWorld Team</p>
+    `,
+    meta: { domain: order.domain, registered },
+  });
+}
+
+/**
+ * T62 gap #6 — service orders (web design etc.) only ever triggered the account
+ * email; the project itself never said hello. One email at the deposit payment:
+ * what was ordered, what was paid, what's left, what happens next.
+ */
+async function sendServiceConfirmationEmail(order) {
+  const to = order?.email;
+  if (!to) return false;
+
+  const balance = Math.max(0, (order.totalAmount || 0) - (order.depositAmount || 0));
+  // ServiceOrder money is the T44 Group-C exception: major GHS floats, not
+  // pesewas — so raw GH₵ interpolation here, never formatGhs.
+  const ghs = (v) => `GH₵${Number(v || 0).toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return send({
+    to,
+    type: 'service_confirmation',
+    orderId: order._id,
+    subject: `We're getting started on your ${order.package} — EazWorld`,
+    html: `
+      <h2>Thank you — your deposit is confirmed!</h2>
+      <p>Hi ${order.name?.split(' ')[0] || 'there'},</p>
+      <p>We've received your <strong>${ghs(order.depositAmount)}</strong> deposit for your <strong>${order.package}</strong> project.</p>
+      <table style="border-collapse:collapse;width:100%;font-size:14px;margin:16px 0;">
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;width:130px;">Project total</td><td>${ghs(order.totalAmount)}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;">Paid now</td><td>${ghs(order.depositAmount)}</td></tr>
+        ${balance > 0 ? `<tr><td style="padding:4px 8px 4px 0;color:#6b7280;">Balance later</td><td>${ghs(balance)}</td></tr>` : ''}
+      </table>
+      <p>Our team will reach out within <strong>24 hours</strong> to kick things off.</p>
+      <p>— The EazWorld Team</p>
+    `,
+    meta: { package: order.package, depositAmount: order.depositAmount },
+  });
+}
+
 module.exports = {
   send,
+  sendPreorderReadyEmail,
+  sendShopOrderConfirmationEmail,
+  sendShopStatusEmail,
+  sendRefundOutcomeEmail,
+  sendDomainConfirmationEmail,
+  sendServiceConfirmationEmail,
   sendWelcomeEmail,
   sendAccountCreatedEmail,
   sendPasswordResetEmail,

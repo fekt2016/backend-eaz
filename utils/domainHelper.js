@@ -44,7 +44,10 @@ const extractBaseName = (domain) => {
   return parts.length > 1 ? parts.slice(0, -1).join('.') : domain;
 };
 
-const generateSuggestions = (baseName, tlds = ['.net', '.org', '.co', '.gh', '.online']) => {
+// T65: `.gh` was in the default list, so every suggestion set offered a TLD our
+// registrar answers `tldNotSupported` for. Suggestions must only contain domains
+// a customer can actually buy — see config/domainPricing.js UNSUPPORTED_TLDS.
+const generateSuggestions = (baseName, tlds = ['.net', '.org', '.co', '.io', '.online']) => {
   if (!baseName || baseName.trim().length === 0) return [];
   const cleanBase = baseName.trim().toLowerCase();
   return tlds.map(tld => `${cleanBase}${tld}`);
@@ -53,7 +56,9 @@ const generateSuggestions = (baseName, tlds = ['.net', '.org', '.co', '.gh', '.o
 const generateFallbackSuggestions = (query) => {
   if (!query || query.trim().length < 2) return [];
   const cleanQuery = query.trim().toLowerCase();
-  const tlds = ['.com', '.net', '.org', '.gh', '.com.gh', '.io'];
+  // T65: dropped '.gh' and '.com.gh' — the /domain/suggest endpoint was handing
+  // customers names that fail the moment they try to check out.
+  const tlds = ['.com', '.net', '.org', '.co', '.shop', '.io'];
   const prefixes = ['get', 'go', 'my', 'try', 'the'];
   const suffixes = ['shop', 'hub', 'tech', 'web', 'studio'];
   const suggestions = [];
@@ -61,30 +66,6 @@ const generateFallbackSuggestions = (query) => {
   prefixes.forEach(prefix => suggestions.push(`${prefix}${cleanQuery}.com`));
   suffixes.forEach(suffix => suggestions.push(`${cleanQuery}${suffix}.com`));
   return [...new Set(suggestions)].slice(0, 20);
-};
-
-/**
- * Prices in GHS — matches frontend TLD_PRICES
- */
-const getDefaultPrice = (tld) => {
-  const priceMap = {
-    '.com': 85,
-    '.net': 75,
-    '.org': 70,
-    '.io': 180,
-    '.africa': 95,
-    '.com.gh': 60,
-    '.gh': 60,
-    '.org.gh': 60,
-    '.co': 120,
-    '.online': 65,
-    '.tech': 130,
-    '.xyz': 45,
-    '.info': 70,
-    '.biz': 75,
-    '.me': 90,
-  };
-  return priceMap[(tld || '').toLowerCase()] || 85;
 };
 
 const normalizeDomain = (domain) => {
@@ -99,6 +80,11 @@ module.exports = {
   extractTLD,
   generateSuggestions,
   generateFallbackSuggestions,
-  getDefaultPrice,
   normalizeDomain,
 };
+
+// `getDefaultPrice` used to live here: a hardcoded GH₵ table that priced .com at
+// 85 against a real cost of ~190, i.e. below cost, and that two callers then
+// mistook for USD and converted a second time (T65). Prices now come from one
+// place — config/domainPricing.js (USD) through spaceship.usdToGhs(). The
+// retired services/namecheap.js keeps its own private copy for rollback.

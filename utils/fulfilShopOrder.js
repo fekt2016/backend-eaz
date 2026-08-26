@@ -1,9 +1,11 @@
 const Order = require('../models/Order');
 const Part = require('../models/Part');
 const Product = require('../models/Product');
+const DeliveryZone = require('../models/DeliveryZone');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
 const { formatGhs } = require('./money');
 const { notifyRoles, NOTIFICATION_TYPES } = require('./notifications');
+const { sendShopOrderConfirmationEmail } = require('./email');
 
 /**
  * Atomically transition a shop order pending→paid and decrement stock.
@@ -47,6 +49,31 @@ async function fulfilShopOrder(reference) {
     resourceId:   paid.orderNumber,
   }).catch(() => {});
 
+  // T62 — the customer's receipt, with their tracking number so the journey is
+  // reachable from the inbox. Best-effort: a mail failure must not undo a
+  // payment that already landed. The pre-order section needs each line's
+  // expected-availability note, which lives on the product, not the order.
+  Promise.all([
+    paid.deliveryZone ? DeliveryZone.findById(paid.deliveryZone).select('name').lean().catch(() => null) : null,
+    ...paid.items.filter((i) => i.isPreorder && i.product).map((i) =>
+      Product.findById(i.product).select('name preorder.note preorder.availableFrom').lean().catch(() => null)),
+  ])
+    .then(([zone, ...preorderProducts]) => {
+      const preorderNotes = preorderProducts.filter(Boolean).map((p) => {
+        const bits = [];
+        if (p.preorder?.availableFrom) {
+          bits.push(`expected from ${new Date(p.preorder.availableFrom).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`);
+        }
+        if (p.preorder?.note) bits.push(p.preorder.note);
+        return bits.length ? `${p.name} (${bits.join(' — ')})` : p.name;
+      });
+      return sendShopOrderConfirmationEmail(paid, {
+        deliveryZoneName: zone?.name || '',
+        preorderNotes,
+      });
+    })
+    .catch(() => {});
+
   // Decrement stock atomically per item. Never oversell: if the guard
   // fails for an item, log it and continue. T48's `sold` counter rides on the
   // same update, so it inherits this function's idempotence (the pending→paid
@@ -65,6 +92,11 @@ async function fulfilShopOrder(reference) {
       }
       continue;
     }
+
+    // T45: a pre-order line has no stock behind it yet — that is the whole point.
+    // Skip it here (a decrement would fail its guard and log a false alarm); the
+    // stock move and the `sold` bump happen when staff release it on arrival.
+    if (item.isPreorder && !item.preorderReleasedAt) continue;
 
     // Variant lines decrement that variant's stock; plain product lines keep
     // the original top-level stock decrement.
@@ -100,6 +132,10 @@ async function fulfilShopOrder(reference) {
  */
 async function restockOrderItems(order) {
   for (const item of order.items) {
+    // Nothing was ever deducted for an unreleased pre-order, so there is nothing
+    // to give back — restocking it would invent inventory.
+    if (item.isPreorder && !item.preorderReleasedAt) continue;
+
     if (item.part) {
       await Part.findByIdAndUpdate(item.part, { $inc: { quantity: item.qty } });
       continue;

@@ -1,5 +1,5 @@
 // Customer self-service purchase entry points: buying hosting (POST /hosting/orders)
-// and paying for a domain (POST /domain/payment). Paystack, Namecheap and email are
+// and paying for a domain (POST /domain/payment). Paystack, Spaceship and email are
 // mocked — no real network calls.
 process.env.PAYSTACK_SECRET = "sk_test_dummy";
 
@@ -13,7 +13,7 @@ jest.mock("@paystack/paystack-sdk", () =>
     },
   }))
 );
-jest.mock("../services/namecheap", () => ({
+jest.mock("../services/spaceship", () => ({
   hasConfig: jest.fn(() => true),
   getPricing: jest.fn(async () => ({})),
   registerDomain: jest.fn(async () => ({ success: true })),
@@ -28,7 +28,7 @@ jest.mock("../utils/hostingEmail", () => ({
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
-const namecheap = require("../services/namecheap");
+const spaceship = require("../services/spaceship");
 const { extractTLD } = require("../utils/domainHelper");
 const HostingOrder = require("../models/HostingOrder");
 const DomainOrder = require("../models/DomainOrder");
@@ -106,8 +106,8 @@ describe("Domain purchase — POST /api/v1/domain/payment (customer)", () => {
   });
 
   beforeEach(() => {
-    namecheap.hasConfig.mockReturnValue(true);
-    namecheap.getPricing.mockResolvedValue({ [tld]: EXPECTED });
+    spaceship.hasConfig.mockReturnValue(true);
+    spaceship.getPricing.mockResolvedValue({ [tld]: EXPECTED });
   });
 
   it("initializes payment for a correct amount and creates the order", async () => {

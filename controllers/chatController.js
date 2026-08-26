@@ -285,6 +285,7 @@ const sendMessage = async (req, res, next) => {
     if (isUserEndChat) {
       session.messages.push({ role: 'bot', content: '🔴 The user has ended this conversation.' });
       session.resolved       = true;
+      session.resolvedAt     = new Date();
       session.humanRequested = false;
       session.lastActivity   = new Date();
       await session.save();
@@ -355,7 +356,7 @@ const getSessions = async (req, res, next) => {
     const sessions = await ChatSession.find(filter)
       // Sort: pending (requested but not accepted) first, then active live chats, then rest
       .sort({ humanAccepted: -1, humanRequested: -1, lastActivity: -1 })
-      .select('sessionId name email phone resolved humanRequested humanAccepted lastActivity createdAt messages');
+      .select('sessionId name email phone resolved resolvedAt humanRequested humanAccepted humanAcceptedAt acceptedBy acceptedByName acceptedAt rating ratingComment ratedAt lastActivity createdAt messages');
 
     res.status(200).json({ success: true, data: sessions });
   } catch (error) {
@@ -393,6 +394,12 @@ const updateSession = async (req, res, next) => {
       session.humanRequested = false;
       session.humanAccepted  = false;
       session.lastActivity   = new Date();
+      session.resolvedAt     = new Date(); // T69 — the clock resolution time is measured to
+    }
+    // Reopening clears the stamp: a reopened chat isn't resolved, and leaving a
+    // stale resolvedAt behind would feed a negative duration into the metrics.
+    if (resolved === false && session.resolved) {
+      session.resolvedAt = undefined;
     }
     if (resolved !== undefined) {
       session.resolved = resolved;
@@ -430,13 +437,26 @@ const adminReply = async (req, res, next) => {
     const session = await ChatSession.findOne({ sessionId: req.params.sessionId });
     if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
 
-    session.messages.push({ role: 'admin', content: message.trim() });
+    // T69 — stamp the sender. `role` stays 'admin' whoever sends it, so the
+    // widget and the console keep rendering exactly as before.
+    session.messages.push({
+      role:       'admin',
+      content:    message.trim(),
+      senderId:   req.user.id,
+      senderName: req.user.name,
+    });
     session.lastActivity = new Date();
     // Re-open the session if it was resolved
-    if (session.resolved) session.resolved = false;
+    if (session.resolved) {
+      session.resolved   = false;
+      session.resolvedAt = undefined;
+    }
     await session.save();
 
-    res.status(200).json({ success: true, data: { message: message.trim() } });
+    res.status(200).json({
+      success: true,
+      data: { message: message.trim(), senderId: req.user.id, senderName: req.user.name },
+    });
   } catch (error) {
     next(error);
   }
@@ -448,11 +468,14 @@ const adminReply = async (req, res, next) => {
  */
 const getMessages = async (req, res, next) => {
   try {
-    // Verify caller owns this session — the widget sends its ew_session cookie automatically.
-    // Admins bypass this check (they use the authenticated /sessions/:id route instead).
+    // This route stays public — it's how the customer's widget polls for replies,
+    // and that visitor has no account. Ownership is proved by the ew_session cookie
+    // the widget sets, which must match the sessionId in the URL, so a leaked or
+    // guessed id alone reads nothing. (There is no admin bypass: `protect` never
+    // runs here, so req.user would always be undefined. Staff read transcripts
+    // through the authenticated GET /sessions/:sessionId instead.)
     const callerSession = req.cookies?.ew_session;
-    const isAdmin = req.user?.role === 'admin'; // set by protect middleware if token present
-    if (!isAdmin && callerSession !== req.params.sessionId) {
+    if (callerSession !== req.params.sessionId) {
       return res.status(403).json({ success: false, error: 'Access denied.' });
     }
 
@@ -467,15 +490,27 @@ const getMessages = async (req, res, next) => {
       messages = messages.filter((m) => new Date(m.createdAt) > sinceDate);
     }
 
+    // T69 — the customer sees "EazWorld Team", never which staff member replied.
+    // Attribution is for the console and the metrics endpoint only.
+    const publicMessages = messages.map((m) => ({
+      _id:       m._id,
+      role:      m.role,
+      content:   m.content,
+      createdAt: m.createdAt,
+    }));
+
     res.status(200).json({
       success: true,
-      data:    messages,
+      data:    publicMessages,
       meta: {
         humanRequested: session.humanRequested,
         humanAccepted:  session.humanAccepted,
         resolved:       session.resolved,
         name:           session.name,
         email:          session.email,
+        // T69 phase 4 — lets the widget show the rating prompt once and then
+        // show the score back instead of asking again.
+        rating:         session.rating ?? null,
       },
     });
   } catch (error) {
@@ -484,8 +519,46 @@ const getMessages = async (req, res, next) => {
 };
 
 /**
- * POST /api/v1/chat/sessions/:sessionId/accept — admin only
- * Accept a pending live-chat request
+ * POST /api/v1/chat/sessions/:sessionId/rating — public (T69 phase 4)
+ * The customer rates the conversation after it closes. Public for the same
+ * reason getMessages is — the rater has no account — and gated the same way:
+ * the `ew_session` cookie the widget set must match the sessionId in the URL.
+ */
+const rateSession = async (req, res, next) => {
+  try {
+    if (req.cookies?.ew_session !== req.params.sessionId) {
+      return res.status(403).json({ success: false, error: 'Access denied.' });
+    }
+
+    const rating = Number(req.body.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, error: 'rating must be a whole number from 1 to 5.' });
+    }
+    const comment = sanitizeMessage(req.body.comment, 500) || '';
+
+    const session = await ChatSession.findOne({ sessionId: req.params.sessionId });
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+    // Rating is a verdict on a finished conversation, not a live one.
+    if (!session.resolved) {
+      return res.status(400).json({ success: false, error: 'This conversation is still open.' });
+    }
+
+    // Re-rating is allowed: it's the same visitor (the cookie proves it), and a
+    // misclicked star the customer can't correct is worse data than an update.
+    session.rating        = rating;
+    session.ratingComment = comment.trim();
+    session.ratedAt       = new Date();
+    await session.save();
+
+    res.status(200).json({ success: true, data: { rating: session.rating } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/chat/sessions/:sessionId/accept — admin + staff
+ * Accept a pending live-chat request, and take ownership of it (T69).
  */
 const acceptChat = async (req, res, next) => {
   try {
@@ -496,6 +569,10 @@ const acceptChat = async (req, res, next) => {
     session.humanAccepted   = true;
     session.humanAcceptedAt = new Date();
     session.lastActivity    = new Date();
+    // T69 — accepting is also a claim: the accepter owns the conversation.
+    session.acceptedBy      = req.user.id;
+    session.acceptedByName  = req.user.name;
+    session.acceptedAt      = new Date();
     await session.save();
 
     res.status(200).json({ success: true, data: session });
@@ -504,4 +581,190 @@ const acceptChat = async (req, res, next) => {
   }
 };
 
-module.exports = { sendMessage, getSessions, getSession, updateSession, deleteSession, adminReply, getMessages, acceptChat };
+/**
+ * POST /api/v1/chat/sessions/:sessionId/claim — admin + staff (T69)
+ * Take ownership of a conversation that isn't a pending request — a bot-only
+ * session, or one another agent is already on. Unlike /accept it never touches
+ * humanAccepted/humanAcceptedAt, so the customer's wait clock (and the
+ * first-response metric measured from it) is left alone.
+ */
+const claimSession = async (req, res, next) => {
+  try {
+    const session = await ChatSession.findOne({ sessionId: req.params.sessionId });
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+
+    session.acceptedBy     = req.user.id;
+    session.acceptedByName = req.user.name;
+    session.acceptedAt     = new Date();
+    await session.save();
+
+    res.status(200).json({ success: true, data: session });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUALITY METRICS (T69) — how well are staff↔customer chats actually handled?
+// ─────────────────────────────────────────────────────────────────────────────
+const DAY_MS                = 24 * 60 * 60 * 1000;
+const METRICS_DEFAULT_DAYS  = 30;
+const METRICS_MAX_DAYS      = 365; // caps how many sessions one request can pull into a 512MB heap
+const UNATTRIBUTED          = 'Unattributed (before staff tracking)';
+
+/** Mean of a numeric array to one decimal. `null` for an empty sample. */
+function mean(values) {
+  if (!values.length) return null;
+  const total = values.reduce((sum, v) => sum + v, 0);
+  return Math.round((total / values.length) * 10) / 10;
+}
+
+/** Median of a numeric array, rounded to a whole ms. `null` for an empty sample. */
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? Math.round(sorted[mid])
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/**
+ * `?from=&to=` → a sane [from, to] window. Bad or missing dates fall back to the
+ * last METRICS_DEFAULT_DAYS; a date-only `to` covers that whole day; the window
+ * is clamped to METRICS_MAX_DAYS so a stray `from=1970-01-01` can't ask for
+ * every session ever.
+ */
+function parseMetricsRange({ from, to }) {
+  const parse = (v) => {
+    const d = new Date(v);
+    return v && !Number.isNaN(d.getTime()) ? d : null;
+  };
+
+  let end = parse(to) || new Date();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(to || ''))) end.setUTCHours(23, 59, 59, 999);
+  let start = parse(from) || new Date(end.getTime() - METRICS_DEFAULT_DAYS * DAY_MS);
+
+  if (start > end) [start, end] = [end, start];
+  if (end - start > METRICS_MAX_DAYS * DAY_MS) start = new Date(end.getTime() - METRICS_MAX_DAYS * DAY_MS);
+
+  return { from: start, to: end };
+}
+
+/**
+ * GET /api/v1/chat/metrics — admin/superadmin only
+ * Volume, median first-response time, resolution rate/time, and a per-staff
+ * breakdown for the requested window.
+ */
+const getChatMetrics = async (req, res, next) => {
+  try {
+    const { from, to } = parseMetricsRange(req.query);
+
+    // Projection matters here: `messages.content` is the bulk of a session and
+    // nothing below reads it. Timestamps + sender are all the maths needs.
+    const sessions = await ChatSession.find({ createdAt: { $gte: from, $lte: to } })
+      .select('createdAt resolved resolvedAt humanRequested humanAcceptedAt acceptedBy acceptedByName rating messages.role messages.senderId messages.senderName messages.createdAt')
+      .lean();
+
+    const firstResponseMs = [];
+    const resolutionMs    = [];
+    const ratings         = []; // T69 phase 4 — CSAT stars, 1–5
+    const staff           = new Map(); // key: staff id (or UNATTRIBUTED) → row
+
+    const rowFor = (id, name) => {
+      const key = id ? String(id) : UNATTRIBUTED;
+      if (!staff.has(key)) {
+        staff.set(key, {
+          staffId: id ? String(id) : null,
+          name:    id ? (name || 'Unknown') : UNATTRIBUTED,
+          claimed: 0,
+          replies: 0,
+          resolved: 0,
+          firstResponses: [],
+          ratings: [],
+        });
+      }
+      const row = staff.get(key);
+      if (id && name && row.name === 'Unknown') row.name = name; // fill in from any later mention
+      return row;
+    };
+
+    let humanRequested = 0;
+    let accepted       = 0;
+    let resolved       = 0;
+
+    for (const s of sessions) {
+      if (s.humanRequested)  humanRequested += 1;
+      if (s.humanAcceptedAt) accepted       += 1;
+      if (s.resolved)        resolved       += 1;
+
+      if (s.rating) ratings.push(s.rating);
+
+      if (s.acceptedBy) {
+        const row = rowFor(s.acceptedBy, s.acceptedByName);
+        row.claimed += 1;
+        if (s.resolved) row.resolved += 1;
+        // CSAT belongs to whoever owned the conversation, not to whoever
+        // happened to send the last message in it.
+        if (s.rating) row.ratings.push(s.rating);
+      }
+
+      const adminMessages = (s.messages || []).filter((m) => m.role === 'admin');
+      for (const m of adminMessages) rowFor(m.senderId, m.senderName).replies += 1;
+
+      // First response: the first agent message after the chat was accepted.
+      if (s.humanAcceptedAt) {
+        const firstReply = adminMessages.find((m) => new Date(m.createdAt) >= new Date(s.humanAcceptedAt));
+        if (firstReply) {
+          const waitMs = new Date(firstReply.createdAt) - new Date(s.humanAcceptedAt);
+          firstResponseMs.push(waitMs);
+          // Credited to whoever actually answered, which needn't be the accepter.
+          rowFor(firstReply.senderId, firstReply.senderName).firstResponses.push(waitMs);
+        }
+      }
+
+      if (s.resolved && s.resolvedAt) {
+        resolutionMs.push(new Date(s.resolvedAt) - new Date(s.createdAt));
+      }
+    }
+
+    const perStaff = [...staff.values()]
+      .map(({ firstResponses, ratings: staffRatings, ...row }) => ({
+        ...row,
+        medianFirstResponseMs: median(firstResponses),
+        firstResponseSample:   firstResponses.length,
+        csatAverage:           mean(staffRatings),
+        csatCount:             staffRatings.length,
+      }))
+      .sort((a, b) => b.replies - a.replies || b.claimed - a.claimed);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        range: { from, to },
+        totals: {
+          sessions:       sessions.length,
+          humanRequested,
+          accepted,
+          resolved,
+          // Share of sessions in the window that ended resolved, 0–100 with one decimal.
+          resolutionRate: sessions.length ? Math.round((resolved / sessions.length) * 1000) / 10 : 0,
+        },
+        firstResponse: { medianMs: median(firstResponseMs), sampleSize: firstResponseMs.length },
+        resolution:    { medianMs: median(resolutionMs),    sampleSize: resolutionMs.length },
+        csat: {
+          average:      mean(ratings),
+          count:        ratings.length,
+          // Share of closed chats that came back with a rating — a 4.9 from two
+          // customers out of ninety is not the same claim as a 4.9 from sixty.
+          responseRate: resolved ? Math.round((ratings.length / resolved) * 1000) / 10 : 0,
+        },
+        perStaff,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { sendMessage, getSessions, getSession, updateSession, deleteSession, adminReply, getMessages, acceptChat, claimSession, rateSession, getChatMetrics };

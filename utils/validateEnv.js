@@ -42,10 +42,10 @@ const validateEnv = () => {
   // Optional: Warn about recommended variables
   const recommendedVars = [
     'RESEND_API_KEY',
+    'RESEND_FROM_EMAIL', // T62 — verified sender for every transactional email
     'CLOUDINARY_CLOUD_NAME',
-    'NAMECHEAP_API_USER',
-    'NAMECHEAP_API_KEY',
-    'NAMECHEAP_CLIENT_IP',
+    'SPACESHIP_API_KEY',
+    'SPACESHIP_API_SECRET',
     'ANTHROPIC_API_KEY',
   ];
 

@@ -117,6 +117,27 @@ const productSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // T45 — pre-order. When `enabled`, checkout lets a customer buy this product
+    // with no stock on hand: they pay in full up front (same Paystack flow as any
+    // order) and the line sits in a release queue until the stock lands and staff
+    // release it. A nested schema with its own default so products created before
+    // T45 read as `{ enabled: false }` rather than undefined.
+    preorder: {
+      type: new mongoose.Schema(
+        {
+          enabled: { type: Boolean, default: false },
+          // Expected availability, shown on the storefront. Null = "no date yet".
+          availableFrom: { type: Date, default: null },
+          // Free text shown under the badge, e.g. "ships from abroad, ~3 weeks".
+          note: { type: String, trim: true, default: "", maxlength: [200, "Pre-order note cannot exceed 200 characters"] },
+          // Per-line cap for constrained supply. Null = uncapped. Enforced
+          // server-side at checkout, never only in the UI.
+          maxQty: { type: Number, default: null, min: [1, "Pre-order cap must be at least 1"] },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
     // T48 — popularity counters. Both move only through $inc from the server
     // (detail-page reads, and the same update that deducts stock on a sale);
     // neither is ever read off a client payload, so create/update must keep
