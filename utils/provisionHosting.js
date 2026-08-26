@@ -29,9 +29,14 @@ async function provisionHostingAccount(orderRef) {
     return;
   }
 
+  // T64 decision (2026-08-26): no cPanel licence yet — deferred until ~3 hosted
+  // clients. Without WHM nothing can auto-provision, so every plan becomes a
+  // manual build. Marking 'skipped' (not 'failed') routes paid shared/wordpress
+  // orders into the awaiting-provisioning queue, where staff will actually see
+  // them; 'failed' meant a paying customer sat invisible to every list.
   if (!whm.hasConfig()) {
-    doc.provisioningStatus = 'failed';
-    doc.provisioningError = 'WHM not configured on server';
+    doc.provisioningStatus = 'skipped';
+    doc.provisioningError = 'WHM not configured on server — build manually.';
     await doc.save({ validateBeforeSave: false }).catch(() => {});
     return;
   }

@@ -25,6 +25,7 @@ jest.mock("../services/whm", () => ({
   createAccount: jest.fn(async () => ({ success: true, username: "cust123", password: "Str0ng!passwd12" })),
   runAutoSSL: jest.fn(async () => ({ success: true })),
 }));
+const whm = require("../services/whm");
 jest.mock("../utils/hostingEmail", () => ({
   sendHostingCredentials: jest.fn(async () => {}),
   sendOrderConfirmation: jest.fn(async () => {}),
@@ -106,6 +107,41 @@ describe("GET /api/v1/hosting/orders/awaiting-provisioning", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.count).toBe(0);
+  });
+
+  it("with no WHM configured, a paid shared order lands in the queue (T64 deferral)", async () => {
+    // The cPanel licence is deferred, so shared/wordpress must become manual
+    // builds too — visible in the queue, not lost in 'failed'.
+    whm.hasConfig.mockReturnValue(false);
+    const owner = await User.create({
+      name: "Buyer",
+      email: `buyer-${Date.now()}-${Math.random().toString(36).slice(2)}@t.com`,
+      password: "Password123!",
+      role: "user",
+    });
+    const order = await HostingOrder.create({
+      user: owner._id,
+      planType: "shared",
+      tier: "deluxe",
+      billingCycle: "monthly",
+      amount: 62,
+      customer: { name: "Ama Owusu", email: "ama@example.com" },
+      status: "pending",
+      paymentMethod: "bank_transfer",
+    });
+    const { token } = await makeUser("admin");
+
+    await request(app)
+      .patch(`/api/v1/hosting/orders/${order._id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "paid" });
+    await new Promise((r) => setTimeout(r, 30)); // provisioning runs fire-and-forget
+
+    const res = await request(app).get(QUEUE_URL).set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.data[0]._id).toBe(order._id.toString());
+    expect(res.body.data[0].provisioningStatus).toBe("skipped");
   });
 
   it("refuses a customer with 403", async () => {

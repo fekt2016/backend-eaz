@@ -248,7 +248,16 @@ Not defects; product features that don't exist yet. Scope separately before buil
     Suite: 60 files / 547 tests green; lint clean.
 
 
-- [~] **T64 · Registrar switch: Namecheap → Spaceship** — ✅ backend code done 2026-08-25, open items below
+- [x] **T64 · Registrar switch: Namecheap → Spaceship** — ✅ done 2026-08-25 · **cPanel deferred 2026-08-26**
+  - **cPanel licence decision (user, 2026-08-26):** deferred until ~3 hosted clients (currently
+    1) — no Admin-tier purchase yet. To make that safe, `provisionHosting.js` now marks
+    WHM-unconfigured orders `'skipped'` instead of `'failed'`, so paid shared/wordpress orders
+    land in the awaiting-provisioning queue as manual builds (they used to vanish into
+    `'failed'`, which no list chased). WHM-rejects-after-config still means `'failed'`.
+    Test: `tests/hostingAwaitingProvisioning.test.js` proves a paid shared order reaches the
+    queue with hasConfig false. When client #3 arrives: buy Admin ($35.99/mo, skip Solo's
+    hard 1-account cap), install WHM on the Starlight VM, allowlist EC2 IP 18.133.107.249,
+    send me `WHM_HOST`/`WHM_USER`/`WHM_TOKEN`.
   - **Why:** hosting and domains moved to Spaceship (this is also what T44 was parked on).
   - **Verified live** against `https://spaceship.dev/api/v1` with real credentials before building.
   - **Shipped:**
