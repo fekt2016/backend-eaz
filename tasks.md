@@ -102,16 +102,16 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
 
 ## P2 — Improvements
 
-- [ ] **T5 · Confirm/align Expenses role model** — **BLOCKED: needs product owner decision**
+- [x] **T5 · Confirm/align Expenses role model** — ✅ resolved 2026-08-26
   - **Issue:** Expense read = `('superadmin','staff')`, write = `('superadmin')` — `admin`
-    is omitted from **both**. Confirmed by re-reading `routes/posRoutes.js:93-97`: `admin`
-    currently has **no read access either**, not just write (the original note undersold
-    it — this isn't just a write-side gap). Inconsistent with the otherwise admin-inclusive
-    pattern elsewhere in the app. Not a security hole (more restrictive, not less).
-  - **Location:** `routes/posRoutes.js`
-  - **Fix:** Confirm intent with product owner; add `admin` to read (and possibly write) if
-    it was an oversight.
-  - **Source:** AUDIT.md §7 note, §23
+    was omitted from **both** (not just write; the original note undersold it). Inconsistent
+    with the admin-inclusive pattern everywhere else. Not a security hole — more restrictive.
+  - **Decision (user, 2026-08-26): admin gets full access** — added to read and write in
+    `routes/posRoutes.js`; staff stays read-only; superadmin unchanged. Frontend follows:
+    the Expenses nav entry admits `admin` and the page's manage gating widened from
+    `isSuperAdmin` to superadmin+admin (`dashboardNav.js`, `pos/expenses/page.jsx`).
+  - **Tests:** `tests/expensesRoleModel.test.js` (new, 4) — admin read+create, staff
+    read-but-no-write, user/technician refused on both.
 
 ---
 
@@ -173,7 +173,13 @@ Not defects; product features that don't exist yet. Scope separately before buil
     untouched. Suite: 59 files / 533 tests green; lint 0 errors.
   - **Frontend part:** `frontend-eaz/tasks.md` → T69 — ✅ done in the same pass.
 
-- [~] **T66 · Hosting prices are now USD-sourced and converted, like domains** — ✅ done 2026-08-25, one open question
+- [x] **T66 · Hosting prices are now USD-sourced and converted, like domains** — ✅ done 2026-08-25; ladder repriced 2026-08-26, no open questions
+  - **⚠️→✅ Resolved — the price ladder was inverted.** Shared/Ultimate at **GH₵961/mo cost more
+    than VPS Pro at GH₵950/mo**, and Shared/Enterprise (496) more than Cloud Starter (420).
+    Decision (user, 2026-08-26): market ladder for shared — `$4/$8/$14/$18` →
+    **GH₵62/124/217/279**, so a shared account now always costs less than the cheapest VPS
+    (280). Annual ×10: 620 / 1,240 / 2,170 / 2,790. Pure `priceUsd` edits; every test derives
+    from `getPlanPrice`, so nothing else moved.
   - **Was:** `config/hostingPlans.js` stored shared tiers as 9/16/32/62 and the storefront rendered
     them as **GH₵/month** — about $0.58–$4, a USD price list that never got converted. Same class of
     bug as `utils/domainHelper.js` pricing `.com` at GH₵85 against a real cost of GH₵190.
@@ -193,11 +199,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Tests:** `tests/hosting.test.js` no longer hardcodes 9/900 — it derives from `getPlanPrice`, so
     the assertion (pesewas === amount × 100) survives any future rate change.
   - **Verified:** 57 suites / 501 tests, exit 0; lint clean.
-  - **⚠️ Open — the price ladder is now inverted.** Shared/Ultimate at **GH₵961/mo is more than
-    VPS Pro at GH₵950/mo**, and Shared/Enterprise (496) costs more than Cloud Starter (420) and more
-    than WP Agency (185). A shared account should never cost more than a dedicated VPS. Either the
-    shared USD figures are too high for this market, or the VPS/WordPress cedi prices were themselves
-    too low. Pick one and reprice — it's a `priceUsd` edit per tier now, nothing structural.
+  - **✅ Closed 2026-08-26 — see the repricing decision at the top of this entry.** The old
+    open question ("shared USD too high, or VPS/WordPress cedi too low?") was answered: shared
+    was too high for this market.
 
 - [ ] **T67 · Annual billing gives no discount, and the UI advertised "Save GH₵0"**
   - **Partly fixed 2026-08-25 (frontend).** Every `annualPrice` in `config/hostingPlans.js` is
@@ -280,25 +284,26 @@ Not defects; product features that don't exist yet. Scope separately before buil
     `services/cyberpanel.js` was already dead code before this task — nothing requires it.
     Delete both once the switch is settled in production.
 
-- [ ] **T65 · `.com.gh` / `.gh` / `.africa` can no longer be sold — decide the product answer**
-  - **What's true:** Spaceship's API returns `tldNotSupported` for all three (verified live
-    2026-08-25). `.com.gh` is run by ghNIC and requires proof of Ghana business registration,
-    which is why mainstream registrars don't resell it. Namecheap almost certainly could not
-    sell it either, so this is a **pre-existing gap the switch exposed**, not a regression —
-    and `domainorders` has 0 documents, so no customer has ever been affected.
-  - **But we advertise it.** Live, customer-facing:
-    - `src/seedBlog.js` — a whole published post, "How to Register a .com.gh Domain in Ghana
-      (Step-by-Step, 2026)", plus pricing claims of GH₵250–450/yr.
-    - `frontend-eaz/src/app/domains/page.jsx:7` — SEO description names `.com.gh` and `.africa`.
-    - `frontend-eaz/src/app/hosting/checkout/page.jsx:187` — suggests `.com.gh` when the
-      chosen domain is taken, so a customer is actively pushed toward something that fails.
-    - `frontend-eaz/src/data/serviceDetails.js:112` — FAQ lists `.gh` and `.africa` as supported.
-  - **Also worth noting:** `utils/domainHelper.js`'s `getDefaultPrice` priced `.com` at GH₵85.
-    Real cost is $10.18 → GH₵190 with the current rate and markup. That table was **selling
-    below cost** and is now only a fallback. Audit it.
-  - **Options:** (a) drop the three TLDs from all copy and the blog post; (b) keep selling them
-    as a manual/offline service through a Ghanaian registrar, with the site quoting rather than
-    checking out; (c) find a reseller that carries ghNIC. Business decision, not a code one.
+- [x] **T65 · `.com.gh` / `.gh` / `.africa` can no longer be sold — product answer decided** — ✅ closed 2026-08-26
+  - **The answer (user, 2026-08-26): we don't resell them.** Customers register these through
+    a ghNIC-accredited registrar (they need proof of Ghana business registration anyway), and
+    EazWorld connects the resulting domain to their hosting/email.
+  - **Already shipped in that direction (commit 4a064a4 frontend / 2366697 backend):**
+    - `src/seedBlog.js` — the `.com.gh` post now says up front that international registrars
+      don't sell it, names the ghNIC route, and links our own checkout only for the extensions
+      we do sell; pricing claims for the three TLDs are gone.
+    - `frontend domains/page.jsx` SEO description lists sellable TLDs instead of `.com.gh`/`.africa`.
+    - `hosting/checkout` no longer suggests `.com.gh` when a domain is taken (was a dead end).
+    - `serviceDetails.js` FAQ answers with the ghNIC explanation instead of listing `.gh`/`.africa`.
+    - Backend: the three stay in `UNSUPPORTED_TLDS`, rejected before any API call.
+  - **Not chosen:** hunting a reseller carrying ghNIC, or building a quote/manual-order flow —
+    revisit if demand shows up.
+  - **Context from the original finding:** Spaceship returns `tldNotSupported` for all three
+    (verified live 2026-08-25); `.com.gh` is ghNIC-run and requires proof of Ghana business
+    registration, so mainstream registrars never resold it either — a pre-existing gap the
+    switch exposed, not a regression (`domainorders` had 0 documents). The old copy actively
+    advertised all three (blog post with GH₵250–450/yr claims, SEO description, checkout
+    suggestion, FAQ) — all fixed as listed above.
 
 - [x] **T62 · Transactional email coverage — audit and close the gaps** — ✅ done 2026-08-26
   - **Why now:** a pre-order customer waits weeks, and today they pay and hear
