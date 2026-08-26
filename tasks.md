@@ -154,7 +154,7 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
 
 ## P2 — Improvements
 
-- [ ] **T5 · Confirm/align Expenses role model** — **BLOCKED: needs product owner decision**
+- [x] **T5 · Confirm/align Expenses role model** — ✅ **RESOLVED 2026-08-26 — confirmed intentional, no code change**
   - **Issue:** Expense read = `('superadmin','staff')`, write = `('superadmin')` — `admin`
     is omitted from **both**. Confirmed by re-reading `routes/posRoutes.js:93-97`: `admin`
     currently has **no read access either**, not just write (the original note undersold
@@ -164,6 +164,13 @@ _None. The app builds, all tests pass, no broken or insecure feature blocks use.
   - **Fix:** Confirm intent with product owner; add `admin` to read (and possibly write) if
     it was an oversight.
   - **Source:** AUDIT.md §7 note, §23
+  - **Decision (2026-08-26):** confirmed with the product owner — expenses remain
+    **superadmin-only**, for both read and write. `admin` is **intentionally** excluded from
+    both, not an oversight. The current route guards
+    (`restrictTo('superadmin','staff')` for read, `restrictTo('superadmin')` for write) already
+    match this exactly — **no code change needed**. Recorded here so a future engineer doesn't
+    reopen this as a bug; see `MASTER_TASK_ORDER.md`'s "✅ Resolved decisions" section for the
+    same record at the tracker level.
 
 - [x] **T6 · Move hardcoded business config into Settings/env** ✅ done 2026-08-20
   - **Issue:** Shop name/phone, service price list, and contact info are hardcoded.
