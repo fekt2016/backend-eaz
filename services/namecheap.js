@@ -1,10 +1,24 @@
 const axios = require("axios");
 const { parseString } = require("xml2js");
 const { promisify } = require("util");
-const { extractTLD, getDefaultPrice } = require("../utils/domainHelper");
+const { extractTLD } = require("../utils/domainHelper");
 const logger = require("../utils/logger");
 
 const parseXml = promisify(parseString);
+
+// RETIRED (T64) — this file is kept only as a rollback path off Spaceship and is
+// wired to nothing. `getDefaultPrice` moved here from utils/domainHelper.js with
+// it: the table prices .com below cost and lists TLDs we can't sell, so it must
+// not be reachable from live code. Live pricing is config/domainPricing.js (USD)
+// converted by spaceship.usdToGhs(). If this rollback is ever taken, reprice it.
+const getDefaultPrice = (tld) => {
+  const priceMap = {
+    '.com': 85, '.net': 75, '.org': 70, '.io': 180, '.africa': 95,
+    '.com.gh': 60, '.gh': 60, '.org.gh': 60, '.co': 120, '.online': 65,
+    '.tech': 130, '.xyz': 45, '.info': 70, '.biz': 75, '.me': 90,
+  };
+  return priceMap[(tld || '').toLowerCase()] || 85;
+};
 
 // In-memory price cache — refreshed every hour
 let priceCache = { data: null, timestamp: 0 };

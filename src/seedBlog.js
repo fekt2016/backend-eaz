@@ -60,7 +60,7 @@ Your domain is your address on the internet — like yourbusiness.com or yourbus
 - **.com domains:** around **GH₵150 to GH₵250 per year**
 - **.com.gh (Ghana) domains:** typically **GH₵250 to GH₵450 per year**
 
-This is a small, recurring cost — you renew it every year to keep the name yours. A .com.gh signals you're a local business, while a .com reads as more international. Many businesses register both and point them to the same site. You can [check a domain's availability here](/domains).
+This is a small, recurring cost — you renew it every year to keep the name yours. A .com.gh signals you're a local business, while a .com reads as more international. Many businesses register both and point them to the same site. We register .com and the other international extensions directly — [check availability and live pricing here](/domains) — while .com.gh comes from a ghNIC-accredited registrar, since it needs proof of Ghanaian business registration. Either way we'll connect it to your site.
 
 ### 2. Web hosting (where your site lives)
 
@@ -206,12 +206,14 @@ Cracked screen today? [Book your repair now](/repair) and stop squinting through
     title: "How to Register a .com.gh Domain in Ghana (Step-by-Step, 2026)",
     slug: "register-com-gh-domain-ghana",
     excerpt:
-      "A plain-English guide to registering a .com.gh domain for your Ghanaian business in 2026 — what it costs, what you need, and how to secure your name in a few minutes.",
+      "A plain-English guide to registering a .com.gh domain for your Ghanaian business in 2026 — what it costs, what documents you need, and where to register it.",
     category: "Web Design",
     readTime: "6 min read",
     content: `Your domain name is the first thing customers type, the address on your business card, and the name on your email. For a Ghanaian business, a **.com.gh** domain says one thing clearly: we're a real, local company.
 
-This guide walks you through exactly how to register a .com.gh domain in 2026 — what it is, what it costs, what you need to have ready, and how to secure your name in a few minutes without the usual runaround.
+This guide walks you through exactly how to register a .com.gh domain in 2026 — what it is, what it costs, what you need to have ready, and where to go to get one.
+
+**One thing up front, because it saves you a wasted search:** .com.gh is not sold by the international registrars most people know. It's administered locally by ghNIC and requires proof that your business is registered in Ghana, so you register it through a ghNIC-accredited registrar rather than through EazWorld or a global provider. We register [.com, .net, .org and the other international extensions](/domains) directly, and we'll happily connect a .com.gh you already own to your hosting and email.
 
 ## What is a .com.gh domain?
 
@@ -234,12 +236,12 @@ Many businesses register both .com.gh and .com and point them to the same websit
 
 ## What you need before you start
 
-Registering is quick, but have these ready:
+Have these ready before you approach a registrar:
 
 1. **Your preferred name** — plus two or three backups in case the first is taken.
-2. **Contact details** — business name, a phone number, and an email address (this becomes your official domain contact).
-3. **Payment** — Mobile Money or a card. In Ghana, Mobile Money is the fastest option.
-4. **A rough budget** — most business domains renew yearly; see costs below.
+2. **Proof that your business is registered in Ghana** — usually your Registrar-General certificate of incorporation or business registration. This is the step that catches people out: unlike .com, a .com.gh is only issued to a registered Ghanaian entity.
+3. **Contact details** — business name, a phone number, and an email address (this becomes your official domain contact).
+4. **Payment** — Mobile Money or a card, depending on what your registrar accepts.
 
 You do **not** need a website ready yet. You can secure the name first and build the site afterwards.
 
@@ -247,24 +249,28 @@ You do **not** need a website ready yet. You can secure the name first and build
 
 Domains are billed **per year**, and the price depends on the extension:
 
-- **.com.gh** — typically **GH₵250 to GH₵450 per year**
-- **.com** — typically **GH₵150 to GH₵250 per year**
-- **.africa** and other extensions — varies; shown live at checkout
+- **.com.gh** — typically **GH₵250 to GH₵450 per year**, charged by the accredited registrar you use
+- **.com** — **[live pricing on our domain search](/domains)**, renewed yearly
 
 Two things worth knowing: the domain is separate from **hosting** (the space your website lives in), and you renew the domain every year to keep the name yours. Set a reminder, or let your provider auto-renew, so you never lose it.
 
 ## How to register your .com.gh domain (step by step)
 
-Here's the whole process from name to yours:
+1. **Pick your name and check it.** Decide on the name — your business name is usually the right answer — and have two or three backups ready.
+2. **Choose a ghNIC-accredited registrar.** .com.gh is administered locally, so it has to come from a registrar accredited for it. A search for "ghNIC accredited registrar" will show the current list; the accreditation is what matters, not the size of the company.
+3. **Send your business documents.** Your certificate of registration, plus the contact details that will sit on the domain record.
+4. **Pay the yearly fee.** Once it clears, the domain is registered to you.
+5. **Point it to your website.** When your site is ready, connect the domain to your [hosting](/hosting) — this part we're glad to do for you, whoever you registered with.
 
-1. **Search your name.** Go to the [EazWorld domain search](/domains) and type the name you want — for example, your business name. You'll see live availability and pricing across .com.gh, .com, and more.
-2. **Pick the right extension.** If .com.gh is available, grab it. If your ideal name is taken, try a backup or a slight variation before settling.
-3. **Register it.** Click **Register** on the domain you want — this takes you straight to checkout.
-4. **Enter your contact details.** These become the official records for the domain, so use accurate business information.
-5. **Pay with Mobile Money or card.** Once payment clears, the domain is registered to you.
-6. **Point it to your website.** When your site is ready, connect the domain to your [hosting](/hosting) — or ask us to handle it for you.
+**Make sure the domain is registered in your business's name, not your registrar's or your web designer's.** It's the single most expensive mistake in this whole process to undo.
 
-That's it. In most cases you can go from idea to a secured .com.gh name in under ten minutes.
+## What EazWorld does — and doesn't — handle
+
+Being straight with you is cheaper for both of us than a checkout that fails:
+
+- **We register** .com, .net, .org, .io, .store and the other international extensions, with live cedi pricing and Mobile Money or card payment — [search here](/domains).
+- **We don't register** .com.gh, .gh or .africa. Those need local accreditation we don't hold, so we'd rather point you to someone who does than take your money and stall.
+- **We do connect** any domain you own — including a .com.gh — to EazWorld hosting, business email, and the site we build for you. Bring the login and we'll handle the DNS.
 
 ## Common mistakes to avoid
 
@@ -273,12 +279,12 @@ That's it. In most cases you can go from idea to a secured .com.gh name in under
 - **Forgetting to renew.** An expired domain can be snapped up by someone else. Turn on auto-renew.
 - **Registering only one extension.** If your brand matters, grab both .com.gh and .com so no one copies you.
 
-## Secure your .com.gh domain with EazWorld
+## Get your name online with EazWorld
 
-At EazWorld we make it simple: search your name with live Ghanaian pricing, register with Mobile Money or card, and — when you're ready — we connect it to hosting and build your site, all in one place. The domain stays registered in **your** name, always.
+Whether your address ends in .com.gh or .com, the part that actually wins customers is what's behind it. That's our job: hosting, business email, and a site built for Ghanaian buyers — with Mobile Money at the checkout.
 
-- **[Search your domain now](/domains)** — check .com.gh, .com, and .africa availability in seconds.
-- **[See hosting plans](/hosting)** — pair your new domain with fast, local-tuned hosting.
+- **[Search your domain now](/domains)** — live cedi pricing on .com, .net, .org and more, registered in **your** name.
+- **[See hosting plans](/hosting)** — pair your domain with fast, local-tuned hosting.
 - **[Book a free consultation](/book-consultation)** — not sure which name or setup fits your business? Let's talk it through.
 
 Ready to claim your name before someone else does? [Start your domain search](/domains).`,

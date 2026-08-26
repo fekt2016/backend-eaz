@@ -1,10 +1,38 @@
+/**
+ * Hosting plans. Prices are stored as **USD per month** (`priceUsd`) and converted
+ * to GH₵ at read time — the same idea as domain pricing, where `config/domainPricing.js`
+ * holds USD and `services/spaceship.js`'s `usdToGhs()` converts with USD_TO_GHS_RATE.
+ *
+ * Why (T66/T67, 2026-08-25): the shared tiers used to be stored as 9/16/32/62 and
+ * rendered as **GH₵**, i.e. about $0.58–$4/month — a USD price list that never got
+ * converted. Storing one currency and deriving the other removes that whole class of
+ * bug: a half-converted price is no longer expressible, and a rate change moves every
+ * plan at once instead of leaving some behind.
+ *
+ * `monthlyPrice` and `annualPrice` are still on every plan — as live getters, so every
+ * existing reader (the plans API, the storefront, `getPlanPrice`) keeps working
+ * unchanged and always sees the current rate.
+ *
+ * The VPS/Cloud/WordPress/Email `priceUsd` values were back-derived from their original
+ * GH₵ prices at 15.5, so nothing moved for those tiers — only the shared group repriced.
+ */
+
+// Annual billing is charged as ten months: two months free. Previously every
+// `annualPrice` was hardcoded to exactly monthlyPrice × 12, so "annual" was no saving
+// at all while the storefront advertised one.
+const MONTHS_BILLED_ANNUALLY = 10;
+
+function usdToGhs(usd) {
+  const rate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
+  return Math.round(usd * rate);
+}
+
 const HOSTING_PLANS = {
   shared: {
     deluxe: {
       name: 'Deluxe',
       tagline: 'Best price for a basic website.',
-      monthlyPrice: 9,
-      annualPrice: 108,
+      priceUsd: 9,
       features: [
         'FREE LiteSpeed (20x Faster)',
         'FREE .top Domain',
@@ -32,8 +60,7 @@ const HOSTING_PLANS = {
     professional: {
       name: 'Professional',
       tagline: 'Enhanced features designed to grow your online presence.',
-      monthlyPrice: 16,
-      annualPrice: 192,
+      priceUsd: 16,
       features: [
         'FREE LiteSpeed (20x Faster)',
         'FREE .top Domain',
@@ -62,8 +89,7 @@ const HOSTING_PLANS = {
     enterprise: {
       name: 'Enterprise',
       tagline: 'Level up with more power and enhanced features.',
-      monthlyPrice: 32,
-      annualPrice: 384,
+      priceUsd: 32,
       featured: true,
       badge: 'MOST POPULAR',
       features: [
@@ -93,8 +119,7 @@ const HOSTING_PLANS = {
     ultimate: {
       name: 'Ultimate',
       tagline: 'Enjoy optimized performance & powerful resources.',
-      monthlyPrice: 62,
-      annualPrice: 744,
+      priceUsd: 62,
       features: [
         'FREE LiteSpeed (20x Faster)',
         'FREE .com, .top Domain',
@@ -123,8 +148,7 @@ const HOSTING_PLANS = {
   vps: {
     starter: {
       name: 'VPS Starter',
-      monthlyPrice: 280,
-      annualPrice: 3360,
+      priceUsd: 18.06,
       features: [
         '2 vCPU cores',
         '2GB DDR4 RAM',
@@ -136,8 +160,7 @@ const HOSTING_PLANS = {
     },
     business: {
       name: 'VPS Business',
-      monthlyPrice: 550,
-      annualPrice: 6600,
+      priceUsd: 35.48,
       features: [
         '4 vCPU cores',
         '8GB DDR4 RAM',
@@ -153,8 +176,7 @@ const HOSTING_PLANS = {
     },
     pro: {
       name: 'VPS Pro',
-      monthlyPrice: 950,
-      annualPrice: 11400,
+      priceUsd: 61.29,
       features: [
         '8 vCPU cores',
         '16GB DDR4 RAM',
@@ -172,8 +194,7 @@ const HOSTING_PLANS = {
   cloud: {
     starter: {
       name: 'Cloud Starter',
-      monthlyPrice: 420,
-      annualPrice: 5040,
+      priceUsd: 27.10,
       features: [
         '2 vCPU (auto-scale to 4)',
         '4GB RAM (auto-scale to 8GB)',
@@ -188,8 +209,7 @@ const HOSTING_PLANS = {
     },
     business: {
       name: 'Cloud Business',
-      monthlyPrice: 850,
-      annualPrice: 10200,
+      priceUsd: 54.84,
       features: [
         '4 vCPU (auto-scale to 8)',
         '8GB RAM (auto-scale to 32GB)',
@@ -208,8 +228,7 @@ const HOSTING_PLANS = {
     },
     enterprise: {
       name: 'Cloud Enterprise',
-      monthlyPrice: null,
-      annualPrice: null,
+      priceUsd: null,
       custom: true,
       features: [
         'Dedicated infrastructure',
@@ -226,8 +245,7 @@ const HOSTING_PLANS = {
   wordpress: {
     starter: {
       name: 'WP Starter',
-      monthlyPrice: 45,
-      annualPrice: 540,
+      priceUsd: 2.90,
       features: [
         '10GB NVMe SSD storage',
         '1 WordPress site',
@@ -241,8 +259,7 @@ const HOSTING_PLANS = {
     },
     business: {
       name: 'WP Business',
-      monthlyPrice: 95,
-      annualPrice: 1140,
+      priceUsd: 6.13,
       features: [
         '30GB NVMe SSD storage',
         '3 WordPress sites',
@@ -259,8 +276,7 @@ const HOSTING_PLANS = {
     },
     agency: {
       name: 'WP Agency',
-      monthlyPrice: 185,
-      annualPrice: 2220,
+      priceUsd: 11.94,
       features: [
         '80GB NVMe SSD storage',
         '10 WordPress sites',
@@ -277,8 +293,7 @@ const HOSTING_PLANS = {
   email: {
     starter: {
       name: 'Starter Email',
-      monthlyPrice: 25,
-      annualPrice: 300,
+      priceUsd: 1.61,
       features: [
         '5 mailboxes',
         '5GB per mailbox',
@@ -291,8 +306,7 @@ const HOSTING_PLANS = {
     },
     business: {
       name: 'Business Email',
-      monthlyPrice: 55,
-      annualPrice: 660,
+      priceUsd: 3.55,
       features: [
         '20 mailboxes',
         '25GB per mailbox',
@@ -308,8 +322,7 @@ const HOSTING_PLANS = {
     },
     enterprise: {
       name: 'Enterprise Email',
-      monthlyPrice: 120,
-      annualPrice: 1440,
+      priceUsd: 7.74,
       features: [
         'Unlimited mailboxes',
         '100GB per mailbox',
@@ -324,6 +337,27 @@ const HOSTING_PLANS = {
     },
   },
 };
+
+// Expose the GH₵ figures as live getters rather than baked-in numbers: readers keep
+// using `plan.monthlyPrice` / `plan.annualPrice`, but the value always reflects the
+// current USD_TO_GHS_RATE, and the two can never drift apart. `enumerable` matters —
+// without it these vanish from JSON.stringify and the plans API would return no prices.
+for (const tiers of Object.values(HOSTING_PLANS)) {
+  for (const plan of Object.values(tiers)) {
+    Object.defineProperty(plan, "monthlyPrice", {
+      enumerable: true,
+      get() {
+        return plan.priceUsd == null ? null : usdToGhs(plan.priceUsd);
+      },
+    });
+    Object.defineProperty(plan, "annualPrice", {
+      enumerable: true,
+      get() {
+        return plan.priceUsd == null ? null : usdToGhs(plan.priceUsd) * MONTHS_BILLED_ANNUALLY;
+      },
+    });
+  }
+}
 
 function getPlanPrice(planType, tier, billingCycle) {
   // Unknown type/tier (e.g. a bad client request, or a stale frontend sending a

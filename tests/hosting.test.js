@@ -1,5 +1,5 @@
 // Hosting provisioning + lifecycle tests. The WHM (cPanel) service and all
-// outbound integrations are mocked — no real WHM/Namecheap/email calls.
+// outbound integrations are mocked — no real WHM/Spaceship/email calls.
 jest.mock("../services/whm", () => ({
   hasConfig: jest.fn(() => true),
   generateUsername: jest.fn(() => "testusr"),
@@ -18,7 +18,7 @@ jest.mock("../utils/hostingEmail", () => ({
   sendOrderConfirmation: jest.fn(async () => {}),
   sendPaymentReceived: jest.fn(async () => {}),
 }));
-jest.mock("../services/namecheap", () => ({
+jest.mock("../services/spaceship", () => ({
   registerDomain: jest.fn(async () => ({ success: true })),
   setEazWorldNameservers: jest.fn(async () => ({ success: true })),
   hasConfig: jest.fn(() => false),
@@ -31,10 +31,11 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const app = require("../app");
 const whm = require("../services/whm");
-const namecheap = require("../services/namecheap");
+const spaceship = require("../services/spaceship");
 const HostingOrder = require("../models/HostingOrder");
 const User = require("../models/User");
 const { provisionHostingAccount } = require("../utils/provisionHosting");
+const { getPlanPrice } = require("../config/hostingPlans");
 
 async function makeUser(role = "user") {
   const user = await User.create({
@@ -300,7 +301,7 @@ describe("POST /api/v1/hosting/orders — invalid plan/tier (T60)", () => {
 });
 
 describe("POST /api/v1/hosting/orders — domain fee is server-computed, not client-trusted (T54)", () => {
-  it("uses the Namecheap price for a known TLD and ignores a client-supplied domainRegistrationFee", async () => {
+  it("uses the Spaceship price for a known TLD and ignores a client-supplied domainRegistrationFee", async () => {
     const { token } = await makeUser();
 
     const res = await request(app)
@@ -368,8 +369,8 @@ describe("POST /api/v1/hosting/orders — domain fee is server-computed, not cli
     expect(order.domainRegistrationFee).toBe(500); // capped, not the raw 9999
   });
 
-  it("falls back to the capped client value when Namecheap is unavailable", async () => {
-    namecheap.getPricing.mockRejectedValueOnce(new Error("Namecheap down"));
+  it("falls back to the capped client value when Spaceship is unavailable", async () => {
+    spaceship.getPricing.mockRejectedValueOnce(new Error("Spaceship down"));
     const { token } = await makeUser();
 
     const res = await request(app)
@@ -414,8 +415,12 @@ describe("HostingOrder.amountPesewas (T44 follow-up)", () => {
 
     expect(res.status).toBe(200);
     const order = await HostingOrder.findById(res.body.data.orderId);
-    expect(order.amount).toBe(9); // shared/deluxe/monthly base price
-    expect(order.amountPesewas).toBe(900);
+    // Derived from the plan rather than hardcoded: prices are now USD-sourced and
+    // converted at read time (T66), so a literal here would rot on any rate change.
+    // What this test actually guards is that pesewas === amount × 100.
+    const { basePrice } = getPlanPrice("shared", "deluxe", "monthly");
+    expect(order.amount).toBe(basePrice);
+    expect(order.amountPesewas).toBe(basePrice * 100);
   });
 
   function paystackSignature(payload) {
