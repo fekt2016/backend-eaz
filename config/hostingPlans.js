@@ -14,7 +14,12 @@
  * unchanged and always sees the current rate.
  *
  * The VPS/Cloud/WordPress/Email `priceUsd` values were back-derived from their original
- * GH₵ prices at 15.5, so nothing moved for those tiers — only the shared group repriced.
+ * GH₵ prices at 15.5, so nothing moved for those tiers.
+ *
+ * T66 (2026-08-26): the first shared conversion (9/16/32/62 → GH₵140–961) left the
+ * ladder inverted — Shared Ultimate cost more than VPS Pro. Repriced to a market
+ * ladder (4/8/14/18 → GH₵62/124/217/279), so a shared account now always costs
+ * less than the cheapest VPS. User-approved.
  */
 
 // Annual billing is charged as ten months: two months free. Previously every
@@ -32,7 +37,7 @@ const HOSTING_PLANS = {
     deluxe: {
       name: 'Deluxe',
       tagline: 'Best price for a basic website.',
-      priceUsd: 9,
+      priceUsd:  4,
       features: [
         'FREE LiteSpeed (20x Faster)',
         'FREE .top Domain',
@@ -60,7 +65,7 @@ const HOSTING_PLANS = {
     professional: {
       name: 'Professional',
       tagline: 'Enhanced features designed to grow your online presence.',
-      priceUsd: 16,
+      priceUsd: 8,
       features: [
         'FREE LiteSpeed (20x Faster)',
         'FREE .top Domain',
@@ -89,7 +94,7 @@ const HOSTING_PLANS = {
     enterprise: {
       name: 'Enterprise',
       tagline: 'Level up with more power and enhanced features.',
-      priceUsd: 32,
+      priceUsd: 14,
       featured: true,
       badge: 'MOST POPULAR',
       features: [
@@ -119,7 +124,7 @@ const HOSTING_PLANS = {
     ultimate: {
       name: 'Ultimate',
       tagline: 'Enjoy optimized performance & powerful resources.',
-      priceUsd: 62,
+      priceUsd: 18,
       features: [
         'FREE LiteSpeed (20x Faster)',
         'FREE .com, .top Domain',
