@@ -5,9 +5,9 @@ const streamifier = require('streamifier');
 const HostingOrder = require('../models/HostingOrder');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, sanitizeDomain } = require('../utils/sanitize');
 const { getPlanPrice, HOSTING_PLANS } = require('../config/hostingPlans');
-const namecheap = require('../services/namecheap');
+const spaceship = require('../services/spaceship');
 const { cloudinary } = require('../config/cloudinary');
-const { sendOrderConfirmation, sendPaymentReceived } = require('../utils/hostingEmail');
+const { sendOrderConfirmation, sendPaymentReceived, sendHostingCredentials } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
 const { buildInvoiceBuffer } = require('../utils/hostingInvoice');
 const { escapeRegex } = require('../utils/regex');
@@ -84,12 +84,12 @@ const createOrder = async (req, res, next) => {
 
     // Re-compute domain fee server-side — never trust client-supplied price.
     // getPricing() keys are dot-prefixed (e.g. ".com") and already in GHS
-    // (rate + markup applied) — see services/namecheap.js's usdToGhs.
+    // (rate + markup applied) — see services/spaceship.js's usdToGhs.
     let domainFee = 0;
     if (domainMode === 'new' && domain_s) {
       try {
         const tld = extractTLD(domain_s);
-        const prices = await namecheap.getPricing();
+        const prices = await spaceship.getPricing();
         const priceGHS = prices[tld] ?? null;
         if (priceGHS != null) {
           const years = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
@@ -99,7 +99,7 @@ const createOrder = async (req, res, next) => {
           domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
         }
       } catch {
-        // Namecheap unavailable — fall back to client value with sanity cap
+        // Spaceship unavailable — fall back to client value with sanity cap
         domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
       }
     }
@@ -888,18 +888,18 @@ const staffCreateHostingAccount = async (req, res, next) => {
 
     // Domain fee (register-new mode) — recomputed server-side, never trusted from the client.
     // getPricing() keys are dot-prefixed (e.g. ".com") and already in GHS
-    // (rate + markup applied) — see services/namecheap.js's usdToGhs.
+    // (rate + markup applied) — see services/spaceship.js's usdToGhs.
     let domainFee = 0;
     if (domainMode === 'new' && domain_s) {
       try {
         const tld = extractTLD(domain_s);
-        const prices = await namecheap.getPricing();
+        const prices = await spaceship.getPricing();
         const priceGHS = prices[tld] ?? null;
         if (priceGHS != null) {
           const years = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
           domainFee = Math.round(priceGHS * years * 100) / 100;
         }
-      } catch { /* Namecheap unavailable — no domain fee added */ }
+      } catch { /* Spaceship unavailable — no domain fee added */ }
     }
     const totalAmount = price.total + addonsTotal + domainFee;
     const totalAmountPesewas = Math.round(totalAmount * 100);
@@ -1016,11 +1016,134 @@ const staffCreateHostingAccount = async (req, res, next) => {
   }
 };
 
+// ─── T68 — manual provisioning queue ─────────────────────────────────────────
+// VPS / Cloud / Email orders auto-provision nothing (provisionHostingAccount
+// marks them 'skipped' — Spaceship's Starlight VMs have no provisioning API),
+// so a customer could pay GH₵950/month and hear silence. These two endpoints
+// are the chase: a list of what's owed, and the moment staff say it's built.
+
+/**
+ * GET /api/v1/hosting/orders/awaiting-provisioning — the build queue (admin/staff).
+ *
+ * Paid orders whose plan cannot self-provision sit at provisioningStatus 'skipped'
+ * forever. Oldest first, because that customer has been waiting longest. Unpaid
+ * orders are excluded, same reasoning as the pre-order queue: nobody builds a
+ * server for money that has not landed.
+ */
+const getAwaitingProvisioning = async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const orders = await HostingOrder.find({
+      status: 'paid',
+      provisioningStatus: 'skipped',
+    })
+      .sort({ createdAt: 1 }) // oldest first — longest-waiting customer at the top
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({ success: true, count: orders.length, data: orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/v1/hosting/orders/:id/mark-provisioned — the server was built by
+ * hand in Starlight Manager (admin/staff).
+ *
+ * Staff paste the username/password they created; the order goes active with its
+ * expiry stamped by billing cycle, and the same credentials email that
+ * auto-provisioned accounts receive is sent. Idempotent: marking an order that is
+ * already active is a calm no-op that does not re-email. The password goes
+ * straight to the email and is never stored — the schema deliberately has no
+ * field for it.
+ */
+const markProvisioned = async (req, res, next) => {
+  try {
+    const order = await HostingOrder.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    // A second click, or a retry after a network blip, after the account already
+    // went active must change nothing and must not send a second email.
+    if (order.status === 'active' && order.provisioningStatus === 'provisioned') {
+      return res.status(200).json({ success: true, data: order, meta: { alreadyProvisioned: true } });
+    }
+
+    // Money first, like the pre-order release: nothing is built until payment landed.
+    if (order.status !== 'paid') {
+      return res.status(400).json({
+        success: false,
+        error: 'Only a paid order can be marked provisioned.',
+      });
+    }
+
+    const username = sanitizeText(req.body.username, 64)?.trim();
+    const password = typeof req.body.password === 'string' ? req.body.password.trim() : '';
+    const domain = sanitizeDomain(req.body.domain) || null;
+
+    if (!username || username.length < 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'The account username from Starlight Manager is required (min 3 characters).',
+      });
+    }
+    if (!password || password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'The account password is required (min 8 characters).',
+      });
+    }
+
+    const prevStatus = order.status;
+    order.cpanelUsername = username;
+    order.provisioningStatus = 'provisioned';
+    order.provisionedAt = new Date();
+    order.provisioningError = null;
+    order.status = 'active';
+
+    // Same expiry rule the auto-provisioner applies: a month, or a year on annual.
+    const expiresAt = new Date();
+    if (order.billingCycle === 'annual') {
+      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    } else {
+      expiresAt.setMonth(expiresAt.getMonth() + 1);
+    }
+    order.expiresAt = expiresAt;
+
+    await order.save({ validateBeforeSave: false });
+
+    // Best-effort: a mail failure must not undo a provisioning that already happened.
+    sendHostingCredentials(order, {
+      username,
+      password,
+      domain: domain || order.domain || `${username}.eazworld.com`,
+    }).catch(() => {});
+
+    await logFromRequest(req, {
+      action: ACTIONS.ORDER_STATUS_CHANGED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order._id,
+      resourceName: order.domain || `Hosting order ${order._id}`,
+      description: `Hosting order ${order._id} manually provisioned (${order.planType} ${order.tier})`,
+      changes: [{ field: 'status', label: 'Hosting Status', before: prevStatus, after: 'active' }],
+      metadata: { type: 'hosting', cpanelUsername: username },
+    });
+
+    res.status(200).json({ success: true, data: order, meta: { alreadyProvisioned: false } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getPlans,
   createOrder,
   staffCreateHostingAccount,
   getOrders,
+  getAwaitingProvisioning,
+  markProvisioned,
   getAdminOverview,
   getHostingOrdersAdminSummary,
   getOrder,

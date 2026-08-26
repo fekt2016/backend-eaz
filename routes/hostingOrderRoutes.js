@@ -8,6 +8,9 @@
  *   → sets paidAt, queues WHM provisioning; order becomes status "active" when provisioning succeeds.
  * - Re-run provisioning on a stuck paid order: PATCH same with { "status": "paid" } again (idempotent).
  * - Active orders: only PATCH to { "status": "cancelled" } or { "status": "failed" }.
+ * - Manual builds (T68): GET /orders/awaiting-provisioning lists paid VPS/Cloud/Email
+ *   orders auto-provisioning skipped; PATCH /orders/:id/mark-provisioned with
+ *   { username, password, domain? } activates them and emails credentials (idempotent).
  * - Buyer cPanel SSO (owner): GET /orders/:id/cpanel-login — only when status is "active" and cpanelUsername is set.
  */
 const express = require('express');
@@ -18,6 +21,8 @@ const {
   createOrder,
   staffCreateHostingAccount,
   getOrders,
+  getAwaitingProvisioning,
+  markProvisioned,
   getAdminOverview,
   getHostingOrdersAdminSummary,
   getOrder,
@@ -43,6 +48,10 @@ router.post('/orders/staff-create', protect, restrictTo('admin', 'staff'), staff
 router.get('/orders', protect, denyRoles('technician'), getOrders);
 router.get('/orders/admin-overview', protect, restrictTo('admin'), getAdminOverview);
 router.get('/orders/admin-summary', protect, restrictTo('admin'), getHostingOrdersAdminSummary);
+// T68 — the manual build queue. Declared before '/orders/:id' or Express reads
+// "awaiting-provisioning" as an id.
+router.get('/orders/awaiting-provisioning', protect, restrictTo('admin', 'staff'), getAwaitingProvisioning);
+router.patch('/orders/:id/mark-provisioned', protect, restrictTo('admin', 'staff'), markProvisioned);
 router.get('/orders/by-reference/:reference', protect, denyRoles('technician'), getOrderByReference);
 router.get('/orders/:id/invoice', protect, denyRoles('technician'), getInvoice);
 router.get('/orders/:id/cpanel-login', protect, denyRoles('technician'), getCpanelLoginUrl);
