@@ -23,9 +23,18 @@ process.env.JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "1h";
 // constructing the client, and a secret without it leaves `paystack` undefined,
 // turning every refund route into a 500. The SDK itself is mocked in the tests.
 process.env.RESEND_API_KEY = "";
+// T62 — same hermeticity rule: whatever RESEND_FROM_EMAIL is set to in .env
+// must not leak into test runs (it only changes the From header, but a test
+// should never depend on live mail config).
+process.env.RESEND_FROM_EMAIL = "";
 process.env.CLOUDINARY_API_KEY = "";
 process.env.CLOUDINARY_API_SECRET = "";
 process.env.NAMECHEAP_API_KEY = "";
+// T64 — the registrar is Spaceship now, and unlike Namecheap it has NO sandbox:
+// every registration spends real money. Blanking these makes `spaceship.hasConfig()`
+// false, so an unmocked path can't reach the live registrar from a test run.
+process.env.SPACESHIP_API_KEY = "";
+process.env.SPACESHIP_API_SECRET = "";
 process.env.HUBTEL_CLIENT_ID = "";
 process.env.HUBTEL_CLIENT_SECRET = "";
 process.env.PAYSTACK_SECRET = "sk_test_eazworld_dummy_secret";

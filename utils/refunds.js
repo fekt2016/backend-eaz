@@ -1,4 +1,5 @@
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
+const { sendRefundOutcomeEmail } = require('./email');
 
 // T15 — refund status is server-owned truth, never trusted from a client.
 // Only Paystack itself (via the refund.processed/refund.failed webhook, the
@@ -19,6 +20,11 @@ async function applyRefundOutcome(order, outcome, actor = null) {
   order.refund.status = outcome;
   if (outcome === 'completed') order.refund.completedAt = new Date();
   await order.save({ validateBeforeSave: false });
+
+  // T62 — the customer is told the outcome, whichever path learned it first
+  // (refund webhook, manual /refund/sync, or the reconcile job). Best-effort:
+  // a mail failure must not disturb a settled refund.
+  sendRefundOutcomeEmail(order).catch(() => {});
 
   await log({
     actor,

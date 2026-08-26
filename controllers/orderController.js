@@ -10,7 +10,7 @@ const { formatGhs } = require("../utils/money");
 const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 const { normalizePhone } = require("../utils/phone");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
-const { sendPreorderReadyEmail } = require("../utils/email");
+const { sendPreorderReadyEmail, sendShopStatusEmail } = require("../utils/email");
 const { CUSTOMER_STAGES } = require("../models/Shipment");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
@@ -675,6 +675,10 @@ const updateOrderStatus = async (req, res, next) => {
           : `Order ${order.orderNumber} status changed ${prevStatus} → ${status}`,
         changes: [{ field: 'status', label: 'Order Status', before: prevStatus, after: status }],
       });
+
+      // T62 — the customer hears about meaningful moves, like repair jobs already
+      // do. Best-effort: never let a mail problem fail a status change.
+      sendShopStatusEmail(order).catch(() => {});
     }
 
     res.status(200).json({ success: true, data: order });
@@ -759,6 +763,10 @@ const addTrackingEvent = async (req, res, next) => {
         : `Tracking updated for order ${order.orderNumber}`,
       changes,
     });
+
+    // T62 — the tracking endpoint is the other door status changes walk through.
+    // Notes-only updates don't email; only a real status move does.
+    if (statusChanged) sendShopStatusEmail(order).catch(() => {});
 
     res.status(200).json({ success: true, data: order });
   } catch (error) {

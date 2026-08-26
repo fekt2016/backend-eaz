@@ -19,6 +19,13 @@ const emailLogSchema = new mongoose.Schema(
         // so it stays filterable in the admin Email log (same reasoning as T61).
         'preorder_ready',
         'hosting_credentials',
+        // T62 — the shop used to email nothing at all: no receipt, no status
+        // moves, no refund word. Each new kind gets its own type, same rule.
+        'shop_status_update',
+        'refund_completed',
+        'refund_failed',
+        'domain_confirmation',
+        'service_confirmation',
         'renewal_reminder',
         'expired_notice',
         'other',
