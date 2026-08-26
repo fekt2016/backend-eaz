@@ -92,11 +92,14 @@ router.post('/suppliers',     restrictTo('superadmin'), createSupplier);
 router.patch('/suppliers/:id',  restrictTo('superadmin'), updateSupplier);
 router.delete('/suppliers/:id', restrictTo('superadmin'), deleteSupplier);
 
-// ── Expenses (superadmin only — write; superadmin + staff read) ──────────────
-router.get('/expenses',     restrictTo('superadmin', 'staff'), getExpenses);
-router.post('/expenses',    restrictTo('superadmin'), createExpense);
-router.patch('/expenses/:id', restrictTo('superadmin'), updateExpense);
-router.delete('/expenses/:id', restrictTo('superadmin'), deleteExpense);
+// ── Expenses (superadmin + admin write; superadmin + admin + staff read) ─────
+// T5 — admin was omitted from both by oversight; the app's pattern everywhere
+// else is admin-inclusive, and staff could already read. Confirmed with the
+// product owner 2026-08-26: admin gets full access.
+router.get('/expenses',     restrictTo('superadmin', 'staff', 'admin'), getExpenses);
+router.post('/expenses',    restrictTo('superadmin', 'admin'), createExpense);
+router.patch('/expenses/:id', restrictTo('superadmin', 'admin'), updateExpense);
+router.delete('/expenses/:id', restrictTo('superadmin', 'admin'), deleteExpense);
 
 // ── Uncollected reminders (superadmin + admin) ───────────────────────────────
 router.get('/reminders/uncollected',  restrictTo('superadmin', 'admin', 'staff'), getUncollectedJobs);
