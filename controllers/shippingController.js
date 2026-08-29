@@ -257,14 +257,16 @@ const getMethods = async (req, res, next) => {
     }
 
     if (settings.courierDispatchAvailable) {
-      // Only speeds that are bookable right now — the same-day switch, then the
-      // cutoff and closed days, which express answers to as well. The
-      // distance-zone branch below filters its own tiers through the same test.
-      const speeds = [
+      // Speeds come from the zone below wherever one resolves, so this endpoint
+      // and the quote read the same source. This list is the last resort for a
+      // request that resolves no zone at all (unknown city, or a legacy zone
+      // saved before speedTiers existed) — it stays deliberately short, and
+      // omits next_day precisely because there is no rate to price it from here.
+      const FALLBACK_SPEEDS = [
         { speed: "standard", label: "Courier — Standard" },
         { speed: "express", label: "Courier — Express" },
         { speed: "same_day", label: "Courier — Same Day" },
-      ].filter(({ speed }) => speedBookableNow(settings, speed));
+      ];
 
       // ── Real per-speed prices from the A–F distance zone ──────────────────
       //
@@ -355,11 +357,23 @@ const getMethods = async (req, res, next) => {
         }
       }
 
-      for (const { speed, label } of speeds) {
+      // Prefer the zone's own tiers — the same array the quote prices from — so
+      // the two cannot drift. That divergence is why next_day was defined on
+      // every seeded zone yet never offered here: this branch carried its own
+      // list. Only a zone with no tiers falls back to the short list above.
+      const zoneTiers = (zone && zone.speedTiers) || [];
+      const speeds = (zoneTiers.length
+        ? zoneTiers.map((t) => ({ speed: t.code, label: `Courier — ${t.label}`, tier: t }))
+        : FALLBACK_SPEEDS
+      ).filter(({ speed }) => speedBookableNow(settings, speed));
+
+      for (const { speed, label, tier } of speeds) {
         let indicativeFee = null;
         let estimatedDays = null;
         if (zone) {
-          if (speed === "standard") {
+          if (tier && tier.estimatedDays) {
+            estimatedDays = tier.estimatedDays;
+          } else if (speed === "standard") {
             // The same promise the A–F tiers state, so the fallback estimate
             // and the real rate card do not advertise different SLAs.
             estimatedDays = "1-3";
@@ -371,8 +385,12 @@ const getMethods = async (req, res, next) => {
             estimatedDays = zone.estimatedDays;
           }
 
-          // Indicative fee: base rate × speed multiplier × tier multiplier
+          // Indicative fee: base rate × speed multiplier. The tier's own
+          // multiplier wins — quoting a speed from a named field the quote does
+          // not read is how a price changes under the customer a second after
+          // they pick it. The named fields remain for zones predating speedTiers.
           const multiplier =
+            tier ? tier.multiplier :
             speed === "same_day" ? (zone.sameDayMultiplier || 1.2) :
             speed === "express" ? (zone.expressMultiplier || 1.4) : 1;
           indicativeFee = Math.round(zone.baseRate * multiplier);
