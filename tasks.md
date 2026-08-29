@@ -516,6 +516,33 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Final production re-audit (2026-08-29) — new findings
 
+- [ ] **T128 · Dead code audit — backend findings (Phase A complete, deletions awaiting sign-off)** (dead-code audit 2026-08-29)
+  - **Full report:** `docs/DEAD-CODE-REPORT.md`. Branch `chore/dead-code-audit`. **Nothing deleted yet.**
+  - **Confirmed dead (3):**
+    - `@react-email/components` and `@react-email/render` — **prod** dependencies with zero code
+      references. All transactional email is hand-written HTML template literals through Resend
+      (`utils/email.js`). The backend contains no `.jsx`/`.tsx` files at all. Note `CLAUDE.md` and
+      `docs/all-features.md` both claim react-email is in use — **the docs are wrong**.
+    - `services/cyberpanel.js` (103 lines) — orphaned. `grep -rln cyberpanel` matches only the file
+      itself; `utils/provisionHosting.js` requires WHM alone and falls back to the manual queue, not
+      to CyberPanel. Deleting it also retires `CYBERPANEL_HOST` / `_PASS` / `_USER`.
+  - **Keep — deprecated but deliberately retained:** `services/namecheap.js` (491 lines) and the
+    `xml2js` dependency it alone requires. Its header states it is the rollback path off Spaceship.
+    **T3 records that the Spaceship live round-trip has never been verified, and Spaceship has no
+    sandbox** — so the rollback still has value. Delete only after T3 closes successfully; `xml2js`
+    goes with it. Its price table is below cost, so it must be repriced if ever re-wired.
+  - **No dead routes.** Every file in `routes/` is mounted in `app.js`. Separately, `nginx.conf`
+    proxies `/api/v1/domain/webhook`, a route that does not exist — dead proxy config, already T82.
+  - **No schema field recommended for deletion.** `models/Part.js` is orphaned by the parts→products
+    merge, but the migration deliberately left the `parts` collection intact for rollback — the model
+    and the data are two halves of one rollback path and must not be removed independently.
+  - **Uncertain, keep:** 7 unregistered `scripts/*.js` (run manually as ops tooling; `normalizePhones`
+    is **not** a duplicate of `normalizeUserPhones` — different collections), and 16 env vars read by
+    code but absent from `.env`.
+  - **Debug artifacts: none.** All 15 backend `console.log` calls are intentional operational logging
+    (webhook decisions, `[WHM] AutoSSL`, the logger wrapper, `validateEnv`, `dbTarget`) — keep them.
+  - **Scope if approved:** ~2 files, ~110 LoC, 2 prod dependencies.
+
 - [ ] **T125 · Guest-checkout customer fields have no length cap and no email-format validation** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
   - **Issue:** `Order.customer` (`models/Order.js:197-203`) declares `name`, `phone`, `phoneDigits`,
     `email` and `address` as `String` with `trim` and, for two of them, `required` — but **no
