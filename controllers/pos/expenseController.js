@@ -1,6 +1,7 @@
 const {
   mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
 } = require('./common');
+const { paginate } = require('../../utils/pagination');
 
 // T113 — who may see whose spending.
 //   superadmin  everything
@@ -29,7 +30,9 @@ async function canTouchExpense(user, expense) {
 
 const getExpenses = async (req, res, next) => {
   try {
-    const { from, to, category, page = 1, limit = 30 } = req.query;
+    const { from, to, category } = req.query;
+    // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
+    const { page, limit, skip } = paginate(req.query, { defaultLimit: 30 });
     const query = {};
     if (category && EXPENSE_CATEGORIES.includes(category)) query.category = category;
     if (from || to) {
@@ -46,8 +49,8 @@ const getExpenses = async (req, res, next) => {
     const [expenses, total, summary] = await Promise.all([
       Expense.find(query)
         .sort({ date: -1 })
-        .skip((page - 1) * limit)
-        .limit(Number(limit))
+        .skip(skip)
+        .limit(limit)
         .populate('createdBy', 'name'),
       Expense.countDocuments(query),
       Expense.aggregate([

@@ -82,11 +82,34 @@ async function applyPaidPartToJob(job, item) {
  * (missing/zero — e.g. a pre-T44-followup order with no `*Pesewas` field
  * yet), we do NOT block — legacy orders must still be able to fulfil.
  */
+/**
+ * Constant-time comparison of the computed HMAC against the header (T94).
+ * Returns false for a missing, non-string or wrong-length signature rather than
+ * letting timingSafeEqual throw.
+ */
+function signatureMatches(computedHex, headerValue) {
+  if (typeof headerValue !== 'string' || headerValue.length !== computedHex.length) return false;
+  const a = Buffer.from(computedHex, 'utf8');
+  const b = Buffer.from(headerValue, 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 function amountMismatch(eventData, expectedPesewas) {
-  if (!Number.isFinite(expectedPesewas) || expectedPesewas <= 0) return false;
-  if (Number(eventData.amount) !== expectedPesewas) return true;
-  if (eventData.currency && eventData.currency !== 'GHS') return true;
-  return false;
+  // T90 — this used to return false ("no mismatch") when the expected amount
+  // was missing or zero, so any such order fulfilled for ANY charged amount,
+  // including 1 pesewa. It was an escape hatch for orders written before the
+  // `*Pesewas` fields existed. Verified against the live database 2026-08-29:
+  // hostingorders, domainorders, serviceorders, partorders and repairorders are
+  // all empty, so the hatch protected nothing and the default is now to refuse.
+  //
+  // Returns a reason string, or null when the charge checks out — the caller
+  // logs it, so an operator can tell "we were charged the wrong amount" from
+  // "we could not tell what the right amount was".
+  if (!Number.isFinite(expectedPesewas) || expectedPesewas <= 0) return 'amount_unverifiable';
+  if (Number(eventData.amount) !== expectedPesewas) return 'amount_mismatch';
+  if (eventData.currency && eventData.currency !== 'GHS') return 'currency_mismatch';
+  return null;
 }
 
 /**
@@ -107,7 +130,12 @@ const handlePaystackWebhook = async (req, res) => {
       .update(req.rawBody)
       .digest('hex');
 
-    if (hash !== req.headers['x-paystack-signature']) {
+    // T94 — constant-time. `!==` short-circuits on the first differing byte,
+    // which is a timing side channel; impractical to exploit remotely against a
+    // SHA-512 HMAC, but there is no reason to leave it. timingSafeEqual throws
+    // on unequal lengths, so the length check has to come first — and it is not
+    // a leak, because the length of a hex SHA-512 digest is public anyway.
+    if (!signatureMatches(hash, req.headers['x-paystack-signature'])) {
       return res.status(400).json({ error: 'Invalid signature' });
     }
 
@@ -140,18 +168,19 @@ const handlePaystackWebhook = async (req, res) => {
       // amount is major GHS (T44, intentional); amountPesewas is the
       // precomputed pesewas value — fall back to deriving it for orders
       // created before this field existed.
-      if (amountMismatch(event.data, hostingOrder.amountPesewas ?? Math.round((hostingOrder.amount || 0) * 100))) {
-        console.error(`[webhook] Amount mismatch for hosting order ${hostingOrder._id}`);
+      const failure = amountMismatch(event.data, hostingOrder.amountPesewas ?? Math.round((hostingOrder.amount || 0) * 100));
+      if (failure) {
+        console.error(`[webhook] ${failure} for hosting order ${hostingOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
           resourceType: RESOURCES.PAYMENT,
           resourceId: reference,
           resourceName: `Hosting order ${hostingOrder._id}`,
-          description: `Payment failed — amount mismatch for hosting order ${hostingOrder._id}`,
-          metadata: { reason: 'amount_mismatch' },
+          description: `Payment held — ${failure} — for hosting order ${hostingOrder._id}`,
+          metadata: { reason: failure },
           status: 'failure',
         });
-        return res.status(400).json({ error: 'Amount mismatch' });
+        return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
       const wasPaidOrActive =
@@ -249,18 +278,19 @@ const handlePaystackWebhook = async (req, res) => {
       // price is major GHS (T44, intentional); amountPesewas is the
       // precomputed pesewas value — fall back to deriving it for orders
       // created before this field existed.
-      if (amountMismatch(event.data, domainOrder.amountPesewas ?? Math.round((domainOrder.price || 0) * 100))) {
-        console.error(`[webhook] Amount mismatch for domain order ${domainOrder._id}`);
+      const failure = amountMismatch(event.data, domainOrder.amountPesewas ?? Math.round((domainOrder.price || 0) * 100));
+      if (failure) {
+        console.error(`[webhook] ${failure} for domain order ${domainOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
           resourceType: RESOURCES.PAYMENT,
           resourceId: reference,
           resourceName: `Domain order ${domainOrder._id}`,
-          description: `Payment failed — amount mismatch for domain order ${domainOrder._id}`,
-          metadata: { reason: 'amount_mismatch' },
+          description: `Payment held — ${failure} — for domain order ${domainOrder._id}`,
+          metadata: { reason: failure },
           status: 'failure',
         });
-        return res.status(400).json({ error: 'Amount mismatch' });
+        return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
       if (domainOrder.status === 'completed') {
@@ -399,18 +429,19 @@ const handlePaystackWebhook = async (req, res) => {
     const partOrder = await PartOrder.findOne({ paystackReference: reference });
     if (partOrder) {
       // subtotalPesewas is Paystack-native (amount × 100 from the GHS unit price).
-      if (amountMismatch(event.data, partOrder.subtotalPesewas)) {
-        console.error(`[webhook] Amount mismatch for part order ${partOrder._id}`);
+      const failure = amountMismatch(event.data, partOrder.subtotalPesewas);
+      if (failure) {
+        console.error(`[webhook] ${failure} for part order ${partOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
           resourceType: RESOURCES.PAYMENT,
           resourceId: reference,
           resourceName: `Part order ${partOrder._id}`,
-          description: `Payment failed — amount mismatch for part order ${partOrder._id}`,
-          metadata: { reason: 'amount_mismatch' },
+          description: `Payment held — ${failure} — for part order ${partOrder._id}`,
+          metadata: { reason: failure },
           status: 'failure',
         });
-        return res.status(400).json({ error: 'Amount mismatch' });
+        return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
       // Atomic pending→paid transition. Null means already paid — idempotent.
@@ -442,18 +473,19 @@ const handlePaystackWebhook = async (req, res) => {
     // ── Repair order (prepaid parts + optional rider shipping) ───────────
     const repairOrder = await RepairOrder.findOne({ paystackReference: reference });
     if (repairOrder) {
-      if (amountMismatch(event.data, repairOrder.totalPesewas)) {
-        console.error(`[webhook] Amount mismatch for repair order ${repairOrder._id}`);
+      const failure = amountMismatch(event.data, repairOrder.totalPesewas);
+      if (failure) {
+        console.error(`[webhook] ${failure} for repair order ${repairOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
           resourceType: RESOURCES.PAYMENT,
           resourceId: reference,
           resourceName: `Repair order ${repairOrder._id}`,
-          description: `Payment failed — amount mismatch for repair order ${repairOrder._id}`,
-          metadata: { reason: 'amount_mismatch' },
+          description: `Payment held — ${failure} — for repair order ${repairOrder._id}`,
+          metadata: { reason: failure },
           status: 'failure',
         });
-        return res.status(400).json({ error: 'Amount mismatch' });
+        return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
       // Atomic pending→paid transition. Null means already paid — idempotent.
@@ -491,18 +523,19 @@ const handlePaystackWebhook = async (req, res) => {
       if (!charge || charge.status !== 'pending') {
         return res.status(200).json({ received: true, idempotent: true });
       }
-      if (amountMismatch(event.data, charge.amountPesewas)) {
-        console.error(`[webhook] Amount mismatch for balance payment ${reference}`);
+      const failure = amountMismatch(event.data, charge.amountPesewas);
+      if (failure) {
+        console.error(`[webhook] ${failure} for balance payment ${reference}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
           resourceType: RESOURCES.PAYMENT,
           resourceId: reference,
           resourceName: `Repair job ${balanceJob.jobNumber}`,
-          description: `Payment failed — amount mismatch for balance payment on job ${balanceJob.jobNumber}`,
-          metadata: { reason: 'amount_mismatch' },
+          description: `Payment held — ${failure} — for balance payment on job ${balanceJob.jobNumber}`,
+          metadata: { reason: failure },
           status: 'failure',
         });
-        return res.status(400).json({ error: 'Amount mismatch' });
+        return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
       const paid = await RepairJob.findOneAndUpdate(
@@ -536,18 +569,19 @@ const handlePaystackWebhook = async (req, res) => {
       // depositAmount is major GHS (T44, intentional); depositAmountPesewas
       // is the precomputed pesewas value — fall back to deriving it for
       // orders created before this field existed.
-      if (amountMismatch(event.data, serviceOrder.depositAmountPesewas ?? Math.round((serviceOrder.depositAmount || 0) * 100))) {
-        console.error(`[webhook] Amount mismatch for service order ${serviceOrder._id}`);
+      const failure = amountMismatch(event.data, serviceOrder.depositAmountPesewas ?? Math.round((serviceOrder.depositAmount || 0) * 100));
+      if (failure) {
+        console.error(`[webhook] ${failure} for service order ${serviceOrder._id}`);
         await log({
           action: ACTIONS.PAYMENT_FAILED,
           resourceType: RESOURCES.PAYMENT,
           resourceId: reference,
           resourceName: `Service order ${serviceOrder._id}`,
-          description: `Payment failed — amount mismatch for service order ${serviceOrder._id}`,
-          metadata: { reason: 'amount_mismatch' },
+          description: `Payment held — ${failure} — for service order ${serviceOrder._id}`,
+          metadata: { reason: failure },
           status: 'failure',
         });
-        return res.status(400).json({ error: 'Amount mismatch' });
+        return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
       if (serviceOrder.status === 'paid') {

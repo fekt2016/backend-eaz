@@ -1,6 +1,7 @@
 const {
   mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, notify, NOTIFICATION_TYPES, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder, canTransitionJobStatus
 } = require('./common');
+const { paginate } = require('../../utils/pagination');
 
 const createJob = async (req, res, next) => {
   try {
@@ -235,7 +236,9 @@ const createPublicJob = async (req, res, next) => {
 
 const getJobs = async (req, res, next) => {
   try {
-    const { status, q, priority, assignedTo, page = 1, limit = 20 } = req.query;
+    const { status, q, priority, assignedTo } = req.query;
+    // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
+    const { page, limit, skip } = paginate(req.query, { defaultLimit: 20 });
     const query = {};
     if (status && status !== 'all') query.status = status;
     if (priority) query.priority = priority;
@@ -260,8 +263,8 @@ const getJobs = async (req, res, next) => {
     const [jobs, total] = await Promise.all([
       RepairJob.find(query)
         .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(Number(limit))
+        .skip(skip)
+        .limit(limit)
         .populate('customer', 'name phone')
         .populate('assignedTo', 'name'),
       RepairJob.countDocuments(query),

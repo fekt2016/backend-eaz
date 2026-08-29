@@ -1,6 +1,7 @@
 const {
   mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, ACCESSORY_CATEGORIES, ACCESSORY_PART_CATEGORY, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, asInventoryItem, asProductFields, formatDateOnly, pctChange, canTransitionPartRepairOrder
 } = require('./common');
+const { paginate } = require('../../utils/pagination');
 
 const getParts = async (req, res, next) => {
   try {
@@ -8,7 +9,9 @@ const getParts = async (req, res, next) => {
     // one collection now, so every search already spans both. It used to give
     // products only what was left of `limit` after the parts, so a search
     // matching a full page of parts returned no products at all.
-    const { q, category, kind, lowStock, retail, page = 1, limit = 50 } = req.query;
+    const { q, category, kind, lowStock, retail } = req.query;
+    // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
+    const { page, limit, skip } = paginate(req.query, { defaultLimit: 50 });
     const query = {};
 
     // T110 — coarse "what kind of thing is this" filter. Bench stock and shop
@@ -52,8 +55,8 @@ const getParts = async (req, res, next) => {
     const [items, total] = await Promise.all([
       Product.find(query)
         .sort({ name: 1 })
-        .skip((page - 1) * limit)
-        .limit(Number(limit))
+        .skip(skip)
+        .limit(limit)
         .populate('supplier', 'name phone')
         .lean(),
       Product.countDocuments(query),
