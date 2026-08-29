@@ -427,6 +427,26 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+- [ ] **T115 · Two shipping suites pass or fail on the wall clock** (found during T114, 2026-08-29)
+  - **Issue:** `tests/distanceZones.test.js` and `tests/shippingEndpoints.test.js` assert that
+    Express is among the offered methods, but never pin the clock. Express is gated by
+    `sameDayWindowOpen`, so the assertions hold only before the cutoff hour. Measured the same
+    day: **109/109 green at 08:00, 5 failing at 12:37**, with no code change between the runs.
+  - **Impact:** the full suite cannot be trusted as a gate — a red run has to be hand-diagnosed
+    to tell a real break from the time of day. It is how T114's real bug stayed invisible: the
+    failures looked like flake. T114 moved the cutoff to 17:00, so the window is simply wider —
+    these will fail again after 5 PM.
+  - **Repro:** `npx jest tests/distanceZones.test.js tests/shippingEndpoints.test.js --runInBand`
+    before and after the cutoff hour, or `TZ=America/New_York` to force a morning.
+  - **Fix:** pin the clock. `sameDayWindowOpen(settings, speed, now)` already takes an injectable
+    `now` — the T114 cases in `tests/shippingCalculator.test.js` use it — but these two go through
+    HTTP, so they need either a settings override per test (`sameDayCutoffHour = 23`, which
+    `shippingCheckout.test.js` and `shippingCalculator.test.js` already do) or fake timers.
+  - **Location:** `tests/distanceZones.test.js`; `tests/shippingEndpoints.test.js`
+  - **Acceptance:**
+    - [ ] Both suites pass at any hour, verified by forcing at least two very different clocks
+    - [ ] No remaining assertion depends on the ambient cutoff
+
 - [ ] **T111 · Reports controller still carries unreachable staff-scoping logic** (found during T83, 2026-08-29)
   - **Issue:** `getReportsAnalytics` implements T32's staff scoping — pin a staff caller to their
     own activity, never trust a client-supplied `staffId` for the staff role, return an empty

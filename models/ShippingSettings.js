@@ -91,13 +91,15 @@ const shippingSettingsSchema = new mongoose.Schema(
 
     // ── T80 same-day + delivery-day rules ─────────────────────────────────
     // The hour of day (0–23, server local time) past which same-day requests
-    // are refused. 12 = noon — the documented EazWorld cutoff. `null` falls
-    // back to the calculator's hard-coded default of 12.
+    // are refused. 17 = 5 PM (owner, 2026-08-29, raised from noon): express is
+    // the same-day service, and a noon cutoff withdrew the only "today" option
+    // halfway through the working day. `null` falls back to the calculator's
+    // hard-coded default, which matches this.
     sameDayCutoffHour: {
       type: Number,
       min: [0, "Same-day cutoff hour cannot be negative"],
       max: [23, "Same-day cutoff hour cannot exceed 23"],
-      default: 12,
+      default: 17,
     },
     // The set of weekday indices (0 = Sunday, 6 = Saturday) on which same-day
     // delivery is not offered. Empty array = no closed days (same-day is
