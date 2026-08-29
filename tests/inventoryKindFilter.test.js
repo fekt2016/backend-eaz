@@ -24,6 +24,9 @@ async function seed() {
     // Parts — on the repair taxonomy
     { name: "iPhone 12 Screen", slug: "s1", price: 30000, category: "Other", partCategory: "Screen" },
     { name: "Samsung Battery",  slug: "s2", price: 12000, category: "Other", partCategory: "Battery" },
+    // Bench stock filed under the repair taxonomy's own "Accessory" type — it
+    // belongs with accessories, not parts.
+    { name: "Bench Lanyard",    slug: "s8", price: 2000,  category: "Other", partCategory: "Accessory" },
     // Accessories — shop add-ons
     { name: "Silicone Case",    slug: "s3", price: 5000,  category: "Phone Cases & Covers" },
     { name: "20W Charger",      slug: "s4", price: 9000,  category: "Chargers & Cables" },
@@ -46,6 +49,7 @@ describe("GET /pos/inventory?kind= (T110)", () => {
 
     expect(res.status).toBe(200);
     expect(names(res)).toEqual(["Samsung Battery", "iPhone 12 Screen"]);
+    expect(names(res)).not.toContain("Bench Lanyard");
   });
 
   it("returns only shop add-ons for kind=accessories", async () => {
@@ -54,7 +58,7 @@ describe("GET /pos/inventory?kind= (T110)", () => {
 
     const res = await request(app).get(`${BASE}?kind=accessories`).set("Authorization", `Bearer ${token}`);
 
-    expect(names(res)).toEqual(["20W Charger", "Power Bank 10k", "Silicone Case"]);
+    expect(names(res)).toEqual(["20W Charger", "Bench Lanyard", "Power Bank 10k", "Silicone Case"]);
   });
 
   it("puts phones and unclassified categories in kind=other", async () => {
@@ -101,6 +105,32 @@ describe("GET /pos/inventory?kind= (T110)", () => {
     const res = await request(app).get(`${BASE}?kind=nonsense`).set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toHaveLength(7); // degrades to everything
+    expect(res.body.data).toHaveLength(8); // degrades to everything
+  });
+
+  it("keeps an Accessory-typed bench item out of parts and in accessories", async () => {
+    const token = await adminToken();
+    await seed();
+
+    const [parts, accessories] = await Promise.all([
+      request(app).get(`${BASE}?kind=parts`).set("Authorization", `Bearer ${token}`),
+      request(app).get(`${BASE}?kind=accessories`).set("Authorization", `Bearer ${token}`),
+    ]);
+
+    expect(names(parts)).not.toContain("Bench Lanyard");
+    expect(names(accessories)).toContain("Bench Lanyard");
+  });
+
+  it("still composes with search now that accessories uses $or internally", async () => {
+    const token = await adminToken();
+    await seed();
+
+    // The accessories branch builds an $or; `q` builds its own. They must AND,
+    // not clobber each other.
+    const res = await request(app)
+      .get(`${BASE}?kind=accessories&q=lanyard`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(names(res)).toEqual(["Bench Lanyard"]);
   });
 });
