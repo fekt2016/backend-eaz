@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, asInventoryItem, asProductFields, formatDateOnly, pctChange, canTransitionPartRepairOrder
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, ACCESSORY_CATEGORIES, ACCESSORY_PART_CATEGORY, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, asInventoryItem, asProductFields, formatDateOnly, pctChange, canTransitionPartRepairOrder
 } = require('./common');
 
 const getParts = async (req, res, next) => {
@@ -8,17 +8,40 @@ const getParts = async (req, res, next) => {
     // one collection now, so every search already spans both. It used to give
     // products only what was left of `limit` after the parts, so a search
     // matching a full page of parts returned no products at all.
-    const { q, category, lowStock, retail, page = 1, limit = 50 } = req.query;
+    const { q, category, kind, lowStock, retail, page = 1, limit = 50 } = req.query;
     const query = {};
+
+    // T110 — coarse "what kind of thing is this" filter. Bench stock and shop
+    // stock share one collection now, so this is a property of the document, not
+    // a separate table. An unrecognised `kind` is ignored rather than 400'd, so a
+    // stale bookmark degrades to "everything" instead of an error page.
+    // Collected rather than assigned: `$or` is already taken by the `q` search
+    // below, and two filters both writing `query.$and` would overwrite one another.
+    const and = [];
+
+    if (kind === 'parts') {
+      // Bench stock, minus the repair taxonomy's own "Accessory" type — a case is
+      // an accessory to whoever is looking for one, whichever way it was entered.
+      query.partCategory = { $ne: null, $nin: [ACCESSORY_PART_CATEGORY] };
+    } else if (kind === 'accessories') {
+      and.push({ $or: [
+        { partCategory: ACCESSORY_PART_CATEGORY },
+        { partCategory: null, category: { $in: ACCESSORY_CATEGORIES } },
+      ] });
+    } else if (kind === 'other') {
+      query.partCategory = null;
+      query.category = { $nin: ACCESSORY_CATEGORIES };
+    }
 
     // Category matches either taxonomy: the repair one (Screen, Battery, …) or
     // the shop one (Phones, Accessories, …).
-    if (category) query.$and = [{ $or: [{ partCategory: category }, { category }] }];
+    if (category) and.push({ $or: [{ partCategory: category }, { category }] });
     // Only what the counter may sell.
     if (retail === 'true') query.sellInStore = true;
     // Applies to everything now — products had no threshold field before the
     // merge, so shop stock could never show up in a low-stock check.
     if (lowStock === 'true') query.$expr = { $lte: ['$stock', '$lowStockThreshold'] };
+    if (and.length) query.$and = and;
     if (q) query.$or = [
       { name:    { $regex: escapeRegex(q), $options: 'i' } },
       { sku:     { $regex: escapeRegex(q), $options: 'i' } },
