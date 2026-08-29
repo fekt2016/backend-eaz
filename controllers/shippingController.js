@@ -264,8 +264,8 @@ const getMethods = async (req, res, next) => {
       // omits next_day precisely because there is no rate to price it from here.
       const FALLBACK_SPEEDS = [
         { speed: "standard", label: "Courier — Standard" },
+        { speed: "next_day", label: "Courier — Next Day" },
         { speed: "express", label: "Courier — Express" },
-        { speed: "same_day", label: "Courier — Same Day" },
       ];
 
       // ── Real per-speed prices from the A–F distance zone ──────────────────
@@ -392,8 +392,12 @@ const getMethods = async (req, res, next) => {
           const multiplier =
             tier ? tier.multiplier :
             speed === "same_day" ? (zone.sameDayMultiplier || 1.2) :
-            speed === "express" ? (zone.expressMultiplier || 1.4) : 1;
-          indicativeFee = Math.round(zone.baseRate * multiplier);
+            speed === "express" ? (zone.expressMultiplier || 1.4) :
+            speed === "standard" ? 1 : null;
+          // A zone predating speedTiers has no next-day rate. Show the option
+          // without a figure rather than quote the standard price for it — the
+          // storefront renders a null fee as "—", and the quote is authoritative.
+          indicativeFee = multiplier == null ? null : Math.round(zone.baseRate * multiplier);
         }
 
         methods.push({

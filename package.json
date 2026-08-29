@@ -22,6 +22,7 @@
     "migrate:parts-into-products": "node scripts/migratePartsIntoProducts.js",
     "migrate:addresses": "node scripts/migrateAddressesToCollection.js",
     "migrate:tier-etas": "node scripts/updateSpeedTierEtas.js",
+    "migrate:remove-same-day": "node scripts/removeSameDayTier.js",
     "check:duplicate-skus": "node scripts/checkDuplicateSkus.js",
     "check:duplicate-phones": "node scripts/checkDuplicatePhones.js",
     "test": "jest --runInBand",
