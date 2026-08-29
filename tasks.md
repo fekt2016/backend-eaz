@@ -514,6 +514,90 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ---
 
+## Final production re-audit (2026-08-29) — new findings
+
+- [ ] **T118 · `webhook.test.js` is red — T90 changed `amountMismatch`'s contract and left its unit test behind** (final re-audit 2026-08-29) — **CONFIRMED**
+  - **Issue:** T90 changed `amountMismatch()` from returning a boolean to returning a reason string
+    (`amount_unverifiable` / `amount_mismatch` / `currency_mismatch`) or `null`.
+    `tests/webhook.test.js` still asserts `.toBe(false)` and `.toBe(true)`, so 4 cases fail on type.
+    One of them — "does not block when no reliable expected amount is available" — asserts the
+    *pre-T90* behaviour that T90 deliberately inverted, so it is not merely stale: it encodes the
+    vulnerability as the expected outcome.
+  - **Impact:** backend `main` currently fails its own suite. The T90 change itself is correct and
+    covered by `tests/webhookHardening.test.js`; this is the older unit test never being updated.
+  - **How it was missed:** `webhookE2E.test.js` and `webhookHardening.test.js` were run after the
+    change; `webhook.test.js` — the unit test for the exact function edited — was not.
+  - **Repro:** `npx jest tests/webhook.test.js --runInBand`
+  - **Fix:** update the three assertions to the reason contract (`toBeNull()` /
+    `toBe('amount_mismatch')` / `toBe('currency_mismatch')`), and invert the fourth to assert
+    `amount_unverifiable`. Do not revert the controller.
+  - **Location:** `tests/webhook.test.js:10-27`; `controllers/webhookController.js` `amountMismatch`
+
+- [ ] **T119 · `FRONTEND_URL` fails silently on the BACKEND — T97 only fixed the frontend** (final re-audit 2026-08-29) — **CONFIRMED**
+  - **Issue:** `utils/frontendUrl.js` returns `process.env.FRONTEND_URL || process.env.CLIENT_URL || ""`
+    in production. Unset, it yields an **empty string** — no throw, no warning. T97 added a
+    production fail-fast to `frontend-eaz/src/lib/seo.js`; the backend has the same class of bug and
+    was not touched, and `utils/validateEnv.js` does not require the variable either.
+  - **Impact:** worse than the SEO problem T97 fixed, because this reaches payments. The value is
+    interpolated into **Paystack `callback_url`** in at least six places
+    (`orderController.js:421`, `hostingOrderController.js:163/677/959`,
+    `pos/paymentController.js:79/207`, `pos/inventoryController.js:279`,
+    `domainController.js:312`, `serviceOrderController.js:109`) and into customer tracking links in
+    `services/notify.js:127/150`. Empty gives Paystack `callback_url: "/order-confirmation/REF"` —
+    a relative URL — and texts customers a link to `/track/<token>` with no host.
+  - **Repro:** `NODE_ENV=production` with `FRONTEND_URL` and `CLIENT_URL` unset, then read the
+    `callback_url` sent to Paystack in `createOrder`.
+  - **Fix:** mirror T97 — throw at startup (best placed in `utils/validateEnv.js`, which already
+    `process.exit(1)`s for `MONGO_URL`, `JWT_SECRET` and `PAYSTACK_SECRET`) rather than returning "".
+  - **Location:** `utils/frontendUrl.js`; `utils/validateEnv.js`
+
+- [ ] **T120 · The full backend suite is unreliable: mongod instances fail to start late in the run** (final re-audit 2026-08-29) — **CONFIRMED**
+  - **Issue:** a full `--runInBand` run took **4407 s (73 minutes)** and produced **21 failures across
+    3 suites** — `productReviews` (2058 s), `salesScoping` (900 s), `technicianHostingDomainAccess`
+    (605 s). The errors are not assertions: `Instance failed to start within 10000ms`
+    (mongodb-memory-server) followed by `MongooseError: Operation buffering timed out after 10000ms`.
+    Each suite starts its own `MongoMemoryServer` in `beforeAll` (`tests/setup.js:59-62`); late in a
+    long run they stop starting.
+  - **Impact:** this is the root cause behind **T108** (attributed to a sleeping machine) and the
+    "hang" seen twice today at ~0.2% CPU. A green full run cannot be relied on, and a red one cannot
+    be told apart from a real break without inspecting every failure. All three suites pass in
+    isolation.
+  - **Repro:** `npx jest --runInBand` and watch the tail; or run the three named suites alone
+    (they pass).
+  - **Fix:** most likely mongod processes or ports not released between suites. Options: a single
+    shared `MongoMemoryServer` for the whole run via `globalSetup`/`globalTeardown` instead of one
+    per suite, or `MongoMemoryReplSet` reused across files. Raising the 10 s timeout treats the
+    symptom.
+  - **Location:** `tests/setup.js:59-70`; `jest.config.js`
+  - **Supersedes:** T108, which described the symptom; this records the measured cause.
+
+- [ ] **T121 · Hosting/domain webhook fulfilment guards duplicates with read-then-check, not atomically** (final re-audit 2026-08-29) — **POTENTIAL RISK**
+  - **Issue:** the shop path is airtight — `utils/fulfilShopOrder.js:57` does a single
+    `findOneAndUpdate({ paystackReference, status: 'pending', total: amountPesewas })`, so a duplicate
+    or replayed webhook is an atomic no-op and the charged amount is bound into the filter. The
+    hosting branch instead **reads** the order, checks `status === 'paid' && provisioningStatus !==
+    'not_started'`, then writes (`controllers/webhookController.js:186-196`).
+  - **Impact:** two webhooks arriving concurrently can both pass the check before either writes, and
+    both proceed to provision. Paystack does retry, and retries can overlap. Not observed in
+    production, and `instances: 1` in PM2 keeps it to one process — but the guard itself is not safe.
+  - **Fix:** make it a conditional update like the shop path, e.g.
+    `findOneAndUpdate({ _id, status: { $ne: 'paid' } }, …)` and act only if a document comes back.
+  - **Location:** `controllers/webhookController.js:186-196`; compare `utils/fulfilShopOrder.js:57`
+
+- [ ] **T122 · Deployment configuration is not in version control** (final re-audit 2026-08-29) — **CONFIRMED**
+  - **Issue:** `nginx.conf` and `ecosystem.config.js` live at the workspace root
+    (`/Users/mac/Desktop/eazworld/`), which is **not a git repository** — only `backend-eaz/` and
+    `frontend-eaz/` are. Neither file is tracked by either repo. There is also no `Dockerfile` or
+    `docker-compose.yml` anywhere in the tree, though deployment is Docker on a Spaceship VPS.
+  - **Impact:** the files that define how the app is served exist only on this machine. They cannot
+    be deployed by pulling either repo, are not reviewed, are not backed up, and are lost with the
+    laptop. This is a deployment blocker independent of their contents.
+  - **Fix:** move both into whichever repo owns deployment (or a third infra repo) and commit them;
+    commit the Dockerfile alongside, or document where it lives and who owns it.
+  - **Location:** `../nginx.conf`; `../ecosystem.config.js`
+
+---
+
 ## Ad-hoc fixes (found during work, outside the original audit)
 
 _Shipped on request during the 2026-08-29 session, tracked here after the fact so the log is
