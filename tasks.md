@@ -516,10 +516,18 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Final production re-audit (2026-08-29) — new findings
 
-- [ ] **T128 · Remove confirmed-dead backend code (dead-code audit Phase A)** (2026-08-29)
+- [ ] **T128 · READY TO APPLY — delete confirmed-dead backend code** (2026-08-29)
+  - > **To run this task, say: "apply T128".** Nothing here is done yet. Everything below has been
+    > verified as unused; the work is only the deletion, in the order given, with tests in between.
+    > Roughly 110 lines and 2 packages. Reversible — it is all in git history.
+  - **What gets deleted, in one sentence each:**
+    1. Two email packages (`@react-email/*`) that no code imports — email is built by hand instead.
+    2. `services/cyberpanel.js` — the old hosting-panel tool, replaced by WHM, wired to nothing.
+    3. The three `CYBERPANEL_*` secrets, which only that file read.
+    4. Two lines in the docs that wrongly say react-email is in use.
+  - **What is deliberately NOT deleted:** `services/namecheap.js`. It looks unused but it is the
+    fallback if Spaceship fails, and Spaceship has never been tested with a real purchase. See T130.
   - **Full evidence:** `docs/DEAD-CODE-REPORT.md`. Audit branch `chore/dead-code-audit`.
-    Phase A is complete and nothing has been deleted; this task is the deletion work.
-  - **Issue:** three confirmed-dead items, each verified to have zero references.
   - **Fix — do these, in this order, each as its own commit with lint + tests between:**
     - [ ] **1. Drop `@react-email/components` and `@react-email/render`** from `package.json`
       (both **prod**), then `npm install`. Zero code references: all transactional email is
