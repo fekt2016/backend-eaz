@@ -634,6 +634,63 @@ const getOrderTracking = async (req, res, next) => {
   }
 };
 
+// ── Public order view (T86) ─────────────────────────────────────────────────
+// What an unauthenticated holder of a payment reference may see: enough for the
+// customer to recognise their own order, not enough to be worth stealing.
+
+/** "Ama Owusu" -> "Ama O." — recognisable to its owner, not an identity to others. */
+function maskName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  const [first, ...rest] = parts;
+  return rest.length ? `${first} ${rest[rest.length - 1][0].toUpperCase()}.` : first;
+}
+
+/** Keeps the last 3 digits: "0244000111" -> "•••••••111". */
+function maskPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length <= 3) return '•'.repeat(digits.length);
+  return `${'•'.repeat(digits.length - 3)}${digits.slice(-3)}`;
+}
+
+function publicOrderView(order) {
+  return {
+    orderNumber: order.orderNumber,
+    status: order.status,
+    createdAt: order.createdAt,
+    trackingNumber: order.trackingNumber || null,
+
+    subtotal: order.subtotal,
+    total: order.total,
+    deliveryFee: order.deliveryFee,
+    shippingFee: order.shippingFee,
+    items: (order.items || []).map((i) => ({
+      name: i.name,
+      qty: i.qty,
+      price: i.price,
+      isPreorder: Boolean(i.isPreorder),
+    })),
+
+    // Area-level only — the same fields getOrderTracking already exposes
+    // publicly. They say which neighbourhood, never which door.
+    shippingMethod: order.shippingMethod || null,
+    shippingMethodLabel: order.shippingMethodLabel || null,
+    shippingSpeed: order.shippingSpeed || null,
+    shippingRegion: order.shippingRegion || null,
+    shippingNeighborhood: order.shippingNeighborhood || null,
+    shippingZoneName: order.shippingZoneName || null,
+    pickupLocationName: order.pickupLocationName || null,
+
+    // Masked, so a leaked link cannot be used to contact or locate the
+    // customer. No email and no street address at all.
+    customer: {
+      name: maskName(order.customer?.name),
+      phone: maskPhone(order.customer?.phone),
+    },
+  };
+}
+
 /**
  * GET /api/v1/orders/by-reference/:reference
  * Public lookup by Paystack reference for the order confirmation page.
@@ -666,7 +723,13 @@ const getOrderByReference = async (req, res, next) => {
       }
     }
 
-    res.status(200).json({ success: true, data: order });
+    // T86 — this route needs no auth, so the response is an explicit projection,
+    // not the order document. A reference travels: shared confirmation links,
+    // forwarded emails, browser history, referrer headers. Returning the whole
+    // document handed anyone holding one the customer's full name, phone, email
+    // and delivery address. getOrderTracking, the sibling public route, already
+    // redacts the same fields — this brings the two into line.
+    res.status(200).json({ success: true, data: publicOrderView(order) });
   } catch (error) {
     next(error);
   }
