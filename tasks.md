@@ -95,7 +95,7 @@
   - **Location:** `services/*`, `controllers/*` charge/upload handlers
   - **Source:** AUDIT.md §13, §19, §28, §29 P1 (all 🟣 rows in §4)
 
-- [ ] **T83 · A technician can ring up a sale — POS roles are not enforced server-side** (audit ref EZ-003)
+- [~] **T83 · A technician can ring up a sale — POS roles are not enforced server-side** (audit ref EZ-003)
   - **Issue:** POS routes sit behind one blanket gate — `protect` then
     `restrictTo('superadmin','admin','staff','technician')` (`routes/posRoutes.js:34-35`) — and several
     add no further check: `/customers` (`:57`), `/sales` (`:76`), `/inventory` (`:83`).
@@ -114,10 +114,43 @@
     (`:175, :272, :522`) — this is an inconsistency, not a blanket absence.
   - **Location:** `routes/posRoutes.js:34-35,57,76,83`; `controllers/pos/salesController.js`
   - **Acceptance:**
-    - [ ] Each POS route's allowed roles match `roles.md`
-    - [ ] A technician gets 403 on sales, customer writes and inventory reads
-    - [ ] Staff/admin/superadmin keep their current access
-    - [ ] Negative tests per role (see T92)
+    - [ ] Each POS route's allowed roles match `roles.md`  ← technician column matches; ~11 admin/staff rows still diverge, see T105
+    - [x] A technician gets 403 on sales, customer writes and inventory reads
+    - [x] Staff/admin/superadmin keep their current access  ← unchanged, except admin loses POST /sales by explicit owner decision
+    - [x] Negative tests per role (see T92)
+
+  ### Implementation Notes (2026-08-29 — awaiting review)
+
+  - **`routes/posRoutes.js`** — `denyRoles('technician')` (the idiom already used in
+    `domainRoutes.js`/`hostingOrderRoutes.js`) on `/scan/:code`, `/customers*`, `/sales*` and
+    `GET /inventory`. `denyRoles` rather than a narrower `restrictTo` so no other role's access
+    changes. Mounted with `router.use('/sales', …)` and `router.use('/customers', …)` so the
+    sub-paths (`/sales/summary`, `/sales/:id`, `/customers/:id`) are covered too.
+  - **`controllers/pos/salesController.js`** — `createSale` had **no role check of its own**.
+    It now rejects anything outside `CAN_CREATE_SALE = ['superadmin', 'staff']` before touching
+    the cart, so the rule survives a future re-wiring of the router.
+  - **Product decision, 2026-08-29: admin cannot ring up a sale either.** `roles.md` had
+    "Ring up a sale" as ✅ for admin; the owner confirmed it is ❌ — admin runs the shop but does
+    not take money at the counter, the same separation already applied to job payments and
+    expenses. Admin **keeps sales reads** (`CAN_SEE_ALL_SALES` includes admin), losing only the
+    write. `roles.md` line 129 and its "menu hides more than the system enforces" caveat were
+    updated to match. The frontend already gated the Sell page to `["superadmin","staff"]`, so
+    no frontend change was needed.
+  - **`tests/posTechnicianRoleGuard.test.js`** (new, 11 cases): technician 403 on all 7 routes
+    it should not reach; no `Sale` document persisted on a rejected attempt; technician keeps
+    `/jobs`, `/my-overview`, `/technicians`; staff/admin/superadmin not 403'd on anything they
+    had before; admin **and** technician 403 on `POST /sales` with nothing persisted;
+    staff/superadmin pass the gate; admin still reads `/sales` and `/sales/summary`.
+  - Verified: 11/11 new, plus 64/64 across the six related suites (`posSale`, `reportsAnalytics`,
+    `expensesRoleModel`, `technicianHostingDomainAccess`, `updateJobMoneyGuard`, `activityLog`).
+    ESLint 0 errors and **0 new warnings** — `salesController.js` sits at the same 36 pre-existing
+    warnings as before the change (confirmed by stashing).
+  - **Scope limit — acceptance criterion 1 is only partly met, deliberately.** Criteria 1 ("match
+    `roles.md`") and 3 ("staff/admin/superadmin keep their current access") **contradict each
+    other**: `roles.md` grants staff and admin *less* than the code does on ~11 further rows.
+    Applying the matrix literally would have removed working access for staff and admin. The
+    technician column now matches `roles.md` exactly — that is the security hole, and it is
+    closed. The remaining divergences are a product question, logged as **T105**.
 
 - [ ] **T84 · An account can claim another customer's guest orders via an unverified phone** (audit ref EZ-004)
   - **Issue:** Shop orders are guest checkouts with no `user` ref, so they are matched to an account by
@@ -377,7 +410,64 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
-_None._
+- [ ] **T105 · `roles.md` and the POS routes disagree on ~11 rows for admin and staff** (found during T83, 2026-08-29)
+  - **Issue:** T83 closed the technician holes, and the technician column now matches `roles.md`
+    exactly. The **admin** and **staff** columns still diverge — in both directions:
+
+    | `roles.md` row | Matrix says | Code allows | Direction |
+    |---|---|---|---|
+    | See dashboard & reports | staff ✅ | `/overview` is superadmin+admin | staff has **less** |
+    | Add & edit customers | staff ❌ | staff allowed | staff has **more** |
+    | Take a payment on a job | admin ❌ | admin allowed | admin has **more** |
+    | Take a Mobile Money payment | admin ❌ | admin allowed | admin has **more** |
+    | Look up stock | staff ❌ | staff allowed | staff has **more** |
+    | Add / edit stock | staff ❌ | staff allowed | staff has **more** |
+    | See suppliers | staff ❌ | staff allowed | staff has **more** |
+    | See expenses | staff ❌ | staff allowed | roles.md **stale** — see T5 |
+    | Record / edit expenses | admin ❌ | admin allowed | roles.md **stale** — see T5 |
+    | See jobs waiting to be collected | technician ✅ | technician denied | technician has **less** |
+    | Send collection reminders | admin ❌, staff ✅ | superadmin+admin | wrong **both ways** |
+    | Track warranty claims | admin ✅ | superadmin+staff | admin has **less** |
+  - **Impact:** Lower severity than T83 — none of these is a technician escalation, and most are
+    staff/admin holding access the matrix does not grant rather than a privilege boundary being
+    crossed. But the two documents cannot both be right, so neither can be trusted as the
+    authority for the next role change.
+  - **Why not fixed under T83:** T83's acceptance criteria 1 ("match `roles.md`") and 3
+    ("staff/admin/superadmin keep their current access") contradict each other on exactly these
+    rows. Applying the matrix literally would have **removed working access** from staff and
+    admin — a product decision, not a security fix. `roles.md` is also demonstrably stale in
+    places: T5 (2026-08-26) and T83 (2026-08-29) both overrode it after asking the owner.
+  - **Repro:** compare the table in `roles.md` §"The repair shop, side by side" against the
+    `restrictTo(...)` calls in `routes/posRoutes.js`.
+  - **Fix:** walk the 12 rows with the product owner, decide each, then make `roles.md` the
+    single source of truth and align the routes to it. Add a role-matrix test per row so the two
+    cannot drift again (overlaps T92).
+  - **Location:** `roles.md` §"The repair shop, side by side"; `routes/posRoutes.js`
+  - **Acceptance:**
+    - [ ] Each of the 12 rows has an explicit owner decision
+    - [ ] `roles.md` matches the routes exactly
+    - [ ] A test asserts the matrix per role, so drift fails CI
+
+- [ ] **T107 · `GET /products/all` loads the entire catalogue unpaginated and un-`lean`** (found 2026-08-29, alongside T106)
+  - **Issue:** `getAdminProducts` is `Product.find({}).sort({ createdAt: -1 })`
+    (`controllers/productController.js:218-225`) — no `limit`, no `skip`, no `lean()`, and it
+    hydrates full Mongoose documents. It is called on every Marketplace open
+    (`frontend-eaz/src/app/dashboard/commerce/page.jsx:510`).
+  - **Impact:** Same class as **T87**, but worse in one respect: T87 is about an unclamped
+    client-supplied `limit`, whereas this route offers no bound at all. Since the parts/products
+    merge this collection holds bench stock *and* shop stock, so it only grows. On a 512 MB heap
+    a few thousand hydrated documents with `images`/`variants`/`gallery` arrays is a real
+    exhaustion risk, and the payload ships to the browser in full.
+  - **Repro:** `GET /api/v1/products/all` as admin and compare the response size and RSS against
+    the paginated `GET /api/v1/products`.
+  - **Fix:** clamp `page`/`limit` using the default/min/max pattern already in
+    `productController.getProducts`, add `.lean()`, and project only the fields the Marketplace
+    grid renders. Fold into T87's sweep if that is done first.
+  - **Location:** `controllers/productController.js:218-225`; `routes/productRoutes.js:23`
+  - **Acceptance:**
+    - [ ] `limit` clamped with a sane default and maximum
+    - [ ] `.lean()` plus a field projection
+    - [ ] Marketplace still renders correctly against the paginated response
 
 ---
 

@@ -17,7 +17,7 @@ const {
   getSuppliers, getSupplier, createSupplier, updateSupplier, deleteSupplier,
   getWarrantyJobs,
 } = require('../controllers/posController');
-const { protect, restrictTo } = require('../middleware/auth');
+const { protect, restrictTo, denyRoles } = require('../middleware/auth');
 const multer = require('multer');
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -50,10 +50,15 @@ router.get('/part-orders',       restrictTo('superadmin', 'admin', 'staff'), get
 router.patch('/part-orders/:id', restrictTo('superadmin', 'admin', 'staff'), updatePartOrder);
 router.patch('/repair-orders/:id', restrictTo('superadmin', 'admin', 'staff'), updateRepairOrder);
 
-// ── Scanner lookup (all POS roles) ───────────────────────────────────────────
-router.get('/scan/:code', scanLookup);
+// ── Scanner lookup (superadmin + admin + staff) ──────────────────────────────
+// T83: roles.md marks lookup ❌ for technicians. `denyRoles` rather than
+// `restrictTo` so staff/admin access is unchanged.
+router.get('/scan/:code', denyRoles('technician'), scanLookup);
 
-// ── Customers ────────────────────────────────────────────────────────────────
+// ── Customers (technician excluded) ──────────────────────────────────────────
+// T83: the blanket gate let a technician read the whole customer list and edit
+// records. roles.md marks customers ❌ for technicians.
+router.use('/customers', denyRoles('technician'));
 router.route('/customers').get(getCustomers).post(createCustomer);
 router.route('/customers/:id').get(getCustomer).patch(updateCustomer);
 
@@ -72,15 +77,24 @@ router.get( '/jobs/:id/momo-charge/:reference', restrictTo('superadmin', 'staff'
 router.post('/jobs/:id/card-charge',            restrictTo('superadmin', 'staff', 'admin'), initiateCardCharge);
 router.get( '/jobs/:id/card-charge/:reference', restrictTo('superadmin', 'staff', 'admin'), checkMomoCharge);
 
-// ── Sales (all POS roles) ────────────────────────────────────────────────────
-router.route('/sales').get(getSales).post(createSale);
+// ── Sales — technician has no access; ringing up is superadmin + staff ───────
+// T83: this was the real hole — `createSale` performed no role check of its own,
+// so the blanket gate let a technician record a sale, moving stock and money.
+// Admin keeps the reads (CAN_SEE_ALL_SALES covers admin) but does not take money
+// at the counter, matching job payments and expenses. Confirmed with the product
+// owner 2026-08-29; `roles.md` updated to match.
+router.use('/sales', denyRoles('technician'));
+router.route('/sales')
+  .get(getSales)
+  .post(restrictTo('staff'), createSale);
 // Must precede '/sales/:id' — otherwise Express matches 'summary' as an id.
 router.get('/sales/summary', getSalesSummary);
 router.route('/sales/:id').get(getSale);
 router.patch('/sales/:id/void', restrictTo('superadmin'), voidSale);
 
-// ── Inventory (superadmin + staff + admin write; others read-only) ───────────
-router.get('/inventory', getParts);
+// ── Inventory (superadmin + staff + admin write; technician has no access) ───
+// T83: the read was open to every POS role; roles.md marks stock ❌ for technicians.
+router.get('/inventory', denyRoles('technician'), getParts);
 router.post('/inventory',         restrictTo('superadmin', 'staff', 'admin'), createPart);
 router.patch('/inventory/:id',    restrictTo('superadmin', 'staff', 'admin'), updatePart);
 router.delete('/inventory/:id',   restrictTo('superadmin', 'admin'),          deletePart);
