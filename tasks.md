@@ -234,7 +234,7 @@
     - [ ] Auth cookies carry `Secure` and `SameSite=Strict`
     - [ ] Startup fails loudly if the environment is ambiguous
 
-- [ ] **T86 · Public order-by-reference endpoint returns full customer PII** (audit ref EZ-007)
+- [x] **T86 · Public order-by-reference endpoint returns full customer PII** (audit ref EZ-007)
   - **Issue:** `GET /api/v1/orders/by-reference/:reference` needs no auth (`routes/orderRoutes.js:33`)
     and returns the **entire order document** (`controllers/orderController.js:670`) — name, phone,
     email, full delivery address, line items, totals. The sibling public endpoint `getOrderTracking`
@@ -251,7 +251,21 @@
     - [ ] Response carries no full address, phone or email
     - [ ] The order-confirmation page still renders
     - [ ] Payment verification on this route still works
-    - [ ] A test asserts the redaction
+    - [x] A test asserts the redaction
+
+  ### Implementation Notes (2026-08-29)
+
+  - Response is now an explicit projection (`publicOrderView`), not the order document: no email
+    and no street address at all, name masked to "Ama O.", phone to the last three digits, and
+    only the area-level shipping fields `getOrderTracking` already exposes publicly.
+  - Order number, status, totals, line items and tracking number are unchanged, so the
+    confirmation page still answers "is this mine, and did it go through". Paystack verification
+    on this route is untouched.
+  - Frontend: the confirmation page keyed off `customer.address`, which no longer arrives, so the
+    delivery card would have stopped rendering. It now keys off the shipping fields and links to
+    the customer's own orders page — behind login — for the full address.
+  - Tests: 7. One scans the whole serialized body for each PII string rather than checking named
+    fields, since a projection that misses a nested copy is still a leak.
 
 - [x] **T87 · Unbounded `limit` on list endpoints — heap exhaustion on a 512 MB process** (audit ref EZ-008)
   - **Issue:** `Number(limit)` straight from the query into `.limit()` with no upper bound:
