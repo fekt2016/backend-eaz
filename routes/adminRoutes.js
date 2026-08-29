@@ -1,6 +1,7 @@
 const express = require('express');
 const { protect, restrictTo } = require('../middleware/auth');
 const EmailLog = require('../models/EmailLog');
+const { paginate } = require('../utils/pagination');
 
 const router = express.Router();
 
@@ -11,17 +12,17 @@ router.use(protect, restrictTo('admin'));
 // Query params: ?type=&status=&q=email&page=1&limit=50
 router.get('/email-logs', async (req, res, next) => {
   try {
-    const { type, status, q, page = 1, limit = 50 } = req.query;
+    const { type, status, q } = req.query;
+    // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
+    const { page, limit, skip } = paginate(req.query, { defaultLimit: 50 });
 
     const filter = {};
     if (type && type !== 'all') filter.type = type;
     if (status && status !== 'all') filter.status = status;
     if (q && q.trim()) filter.to = { $regex: q.trim(), $options: 'i' };
 
-    const skip = (Number(page) - 1) * Number(limit);
-
     const [logs, total] = await Promise.all([
-      EmailLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).lean(),
+      EmailLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       EmailLog.countDocuments(filter),
     ]);
 

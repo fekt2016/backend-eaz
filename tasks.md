@@ -253,7 +253,7 @@
     - [ ] Payment verification on this route still works
     - [ ] A test asserts the redaction
 
-- [ ] **T87 · Unbounded `limit` on list endpoints — heap exhaustion on a 512 MB process** (audit ref EZ-008)
+- [x] **T87 · Unbounded `limit` on list endpoints — heap exhaustion on a 512 MB process** (audit ref EZ-008)
   - **Issue:** `Number(limit)` straight from the query into `.limit()` with no upper bound:
     `controllers/pos/expenseController.js:20`, `pos/inventoryController.js:33`,
     `pos/customerController.js:92`, `pos/jobController.js:264`, `routes/adminRoutes.js:19`.
@@ -268,7 +268,27 @@
     - [ ] Every list endpoint clamps `page` and `limit`
     - [ ] An oversized `limit` returns the maximum page size — not an error, not the whole collection
     - [ ] Normal values behave exactly as before
-    - [ ] A test asserts the clamp on at least one endpoint
+    - [x] A test asserts the clamp on at least one endpoint
+
+  ### Implementation Notes (2026-08-29)
+
+  - **`utils/pagination.js`** — one `paginate(query, { defaultLimit, maxLimit })` returning
+    `{ page, limit, skip }`, so a new endpoint inherits the bound instead of remembering it. The
+    expression matches the one `productController.getProducts` already used, including
+    `?limit=-5 → 1` (a negative parses truthy, so it clamps rather than defaulting).
+  - **All five converted**, each keeping its previous default so ordinary requests are unchanged:
+    expenses 30 · inventory 50 · customers 30 · jobs 20 · admin email logs 50. Max is 100.
+  - **Swept the rest rather than trusting the list:** every other `.limit()` fed from a variable
+    already clamped — `activityLog`, `notifications`, `orders` (×2), `serviceOrders`, `shipments`,
+    `productReviews`, `hostingOrders`, `sales`, `adminNeighborhood`. `grep -rn "\.limit(Number(\|
+    \.limit(parseInt"` over `controllers routes services` now returns nothing.
+  - **Oversized values clamp, they do not error** — a caller asking for too much gets the maximum
+    page, which is what a paginated API should do. Junk (`?limit=abc`) falls back to the default
+    rather than producing `NaN`, which Mongoose passes through as *no limit at all* — the very
+    bug being fixed.
+  - Tests: 9 — six on the helper (defaults, hostile limit, junk, page floor, skip computed from
+    clamped values, ordinary values untouched) and three end-to-end on `/pos/inventory`: 120 seeded
+    products with `?limit=1000000` returns 100 rows while still reporting `total: 120`.
 
 ---
 

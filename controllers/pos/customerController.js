@@ -1,6 +1,7 @@
 const {
   mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
 } = require('./common');
+const { paginate } = require('../../utils/pagination');
 
 const createCustomer = async (req, res, next) => {
   try {
@@ -80,7 +81,9 @@ const createCustomer = async (req, res, next) => {
 
 const getCustomers = async (req, res, next) => {
   try {
-    const { q, page = 1, limit = 30 } = req.query;
+    const { q } = req.query;
+    // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
+    const { limit, skip } = paginate(req.query, { defaultLimit: 30 });
     const query = q
       ? { $or: [
           { name:  { $regex: escapeRegex(q), $options: 'i' } },
@@ -89,7 +92,7 @@ const getCustomers = async (req, res, next) => {
         ]}
       : {};
     const [customers, total] = await Promise.all([
-      PosCustomer.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(Number(limit)),
+      PosCustomer.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
       PosCustomer.countDocuments(query),
     ]);
     res.json({ success: true, data: customers, total });
