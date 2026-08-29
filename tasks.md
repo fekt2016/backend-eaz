@@ -516,32 +516,74 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Final production re-audit (2026-08-29) — new findings
 
-- [ ] **T128 · Dead code audit — backend findings (Phase A complete, deletions awaiting sign-off)** (dead-code audit 2026-08-29)
-  - **Full report:** `docs/DEAD-CODE-REPORT.md`. Branch `chore/dead-code-audit`. **Nothing deleted yet.**
-  - **Confirmed dead (3):**
-    - `@react-email/components` and `@react-email/render` — **prod** dependencies with zero code
-      references. All transactional email is hand-written HTML template literals through Resend
-      (`utils/email.js`). The backend contains no `.jsx`/`.tsx` files at all. Note `CLAUDE.md` and
-      `docs/all-features.md` both claim react-email is in use — **the docs are wrong**.
-    - `services/cyberpanel.js` (103 lines) — orphaned. `grep -rln cyberpanel` matches only the file
-      itself; `utils/provisionHosting.js` requires WHM alone and falls back to the manual queue, not
-      to CyberPanel. Deleting it also retires `CYBERPANEL_HOST` / `_PASS` / `_USER`.
-  - **Keep — deprecated but deliberately retained:** `services/namecheap.js` (491 lines) and the
-    `xml2js` dependency it alone requires. Its header states it is the rollback path off Spaceship.
-    **T3 records that the Spaceship live round-trip has never been verified, and Spaceship has no
-    sandbox** — so the rollback still has value. Delete only after T3 closes successfully; `xml2js`
-    goes with it. Its price table is below cost, so it must be repriced if ever re-wired.
-  - **No dead routes.** Every file in `routes/` is mounted in `app.js`. Separately, `nginx.conf`
-    proxies `/api/v1/domain/webhook`, a route that does not exist — dead proxy config, already T82.
-  - **No schema field recommended for deletion.** `models/Part.js` is orphaned by the parts→products
-    merge, but the migration deliberately left the `parts` collection intact for rollback — the model
-    and the data are two halves of one rollback path and must not be removed independently.
-  - **Uncertain, keep:** 7 unregistered `scripts/*.js` (run manually as ops tooling; `normalizePhones`
-    is **not** a duplicate of `normalizeUserPhones` — different collections), and 16 env vars read by
-    code but absent from `.env`.
-  - **Debug artifacts: none.** All 15 backend `console.log` calls are intentional operational logging
-    (webhook decisions, `[WHM] AutoSSL`, the logger wrapper, `validateEnv`, `dbTarget`) — keep them.
-  - **Scope if approved:** ~2 files, ~110 LoC, 2 prod dependencies.
+- [ ] **T128 · Remove confirmed-dead backend code (dead-code audit Phase A)** (2026-08-29)
+  - **Full evidence:** `docs/DEAD-CODE-REPORT.md`. Audit branch `chore/dead-code-audit`.
+    Phase A is complete and nothing has been deleted; this task is the deletion work.
+  - **Issue:** three confirmed-dead items, each verified to have zero references.
+  - **Fix — do these, in this order, each as its own commit with lint + tests between:**
+    - [ ] **1. Drop `@react-email/components` and `@react-email/render`** from `package.json`
+      (both **prod**), then `npm install`. Zero code references: all transactional email is
+      hand-written HTML template literals through Resend (`utils/email.js` uses `html:` strings),
+      and the backend contains no `.jsx`/`.tsx` files at all.
+    - [ ] **2. Delete `services/cyberpanel.js`** (103 lines). `grep -rln cyberpanel` matches only the
+      file itself. `utils/provisionHosting.js` requires `services/whm` alone, and when
+      `whm.hasConfig()` is false it routes to the manual queue — there is no CyberPanel fallback.
+    - [ ] **3. Retire the `CYBERPANEL_HOST` / `CYBERPANEL_PASS` / `CYBERPANEL_USER` secrets**
+      wherever they are set, once step 2 lands. They are read by nothing else.
+    - [ ] **4. Correct the docs.** `docs/monorepo-CLAUDE.md` and `docs/all-features.md` both state
+      react-email is in use. They are wrong and will mislead the next reader.
+  - **Do NOT delete in this task:** `services/namecheap.js` (491 lines) or `xml2js`. See T130.
+  - **Acceptance:**
+    - [ ] `npm audit`, `npm run lint` and the full suite pass after each batch
+    - [ ] `grep -rli "react-email"` returns only lockfile hits
+    - [ ] `grep -rln cyberpanel` returns nothing
+    - [ ] No behaviour change: email still sends, hosting still provisions via WHM
+
+- [ ] **T130 · Decide the fate of `services/namecheap.js` — blocked on T3** (dead-code audit 2026-08-29)
+  - **Issue:** `services/namecheap.js` (491 lines) is orphaned — nothing requires it — and `xml2js`
+    is a prod dependency required by that file alone. It looks like an obvious deletion.
+  - **Why it is NOT being deleted:** its own header states it is retained as the rollback path off
+    Spaceship, and **T3 records that the Spaceship live registration round-trip has never been
+    verified**. Spaceship has no sandbox, so every real registration spends money and the rollback
+    still carries value. Deleting it now would remove the only fallback for an unproven integration.
+  - **Also recorded in that header:** its price table sells `.com` below cost and lists TLDs that
+    cannot be sold. If the rollback is ever taken, it must be repriced first — do not simply re-wire it.
+  - **Fix:** revisit once T3 closes successfully. Then delete the file and drop `xml2js` together.
+  - **Acceptance:**
+    - [ ] T3 closed with a verified live Spaceship registration
+    - [ ] `services/namecheap.js` deleted and `xml2js` removed from `package.json`
+    - [ ] Comments in `config/domainPricing.js`, `utils/domainHelper.js` and `services/spaceship.js`
+          that reference the retired file updated so they do not point at something gone
+
+- [ ] **T131 · Register or retire the seven unlisted `scripts/*.js`** (dead-code audit 2026-08-29)
+  - **Issue:** `scripts/` holds 16 files; only 9 are registered in `package.json`. Unregistered:
+    `mergeCashierToStaff`, `mergeCustomerDuplicates`, `normalizePhones`, `resanitizePostContent`,
+    `seedRoleAccounts`, `setUserAdmin`, `verifyUser`.
+  - **Why this is not "dead code":** they are one-off ops and migration scripts run manually as
+    `node scripts/x.js`. Absence from `package.json` is a discoverability gap, not death. Note
+    `normalizePhones.js` is **not** a duplicate of `normalizeUserPhones.js` — the first targets the
+    `poscustomers` collection, the second targets `users`.
+  - **Fix:** give each a named npm script (the `migrate:` / `check:` convention is already there), or
+    move genuinely spent one-offs into `scripts/archive/` with a dated note. Deleting them loses
+    re-runnable recovery tooling.
+  - **Acceptance:**
+    - [ ] Every file in `scripts/` is either registered in `package.json` or archived with a reason
+    - [ ] Each retained script's header states whether it is idempotent
+
+- [ ] **T132 · Document the 16 undocumented backend environment variables** (dead-code audit 2026-08-29)
+  - **Issue:** backend code reads 58 distinct `process.env.*` names; 16 appear in no `.env` and in no
+    example file: `ANTHROPIC_API_KEY`, `COOKIE_SECRET`, `CYBERPANEL_HOST/PASS/USER`,
+    `HOSTING_GRACE_DAYS`, `HOSTING_NAMESERVERS`, `HOSTING_SUSPEND_TO_TERMINATE_DAYS`, `LOG_LEVEL`,
+    `MONGO_URI`, `NODE_OPTIONS`, `REFUND_RECONCILE_AFTER_MINUTES`, `WAREHOUSE_ADDRESS/LAT/LNG`,
+    `WHM_PACKAGE_PREFIX`.
+  - **Impact:** most have code-side defaults, so absence is deliberate — but nobody deploying can
+    tell which are optional without reading the source. This matters for the VPS deploy.
+  - **Fix:** add a `.env.example` listing all 58 with required/optional and a one-line purpose. The
+    `CYBERPANEL_*` three should disappear with T128 rather than be documented.
+  - **Acceptance:**
+    - [ ] `.env.example` exists and covers every variable the code reads
+    - [ ] Required vs optional is stated for each, matching `utils/validateEnv.js`
+
 
 - [ ] **T125 · Guest-checkout customer fields have no length cap and no email-format validation** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
   - **Issue:** `Order.customer` (`models/Order.js:197-203`) declares `name`, `phone`, `phoneDigits`,
