@@ -14,6 +14,7 @@ const {
   verifyPin,
   resendPin,
   updateProfile,
+  confirmPhoneChange,
   changePassword,
   enableTwoFactor,
   confirmTwoFactor,
@@ -41,6 +42,8 @@ router.post('/forgot-password', forgotPassword);
 router.patch('/reset-password/:token', resetPassword);
 router.get('/me', protect, getMe);
 router.patch('/me', protect, updateProfile);
+// T84 — binds the phone parked by PATCH /me, once its SMS PIN is proven.
+router.post('/me/phone/confirm', protect, confirmPhoneChange);
 // Deprecated address routes — kept so a client mid-deploy keeps working. They
 // now delegate to the Address collection (routes/addressRoutes.js), so there is
 // one store rather than two that can disagree. Remove once nothing calls them.

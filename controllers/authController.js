@@ -585,12 +585,92 @@ const updateProfile = async (req, res, next) => {
       }
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { name, phone: phone || '' },
-      { new: true, runValidators: true }
-    );
-    res.json({ success: true, data: { user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone } } });
+    // T84 — a phone change does not take effect here. Guest shop orders are
+    // matched to an account by phone number, so writing an unproven number
+    // would hand this account another customer's order history: their name,
+    // address, items and totals. The uniqueness check above does not stop it,
+    // because a guest has no account to collide with. The number is parked and
+    // an SMS PIN sent; `confirmPhoneChange` binds it. Name still saves now.
+    const current = await User.findById(req.user._id).select('+pendingPhone');
+    const next = phone || '';
+    const changing = next !== (current.phone || '');
+
+    current.name = name;
+
+    let phoneVerificationRequired = false;
+    if (changing && next) {
+      const pin = generatePin();
+      current.pendingPhone = next;
+      current.pendingPhonePin = hashPin(pin);
+      current.pendingPhonePinExpires = new Date(Date.now() + 15 * 60 * 1000);
+      await current.save();
+      // Best-effort, exactly as registration treats it — a failed SMS must not
+      // roll back the parked change, or the user cannot retry.
+      await sendVerificationPinSms(next, name, pin).catch(() => {});
+      phoneVerificationRequired = true;
+    } else if (changing && !next) {
+      // Clearing is not a claim on anything, so it needs no proof.
+      current.phone = '';
+      current.phoneVerifiedAt = null;
+      current.pendingPhone = '';
+      current.pendingPhonePin = undefined;
+      current.pendingPhonePinExpires = undefined;
+      await current.save();
+    } else {
+      await current.save();
+    }
+
+    const user = current;
+    res.json({
+      success: true,
+      phoneVerificationRequired,
+      data: { user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone } },
+    });
+  } catch (error) { next(error); }
+};
+
+// ── Settings: Confirm a phone change (T84) ─────────────────────────────────
+// The second half of updateProfile's parked change: the PIN proves the account
+// controls the number before it binds, and `phoneVerifiedAt` records that it
+// was proven — which is what order matching keys on.
+const confirmPhoneChange = async (req, res, next) => {
+  try {
+    const pin = String(req.body.pin || '').trim();
+    if (!pin) {
+      return res.status(400).json({ success: false, error: 'Verification code is required.' });
+    }
+
+    const user = await User.findById(req.user._id)
+      .select('+pendingPhone +pendingPhonePin +pendingPhonePinExpires');
+
+    if (!user.pendingPhone || !user.pendingPhonePin) {
+      return res.status(400).json({ success: false, error: 'No phone change is awaiting confirmation.' });
+    }
+    if (!user.pendingPhonePinExpires || user.pendingPhonePinExpires < new Date()) {
+      return res.status(400).json({ success: false, error: 'That code has expired. Please request the change again.' });
+    }
+    if (!pinMatches(user.pendingPhonePin, pin)) {
+      return res.status(400).json({ success: false, error: 'Incorrect verification code.' });
+    }
+
+    // Re-check uniqueness at bind time, not just at request time — another
+    // account could have taken the number while this PIN was outstanding.
+    const owner = await User.findOne({ phone: user.pendingPhone, _id: { $ne: user._id } });
+    if (owner) {
+      return res.status(409).json({ success: false, error: 'Phone number already in use by another account.' });
+    }
+
+    user.phone = user.pendingPhone;
+    user.phoneVerifiedAt = new Date();
+    user.pendingPhone = '';
+    user.pendingPhonePin = undefined;
+    user.pendingPhonePinExpires = undefined;
+    await user.save();
+
+    res.json({
+      success: true,
+      data: { user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone } },
+    });
   } catch (error) { next(error); }
 };
 
@@ -955,6 +1035,7 @@ const adminToggleBlock = async (req, res, next) => {
 };
 
 module.exports = {
+  confirmPhoneChange,
   register,
   login,
   logout,

@@ -32,7 +32,10 @@ describe("PATCH /api/v1/auth/me — phone uniqueness (T47)", () => {
     expect(res.body.error).toMatch(/already in use/i);
   });
 
-  it("allows updating to a phone number nobody else has", async () => {
+  // T84 changed what "allows" means here: a free number is accepted, but it is
+  // parked for SMS confirmation rather than written. Uniqueness is still the
+  // gate this suite covers — see tests/phoneChangeOtp.test.js for the binding.
+  it("accepts a phone number nobody else has, parking it for confirmation", async () => {
     const { token } = await makeUser();
 
     const res = await request(app)
@@ -41,7 +44,8 @@ describe("PATCH /api/v1/auth/me — phone uniqueness (T47)", () => {
       .send({ name: "Updated Name", phone: "0244000222" });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.user.phone).toBe("0244000222");
+    expect(res.body.phoneVerificationRequired).toBe(true);
+    expect(res.body.data.user.phone).toBeFalsy(); // not bound until the PIN lands
   });
 
   it("allows re-saving your own existing phone (no false conflict with self)", async () => {
