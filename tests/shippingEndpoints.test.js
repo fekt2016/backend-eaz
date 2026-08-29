@@ -194,12 +194,22 @@ describe("GET /api/v1/shipping/methods", () => {
 
   it("includes indicativeFee on courier methods when city + neighborhood match", async () => {
     const res = await request(app).get(`${BASE}/shipping/methods?city=Accra&neighborhood=madina`);
-    const courierMethods = res.body.data.methods.filter((m) => m.id.startsWith("courier_dispatch"));
-    expect(courierMethods.length).toBe(2); // standard + express; same-day is not sold
-    for (const m of courierMethods) {
-      expect(typeof m.indicativeFee).toBe("number");
-      expect(m.indicativeFee).toBeGreaterThanOrEqual(0);
+    const byId = Object.fromEntries(
+      res.body.data.methods
+        .filter((m) => m.id.startsWith("courier_dispatch"))
+        .map((m) => [m.speed, m]),
+    );
+    // T117: three sold speeds. These seed zones predate speedTiers, so they
+    // carry named express/same-day multipliers and no next-day rate.
+    expect(Object.keys(byId).sort()).toEqual(["express", "next_day", "standard"]);
+
+    for (const speed of ["standard", "express"]) {
+      expect(typeof byId[speed].indicativeFee).toBe("number");
+      expect(byId[speed].indicativeFee).toBeGreaterThanOrEqual(0);
     }
+    // Offered without a figure rather than quoted at the standard price — the
+    // storefront renders null as "—" and the quote endpoint is authoritative.
+    expect(byId.next_day.indicativeFee).toBeNull();
   });
 
   it("serves regional cities and rejects a missing city (E2)", async () => {
@@ -517,6 +527,7 @@ describe("GET /shipping/methods — legacy branch reads the zone's tiers (T116)"
       .filter((m) => m.id.startsWith("courier_dispatch_"))
       .map((m) => m.speed)
       .sort();
-    expect(speeds).toEqual(["express", "standard"]);
+    // T117: the short list is the three sold speeds. same_day is gone entirely.
+    expect(speeds).toEqual(["express", "next_day", "standard"]);
   });
 });

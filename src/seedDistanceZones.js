@@ -33,12 +33,14 @@ const { checkCoverage } = require("../services/shipping/zoneClassification");
 const SPEED_TIERS = () => [
   { code: "standard", label: "Standard",  multiplier: 1.0, estimatedDays: "1-3" },
   { code: "next_day", label: "Next Day",  multiplier: 1.2, estimatedDays: "1" },
+  // "0" days — dispatch starts now, which is what Express means here.
   { code: "express",  label: "Express",   multiplier: 1.5, estimatedDays: "0" },
-  // same_day carries the 12 PM cutoff rules in the calculator and is priced at
-  // the next-day multiplier. Offered only while ShippingSettings.sameDayAvailable
-  // is on, which it is not.
-  { code: "same_day", label: "Same Day",  multiplier: 1.2, estimatedDays: "1" },
 ];
+// T117 (owner, 2026-08-29): three options, and only three — Standard, Next Day,
+// Express. The dormant `same_day` tier is gone rather than left switched off:
+// it duplicated Express's promise at the *cheaper* next-day multiplier, so
+// flipping ShippingSettings.sameDayAvailable would have put two "today" options
+// side by side with the faster-sounding one costing less.
 
 // Bands are half-open [minKm, maxKm) and contiguous: 0–5–10–15–25–40–100.
 const ZONES = [

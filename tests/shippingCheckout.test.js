@@ -274,9 +274,12 @@ describe("courier same-day is not offered", () => {
     expect(res.body.error).toMatch(/not available|cutoff|Sunday/i);
   });
 
-  it("offers it again once an admin turns the switch on", async () => {
-    // Proves the removal is the switch, not a deletion — the tier and its
-    // pricing are still there.
+  it("stays gone even with the switch on — T117 deleted the tier", async () => {
+    // This used to assert the opposite: that the removal was only the switch and
+    // the tier was still there. T117 deleted it. same_day duplicated Express's
+    // promise at the cheaper next-day multiplier, so turning the switch on put
+    // two "today" options side by side with the faster-sounding one costing
+    // less. There are three speeds now: Standard, Next Day, Express.
     const settings = await ShippingSettings.getSettings();
     settings.sameDayAvailable = true;
     settings.sameDayCutoffHour = 23; // past any wall-clock time the suite runs at
@@ -288,7 +291,7 @@ describe("courier same-day is not offered", () => {
       .get(`${BASE}/shipping/methods`)
       .query({ city: "Accra", neighborhood: "east legon" });
 
-    expect((res.body.data.methods || []).map((m) => m.id)).toContain("courier_dispatch_same_day");
+    expect((res.body.data.methods || []).map((m) => m.id)).not.toContain("courier_dispatch_same_day");
   });
 });
 
