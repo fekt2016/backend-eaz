@@ -2,6 +2,31 @@ const {
   mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
 } = require('./common');
 
+// T113 — who may see whose spending.
+//   superadmin  everything
+//   admin       their own plus every staff member's
+//   staff       their own only
+// Returns null for "no restriction"; otherwise the set of creator ids the caller
+// may see. Resolved from req.user, never from anything the client sends.
+async function visibleExpenseCreators(user) {
+  if (user.role === 'superadmin') return null;
+
+  if (user.role === 'admin') {
+    const staff = await User.find({ role: 'staff' }).select('_id').lean();
+    return [user._id, ...staff.map((s) => s._id)];
+  }
+
+  return [user._id];
+}
+
+// Reads and writes share one rule: an expense you cannot see is one you cannot
+// edit or delete either, or the read scope would be cosmetic.
+async function canTouchExpense(user, expense) {
+  const allowed = await visibleExpenseCreators(user);
+  if (allowed === null) return true;
+  return allowed.some((id) => String(id) === String(expense.createdBy));
+}
+
 const getExpenses = async (req, res, next) => {
   try {
     const { from, to, category, page = 1, limit = 30 } = req.query;
@@ -12,6 +37,11 @@ const getExpenses = async (req, res, next) => {
       if (from) query.date.$gte = new Date(from);
       if (to)   query.date.$lte = new Date(new Date(to).setHours(23, 59, 59, 999));
     }
+
+    // Scope before any read runs, so the list, the count and the category
+    // summary all agree — a total that includes rows you cannot see is a leak.
+    const visible = await visibleExpenseCreators(req.user);
+    if (visible) query.createdBy = { $in: visible };
 
     const [expenses, total, summary] = await Promise.all([
       Expense.find(query)
@@ -64,6 +94,9 @@ const updateExpense = async (req, res, next) => {
   try {
     const expense = await Expense.findById(req.params.id);
     if (!expense) return res.status(404).json({ success: false, error: 'Expense not found.' });
+    if (!(await canTouchExpense(req.user, expense))) {
+      return res.status(403).json({ success: false, error: 'You do not have permission to perform this action.' });
+    }
     const before = {
       amount: expense.amount, category: expense.category,
       description: expense.description, notes: expense.notes,
@@ -99,8 +132,14 @@ const updateExpense = async (req, res, next) => {
 
 const deleteExpense = async (req, res, next) => {
   try {
-    const expense = await Expense.findByIdAndDelete(req.params.id);
+    // Fetch, authorize, then delete — findByIdAndDelete would have removed the
+    // row before the scope check could refuse it.
+    const expense = await Expense.findById(req.params.id);
     if (!expense) return res.status(404).json({ success: false, error: 'Expense not found.' });
+    if (!(await canTouchExpense(req.user, expense))) {
+      return res.status(403).json({ success: false, error: 'You do not have permission to perform this action.' });
+    }
+    await expense.deleteOne();
     await logFromRequest(req, {
       action: ACTIONS.EXPENSE_DELETED,
       resourceType: RESOURCES.EXPENSE,

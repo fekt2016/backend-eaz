@@ -41,7 +41,10 @@ describe("Expenses role model (T5)", () => {
     expect(list.body.data.some((e) => e.description === "Diesel for generator")).toBe(true);
   });
 
-  it("staff keeps read-only access — write is still refused", async () => {
+  // T113 (owner, 2026-08-29) replaced T5's read-only rule: staff record their own
+  // spending. What they may *see* is scoped to their own — see
+  // tests/expenseVisibilityScope.test.js. Revising an expense stays with admin.
+  it("staff can read and record, but not revise", async () => {
     const token = await makeUser("staff");
 
     const list = await request(app)
@@ -53,7 +56,13 @@ describe("Expenses role model (T5)", () => {
       .post("/api/v1/pos/expenses")
       .set("Authorization", `Bearer ${token}`)
       .send(body());
-    expect(created.status).toBe(403);
+    expect(created.status).toBe(201);
+
+    const edited = await request(app)
+      .patch(`/api/v1/pos/expenses/${created.body.data._id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount: 1 });
+    expect(edited.status).toBe(403);
   });
 
   it.each(["user", "technician"])("%s is refused on read and write", async (role) => {
