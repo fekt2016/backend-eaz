@@ -186,6 +186,38 @@ describe("POS role enforcement — management surfaces are superadmin + admin (T
     });
   }
 
+  // Owner decision 2026-08-29: stock is managed by admin. Staff keep the read so
+  // they can look an item up mid-sale, but cannot create, change or remove one.
+  it("403s staff on stock writes while leaving the read", async () => {
+    const token = await makeUser("staff");
+
+    const create = await request(app).post(`${BASE}/inventory`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Screen", sellingPrice: 15000, costPrice: 9000 });
+    expect(create.status).toBe(403);
+
+    const update = await request(app).patch(`${BASE}/inventory/6a92b23768140217f2cde966`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ sellingPrice: 1 });
+    expect(update.status).toBe(403);
+
+    const remove = await request(app).delete(`${BASE}/inventory/6a92b23768140217f2cde966`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(remove.status).toBe(403);
+
+    const read = await request(app).get(`${BASE}/inventory`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(read.status).toBe(200);
+  });
+
+  it("still lets admin write stock", async () => {
+    const token = await makeUser("admin");
+    const res = await request(app).post(`${BASE}/inventory`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Battery", sellingPrice: 8000, costPrice: 5000, category: "Battery" });
+    expect(res.status).not.toBe(403);
+  });
+
   it("leaves staff their own scoped dashboard", async () => {
     const token = await makeUser("staff");
     const res = await request(app).get(`${BASE}/my-overview`)

@@ -94,11 +94,14 @@ router.get('/sales/summary', getSalesSummary);
 router.route('/sales/:id').get(getSale);
 router.patch('/sales/:id/void', restrictTo('superadmin'), voidSale);
 
-// ── Inventory (superadmin + staff + admin write; technician has no access) ───
+// ── Inventory (superadmin + admin write; staff read-only; technician none) ───
 // T83: the read was open to every POS role; roles.md marks stock ❌ for technicians.
+// Writes were open to staff too — owner decision 2026-08-29: stock is managed by
+// admin, matching what roles.md already said ("Add / edit stock" ❌ for staff).
+// Staff keep the read so they can look items up while serving a customer.
 router.get('/inventory', denyRoles('technician'), getParts);
-router.post('/inventory',         restrictTo('superadmin', 'staff', 'admin'), createPart);
-router.patch('/inventory/:id',    restrictTo('superadmin', 'staff', 'admin'), updatePart);
+router.post('/inventory',         restrictTo('superadmin', 'admin'), createPart);
+router.patch('/inventory/:id',    restrictTo('superadmin', 'admin'), updatePart);
 router.delete('/inventory/:id',   restrictTo('superadmin', 'admin'),          deletePart);
 
 // ── Suppliers (superadmin + admin read; superadmin write) ────────────────────
