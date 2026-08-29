@@ -637,15 +637,6 @@ const claimSession = async (req, res, next) => {
     const session = await ChatSession.findOne({ sessionId: req.params.sessionId });
     if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
 
-    // Precondition: if already claimed by a different agent, reject.
-    // Allow re-claiming when unclaimed or when the same agent re-claims their own session.
-    if (session.acceptedBy && String(session.acceptedBy) !== String(req.user.id)) {
-      return res.status(409).json({
-        success: false,
-        error: `Session already claimed by ${session.acceptedByName || 'another agent'}.`,
-      });
-    }
-
     session.acceptedBy     = req.user.id;
     session.acceptedByName = req.user.name;
     session.acceptedAt     = new Date();
