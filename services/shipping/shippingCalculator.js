@@ -95,6 +95,13 @@ const SAME_DAY_SPEEDS = ["same_day", "express"];
  * that was refused, so the message never tells someone to choose the very
  * option they just chose.
  */
+/** 0 → 12:00 AM, 12 → 12:00 PM, 17 → 5:00 PM. Customer-facing. */
+function formatCutoffHour(hour) {
+  const suffix = hour < 12 ? "AM" : "PM";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:00 ${suffix}`;
+}
+
 function sameDayWindowOpen(settings, deliverySpeed = "same_day", now = new Date()) {
   const isExpress = deliverySpeed === "express";
   const name = isExpress ? "Express" : "Same-day";
@@ -102,9 +109,13 @@ function sameDayWindowOpen(settings, deliverySpeed = "same_day", now = new Date(
   // at the tiers below it.
   const alternatives = isExpress ? "Next Day or Standard" : "Standard or Next Day";
 
-  const cutoffHour = Number.isFinite(settings.sameDayCutoffHour) ? settings.sameDayCutoffHour : 12;
+  // Kept in step with ShippingSettings.sameDayCutoffHour's default — a settings
+  // row without the field must not be stricter than a fresh one.
+  const cutoffHour = Number.isFinite(settings.sameDayCutoffHour) ? settings.sameDayCutoffHour : 17;
   if (now.getHours() >= cutoffHour) {
-    const stated = cutoffHour === 12 ? "12:00 PM" : `${cutoffHour}:00`;
+    // Say "5:00 PM", not "17:00" — this string is shown to customers. The old
+    // wording only special-cased noon, which stopped being the default in T114.
+    const stated = formatCutoffHour(cutoffHour);
     return {
       open: false,
       reason: `${name} delivery closes at ${stated}. Please choose ${alternatives} for this order.`,

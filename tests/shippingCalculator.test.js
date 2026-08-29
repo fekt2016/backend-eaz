@@ -652,3 +652,47 @@ describe("T80 E2 — fulfilment-method gating", () => {
     })).rejects.toThrow(DisabledDeliveryMethodError);
   });
 });
+
+// T114 (owner, 2026-08-29): the cutoff moved from noon to 5 PM. Express is the
+// same-day service, so a noon cutoff withdrew the only "today" option halfway
+// through the working day — and it made two suites pass or fail on wall-clock
+// time. These pin the default and the customer-facing wording; they inject
+// `now`, so they do not care what time the suite runs at.
+describe("same-day window — 5 PM cutoff (T114)", () => {
+  const at = (hour) => {
+    const d = new Date();
+    d.setHours(hour, 30, 0, 0);
+    return d;
+  };
+  const open = () => ({ deliveryClosedDays: [] });
+
+  it("defaults to 5 PM when the setting is absent, not noon", async () => {
+    // A settings row saved before this field existed must not be stricter than
+    // a fresh one — the calculator's fallback tracks the model default.
+    expect(calculator.sameDayWindowOpen(open(), "express", at(16)).open).toBe(true);
+    expect(calculator.sameDayWindowOpen(open(), "express", at(17)).open).toBe(false);
+  });
+
+  it("uses the configured hour when one is set", async () => {
+    const s = { ...open(), sameDayCutoffHour: 12 };
+    expect(calculator.sameDayWindowOpen(s, "express", at(11)).open).toBe(true);
+    expect(calculator.sameDayWindowOpen(s, "express", at(12)).open).toBe(false);
+  });
+
+  it("states the hour in 12-hour time, not 17:00", async () => {
+    const closed = calculator.sameDayWindowOpen(open(), "express", at(18));
+    expect(closed.reason).toContain("5:00 PM");
+    expect(closed.reason).not.toContain("17:00");
+
+    const noon = calculator.sameDayWindowOpen(
+      { ...open(), sameDayCutoffHour: 12 }, "express", at(13),
+    );
+    expect(noon.reason).toContain("12:00 PM");
+  });
+
+  it("closes on a closed day even before the cutoff", async () => {
+    const today = new Date().getDay();
+    const s = { deliveryClosedDays: [today] };
+    expect(calculator.sameDayWindowOpen(s, "express", at(9)).open).toBe(false);
+  });
+});
