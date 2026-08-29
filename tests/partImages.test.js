@@ -25,9 +25,11 @@ const IMG_A = "https://res.cloudinary.com/demo/a.jpg";
 const IMG_B = "https://res.cloudinary.com/demo/b.jpg";
 
 describe("Part images (T33)", () => {
+  // T83 moved stock writes to admin; this suite is about the images array, not
+  // about who may write, so it acts as admin.
   let staff;
   beforeEach(async () => {
-    staff = await makeUser("staff");
+    staff = await makeUser("admin");
   });
 
   it("createPart persists the images array", async () => {
@@ -85,7 +87,7 @@ describe("Part images (T33)", () => {
 describe("Shop product images in POS inventory search (T37)", () => {
   let staff;
   beforeEach(async () => {
-    staff = await makeUser("staff");
+    staff = await makeUser("admin");
   });
 
   it("GET /pos/inventory?includeProducts=true returns product images (previously omitted)", async () => {

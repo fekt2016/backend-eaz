@@ -122,7 +122,8 @@ describe("Events are recorded", () => {
   });
 
   it("records an inventory stock adjustment (INVENTORY_STOCK_ADJUSTED)", async () => {
-    const { token } = await makeUser("staff");
+    // T83: stock writes are admin's now — the log entry is what's under test.
+    const { token } = await makeUser("admin");
     const part = await Product.create({
       name: "Battery X",
       category: "Battery", partCategory: "Battery",
