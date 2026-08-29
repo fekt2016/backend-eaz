@@ -145,6 +145,23 @@
     `expensesRoleModel`, `technicianHostingDomainAccess`, `updateJobMoneyGuard`, `activityLog`).
     ESLint 0 errors and **0 new warnings** — `salesController.js` sits at the same 36 pre-existing
     warnings as before the change (confirmed by stashing).
+  - **Further owner decisions, 2026-08-29 — staff are the counter, admin manages.** Three more
+    surfaces moved to superadmin + admin, enforced server-side and mirrored in the sidebar:
+    | Surface | Was | Now | Note |
+    |---|---|---|---|
+    | `GET /reports/analytics` | superadmin+admin+staff | superadmin+admin | shop-wide BI belongs with `/overview` |
+    | `GET /suppliers`, `/suppliers/:id` | superadmin+admin+staff | superadmin+admin | restores what `roles.md` always said — a T105 row, now closed |
+    | `GET /warranty` | superadmin+staff | superadmin+admin | was wrong **both** ways; admin had been excluded despite `roles.md` marking it ✅ |
+    Staff keep `/my-overview` (their own scoped dashboard), sales, jobs and payments.
+    `dashboardNav.js` updated to match, and `roles.md` rows 121/134/140 corrected.
+  - **Side effect, recorded in `roles.md`:** the supplier dropdown in the add/edit-stock modal
+    now returns empty for staff, so staff can still add stock but cannot attach a supplier to it.
+    Worth a product decision if staff are expected to do receiving.
+  - **Tests:** 16 in the role-guard file (5 new for the management surfaces), and three
+    `reportsAnalytics` cases rewritten — two asserted staff *could* read reports, and the
+    double-count regression was re-pointed to an admin caller scoped via `staffId` so the
+    aggregation coverage survives. 73/73 across the six role-related suites.
+
   - **Scope limit — acceptance criterion 1 is only partly met, deliberately.** Criteria 1 ("match
     `roles.md`") and 3 ("staff/admin/superadmin keep their current access") **contradict each
     other**: `roles.md` grants staff and admin *less* than the code does on ~11 further rows.
@@ -409,6 +426,19 @@ Not defects; product features that don't exist yet. Scope separately before buil
 ---
 
 ## Ad-hoc fixes (found during work, outside the original audit)
+
+- [ ] **T111 · Reports controller still carries unreachable staff-scoping logic** (found during T83, 2026-08-29)
+  - **Issue:** `getReportsAnalytics` implements T32's staff scoping — pin a staff caller to their
+    own activity, never trust a client-supplied `staffId` for the staff role, return an empty
+    `staffList` so staff get no picker. T83 removed staff from the route entirely, so none of
+    those branches can execute.
+  - **Impact:** dead code that reads as a live guarantee. A future reader may assume staff can
+    reach reports safely because the scoping exists, and re-open the route on that basis.
+  - **Fix:** either delete the staff branches and the `isOwnReport` / empty-`staffList` handling,
+    or keep them and add a comment saying they are a deliberate belt-and-braces for a policy that
+    may be reversed. Do **not** simply re-open the route to make the code reachable again.
+  - **Location:** `controllers/pos/reportsController.js` (the `scope` block); the rewritten
+    assertions in `tests/reportsAnalytics.test.js`
 
 - [ ] **T105 · `roles.md` and the POS routes disagree on ~11 rows for admin and staff** (found during T83, 2026-08-29)
   - **Issue:** T83 closed the technician holes, and the technician column now matches `roles.md`

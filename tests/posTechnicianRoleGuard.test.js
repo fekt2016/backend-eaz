@@ -146,3 +146,50 @@ describe("POS role enforcement — only the till rings up sales (T83)", () => {
     }
   });
 });
+
+// Owner decisions, 2026-08-29: staff are the counter — sales, jobs, payments.
+// Shop-wide management surfaces move to superadmin + admin. Reports and warranty
+// were granted to staff by the routes; suppliers was already ❌ for staff in
+// roles.md and the route was the thing out of step.
+describe("POS role enforcement — management surfaces are superadmin + admin (T83)", () => {
+  const MANAGEMENT = ["/reports/analytics", "/suppliers", "/warranty"];
+
+  it("403s staff on every management surface", async () => {
+    const token = await makeUser("staff");
+
+    for (const path of MANAGEMENT) {
+      const res = await request(app).get(`${BASE}${path}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
+  });
+
+  it("403s a technician on them too", async () => {
+    const token = await makeUser("technician");
+
+    for (const path of MANAGEMENT) {
+      const res = await request(app).get(`${BASE}${path}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
+  });
+
+  for (const role of ["admin", "superadmin"]) {
+    it(`lets ${role} through`, async () => {
+      const token = await makeUser(role);
+
+      for (const path of MANAGEMENT) {
+        const res = await request(app).get(`${BASE}${path}`)
+          .set("Authorization", `Bearer ${token}`);
+        expect({ path, forbidden: res.status === 403 }).toEqual({ path, forbidden: false });
+      }
+    });
+  }
+
+  it("leaves staff their own scoped dashboard", async () => {
+    const token = await makeUser("staff");
+    const res = await request(app).get(`${BASE}/my-overview`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).not.toBe(403);
+  });
+});

@@ -38,8 +38,10 @@ router.use(restrictTo('superadmin', 'admin', 'staff', 'technician'));
 router.get('/overview', restrictTo('superadmin', 'admin'), getOverview);
 
 // ── Reports & analytics — consolidated BI for the Reports dashboard ──────────
-// superadmin/admin/staff can read reports (matches the sidebar visibility).
-router.get('/reports/analytics', restrictTo('superadmin', 'admin', 'staff'), getReportsAnalytics);
+// T83 (owner, 2026-08-29): staff no longer read reports. This is shop-wide BI —
+// revenue, margins, staff performance — which belongs with /overview at
+// superadmin + admin. Staff keep /my-overview, which is scoped to their own work.
+router.get('/reports/analytics', restrictTo('superadmin', 'admin'), getReportsAnalytics);
 
 // ── My dashboard — scoped to the logged-in user (all POS roles) ──────────────
 // Staff: jobs they created + their sales + low stock. Technician: their jobs only.
@@ -99,9 +101,12 @@ router.post('/inventory',         restrictTo('superadmin', 'staff', 'admin'), cr
 router.patch('/inventory/:id',    restrictTo('superadmin', 'staff', 'admin'), updatePart);
 router.delete('/inventory/:id',   restrictTo('superadmin', 'admin'),          deletePart);
 
-// ── Suppliers (superadmin + staff + admin read; superadmin write) ────────────
-router.get('/suppliers',      restrictTo('superadmin', 'staff', 'admin'), getSuppliers);
-router.get('/suppliers/:id',  restrictTo('superadmin', 'staff', 'admin'), getSupplier);
+// ── Suppliers (superadmin + admin read; superadmin write) ────────────────────
+// T83 (owner, 2026-08-29): staff no longer read suppliers. This restores what
+// roles.md already specified — "See suppliers" was ❌ for staff all along, and
+// the route was the thing out of step (one of the T105 divergences).
+router.get('/suppliers',      restrictTo('superadmin', 'admin'), getSuppliers);
+router.get('/suppliers/:id',  restrictTo('superadmin', 'admin'), getSupplier);
 router.post('/suppliers',     restrictTo('superadmin'), createSupplier);
 router.patch('/suppliers/:id',  restrictTo('superadmin'), updateSupplier);
 router.delete('/suppliers/:id', restrictTo('superadmin'), deleteSupplier);
@@ -119,8 +124,11 @@ router.delete('/expenses/:id', restrictTo('superadmin', 'admin'), deleteExpense)
 router.get('/reminders/uncollected',  restrictTo('superadmin', 'admin', 'staff'), getUncollectedJobs);
 router.post('/reminders/trigger',     restrictTo('superadmin', 'admin'), triggerReminders);
 
-// ── Warranty tracking (superadmin + staff) ───────────────────────────────────
-router.get('/warranty', restrictTo('superadmin', 'staff'), getWarrantyJobs);
+// ── Warranty tracking (superadmin + admin) ───────────────────────────────────
+// T83 (owner, 2026-08-29): staff no longer track warranty claims. Note this also
+// *adds* admin, who was excluded before despite roles.md marking warranty ✅ for
+// them — the row was wrong in both directions.
+router.get('/warranty', restrictTo('superadmin', 'admin'), getWarrantyJobs);
 
 // ── Staff management (superadmin only) ──────────────────────────────────────
 router.get('/staff',  restrictTo('superadmin'), getStaff);
