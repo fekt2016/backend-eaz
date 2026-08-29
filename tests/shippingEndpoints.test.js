@@ -459,3 +459,64 @@ describe("Admin courier rate", () => {
     expect(res.body.data.percentage).toBe(35);
   });
 });
+
+// T116: /shipping/methods had two code paths building courier methods. The
+// distance-zone branch offered whatever tiers the zone defined; the legacy
+// branch carried its own hardcoded list that omitted next_day — so every seeded
+// zone defined a next_day tier the endpoint never offered. The legacy branch now
+// reads the same speedTiers array the quote prices from.
+describe("GET /shipping/methods — legacy branch reads the zone's tiers (T116)", () => {
+  const TIERS = [
+    { code: "standard", label: "Standard", multiplier: 1.0, estimatedDays: "1-3" },
+    { code: "next_day", label: "Next Day", multiplier: 1.2, estimatedDays: "1" },
+  ];
+
+  async function seedTieredZone() {
+    await seedShippingData();
+    await ShippingZone.deleteMany({ city: "Accra" });
+    await ShippingZone.create({
+      name: "Accra Tiered", code: "ACC-TIERED", city: "Accra",
+      neighborhoods: ["osu"],
+      distanceMinKm: 0, distanceMaxKm: 25,
+      baseRate: 1500, perKgRate: 300,
+      fragileSurcharge: 500, estimatedDays: 1, isDefault: true,
+      speedTiers: TIERS,
+    });
+  }
+
+  it("offers next_day when the zone defines it", async () => {
+    await seedTieredZone();
+
+    const res = await request(app).get(`${BASE}/shipping/methods?city=Accra`);
+
+    const speeds = res.body.data.methods
+      .filter((m) => m.id.startsWith("courier_dispatch_"))
+      .map((m) => m.speed)
+      .sort();
+    expect(speeds).toEqual(["next_day", "standard"]);
+  });
+
+  it("prices each tier from its own multiplier, not a named field", async () => {
+    await seedTieredZone();
+
+    const res = await request(app).get(`${BASE}/shipping/methods?city=Accra`);
+    const byId = Object.fromEntries(res.body.data.methods.map((m) => [m.id, m]));
+
+    // baseRate 1500 × the tier's multiplier. Quoting next_day at 1.0 because no
+    // `nextDayMultiplier` field exists is exactly the drift this closes.
+    expect(byId.courier_dispatch_standard.indicativeFee).toBe(1500);
+    expect(byId.courier_dispatch_next_day.indicativeFee).toBe(1800);
+    expect(byId.courier_dispatch_next_day.estimatedDays).toBe("1");
+  });
+
+  it("still uses the short list for a zone with no tiers", async () => {
+    await seedShippingData(); // seeds legacy zones carrying named multipliers only
+
+    const res = await request(app).get(`${BASE}/shipping/methods?city=Accra`);
+    const speeds = res.body.data.methods
+      .filter((m) => m.id.startsWith("courier_dispatch_"))
+      .map((m) => m.speed)
+      .sort();
+    expect(speeds).toEqual(["express", "standard"]);
+  });
+});
