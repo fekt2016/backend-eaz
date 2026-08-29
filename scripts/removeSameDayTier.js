@@ -24,8 +24,15 @@ const APPLY = process.argv.includes('--apply');
 const TIER = 'same_day';
 
 (async () => {
-  const uri = process.env.MONGO_URL || process.env.MONGO_URI;
-  if (!uri) throw new Error('MONGO_URL / MONGO_URI is not set.');
+  // Same resolution server.js uses: MONGO_URL carries a <PASSWORD> placeholder
+  // that DATABASE_PASSWORD fills in. Reading MONGO_URL alone connects with the
+  // literal placeholder and fails with "bad auth".
+  const raw = process.env.MONGO_URL || process.env.mongo_url || process.env.MONGO_URI;
+  if (!raw) throw new Error('MONGO_URL (or mongo_url) is not set.');
+  const dbPassword = process.env.DATABASE_PASSWORD || process.env.database_password;
+  const uri = raw.includes('<PASSWORD>') && dbPassword
+    ? raw.replace('<PASSWORD>', dbPassword)
+    : raw;
   await mongoose.connect(uri);
 
   const zones = await ShippingZone.find({ 'speedTiers.code': TIER }).select('zoneKey name speedTiers');
