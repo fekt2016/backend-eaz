@@ -90,7 +90,9 @@ describe("GET /api/v1/pos/reports/analytics", () => {
     expect(todayPoint.total).toBe(20000);
   });
 
-  it("hides internal costs (expenses / net profit) from staff", async () => {
+  // T83 (owner, 2026-08-29): staff no longer read reports at all, so the question
+  // of which figures to hide from them no longer arises — the endpoint refuses.
+  it("refuses staff outright", async () => {
     await seedShopData();
     const { token } = await makeUser("staff");
     const today = todayStr();
@@ -99,10 +101,7 @@ describe("GET /api/v1/pos/reports/analytics", () => {
       .get(`/api/v1/pos/reports/analytics?from=${today}&to=${today}`)
       .set("Authorization", `Bearer ${token}`);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.kpi.expenses.canSeeExpenses).toBe(false);
-    expect(res.body.data.kpi.expenses.netProfit).toBeNull();
-    expect(res.body.data.expenseByCategory).toEqual([]);
+    expect(res.status).toBe(403);
   });
 
   it("forbids technicians", async () => {
@@ -178,26 +177,18 @@ describe("GET /api/v1/pos/reports/analytics — staff scope (T32)", () => {
     return { staffA, staffB };
   }
 
-  it("scopes a staff caller to their own activity regardless of a passed staffId", async () => {
+  // Was: a staff caller is pinned to their own activity and never trusted with a
+  // client-supplied staffId. T83 removed staff from this endpoint, so the scoping
+  // branch is unreachable — the guarantee is now the stronger one. The controller
+  // still carries that T32 logic; see T111.
+  it("refuses a staff caller rather than scoping them", async () => {
     const { staffA, staffB } = await seedTwoStaffActivity();
 
-    // Staff A tries to pass staff B's id — must be ignored server-side.
     const res = await request(app)
       .get(`/api/v1/pos/reports/analytics?staffId=${staffB.user._id}`)
       .set("Authorization", `Bearer ${staffA.token}`);
 
-    expect(res.status).toBe(200);
-    const d = res.body.data;
-    expect(d.scope.staffId).toBe(String(staffA.user._id));
-    expect(d.scope.isOwnReport).toBe(true);
-    expect(d.scope.staffList).toEqual([]); // staff never gets the picker list
-
-    // Only staff A's numbers — not staff B's, not the shop order.
-    expect(d.kpi.revenue.repair).toBe(5000);
-    expect(d.kpi.revenue.posSales).toBe(3000);
-    expect(d.kpi.revenue.shopOrders).toBe(0);
-    expect(d.kpi.revenue.total).toBe(8000);
-    expect(d.kpi.repairs.total).toBe(1);
+    expect(res.status).toBe(403);
   });
 
   it("lets admin scope to a specific staff member's activity via staffId", async () => {
@@ -246,8 +237,11 @@ describe("GET /api/v1/pos/reports/analytics — staff scope (T32)", () => {
     expect(d.scope.staffList.length).toBeGreaterThanOrEqual(3); // staffA, staffB, admin caller
   });
 
+  // Aggregation regression, unrelated to who may call it: re-pointed to an admin
+  // caller scoped via staffId after T83 removed staff from this endpoint.
   it("does not double-count a staff member who both created the job and received its payment", async () => {
-    const { user, token } = await makeUser("staff");
+    const { user } = await makeUser("staff");
+    const { token } = await makeUser("admin");
     const customer = await PosCustomer.create({ name: "Ama", phone: "0245000000" });
     // Same person is both createdBy AND (via PosPayment) receivedBy for the same job.
     const job = await RepairJob.create({
@@ -256,7 +250,7 @@ describe("GET /api/v1/pos/reports/analytics — staff scope (T32)", () => {
     await PosPayment.create({ job: job._id, amount: 5000, method: "cash", receivedBy: user._id });
 
     const res = await request(app)
-      .get("/api/v1/pos/reports/analytics")
+      .get(`/api/v1/pos/reports/analytics?staffId=${user._id}`)
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
