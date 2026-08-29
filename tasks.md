@@ -469,6 +469,25 @@ Not defects; product features that don't exist yet. Scope separately before buil
     - [ ] `.lean()` plus a field projection
     - [ ] Marketplace still renders correctly against the paginated response
 
+- [ ] **T108 · `refunds.test.js` fails only inside the full serial run, with an unexplained 426** (found during T83 verification, 2026-08-29)
+  - **Issue:** in `npx jest --runInBand`, "Paystack webhook — refund.processed / refund.failed ›
+    completes a processing refund on refund.processed" (`tests/refunds.test.js:175`) gets
+    **426 Upgrade Required** where it expects 200. Run on its own the file is **19/19 green**, on
+    both `main` and the T83 branch. So it is ordering/pollution, not a code regression.
+  - **Impact:** the full suite is not a trustworthy gate — it went 74/74 green earlier the same
+    day, then 12 failed on a stalled run, now 1. Until this is understood, a red full run cannot
+    be told apart from a real break.
+  - **Notable:** `426` appears **nowhere in the source** — not in `app.js`, the middleware, the
+    webhook route or any controller — so it originates in a dependency under some state the
+    preceding tests leave behind. Worth finding: a 426 from the Paystack webhook in production
+    would silently drop refund callbacks.
+  - **Repro:** `npx jest --runInBand` (fails) vs `npx jest tests/refunds.test.js --runInBand`
+    (passes). Adding an unrelated test file changed the ordering enough to surface it.
+  - **Fix:** bisect by running `refunds.test.js` after progressively larger prefixes of the suite
+    to find the polluting file; check for shared state left in `app`-level middleware or a module
+    -scope cache. `tests/setup.js` wipes collections per test but nothing resets module state.
+  - **Location:** `tests/refunds.test.js:175`; `tests/setup.js`
+
 ---
 
 ## Notes / Reconciliation with `AUDIT_REPORT.md` (stale)
