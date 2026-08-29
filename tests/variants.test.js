@@ -269,7 +269,7 @@ describe("Fulfilment with variants (Phase 3)", () => {
       paystackReference: `REF_FULFIL_${Date.now()}`,
     });
 
-    await fulfilShopOrder(order.paystackReference);
+    await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" });
 
     const fresh = await Product.findById(product._id);
     expect(fresh.variants.find((v) => v.sku === "SPG-BLK").stock).toBe(58);

@@ -26,7 +26,7 @@ const repairJobSchema = new mongoose.Schema(
 
     parts: [
       {
-        part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' }, // optional inventory link
+        part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Product' }, // optional inventory link
         name:        { type: String, required: true },
         quantity:    { type: Number, default: 1, min: 1 },
         priceAtTime: { type: Number, default: 0, min: 0 }, // selling price (pesewas)

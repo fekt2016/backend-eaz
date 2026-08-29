@@ -19,12 +19,16 @@ const {
   confirmTwoFactor,
   disableTwoFactor,
   verifyTwoFactor,
-  getMyAddresses,
-  saveAddress,
-  deleteAddress,
 } = require('../controllers/authController');
 const { protect, restrictTo } = require('../middleware/auth');
 const { createUserSchema } = require('../validation/authSchema');
+const { validate } = require('../middleware/validate');
+const { createAddressSchema } = require('../validation/addressSchema');
+const {
+  getAddresses,
+  createAddress,
+  deleteAddress: removeAddress,
+} = require('../controllers/addressController');
 
 const router = express.Router();
 
@@ -37,9 +41,15 @@ router.post('/forgot-password', forgotPassword);
 router.patch('/reset-password/:token', resetPassword);
 router.get('/me', protect, getMe);
 router.patch('/me', protect, updateProfile);
-router.get('/me/addresses', protect, getMyAddresses);
-router.post('/me/addresses', protect, saveAddress);
-router.delete('/me/addresses/:addressId', protect, deleteAddress);
+// Deprecated address routes — kept so a client mid-deploy keeps working. They
+// now delegate to the Address collection (routes/addressRoutes.js), so there is
+// one store rather than two that can disagree. Remove once nothing calls them.
+router.get('/me/addresses', protect, getAddresses);
+router.post('/me/addresses', protect, validate(createAddressSchema), createAddress);
+router.delete('/me/addresses/:addressId', protect, (req, _res, next) => {
+  req.params.id = req.params.addressId;
+  next();
+}, removeAddress);
 router.patch('/change-password', protect, changePassword);
 router.post('/2fa/enable', protect, enableTwoFactor);
 router.post('/2fa/confirm', protect, confirmTwoFactor);

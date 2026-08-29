@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, notify, NOTIFICATION_TYPES, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder, canTransitionJobStatus
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, notify, NOTIFICATION_TYPES, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder, canTransitionJobStatus
 } = require('./common');
 
 const createJob = async (req, res, next) => {
@@ -30,7 +30,7 @@ const createJob = async (req, res, next) => {
     if (Array.isArray(parts) && parts.length) {
       const partIds = parts.map(p => p.partId).filter(Boolean);
       const inventory = partIds.length
-        ? await Part.find({ _id: { $in: partIds } }).select('_id name sellingPrice costPrice')
+        ? await Product.find({ _id: { $in: partIds } }).select('_id name price costPrice')
         : [];
       const partMap = Object.fromEntries(inventory.map(p => [p._id.toString(), p]));
       partsList = parts
@@ -41,8 +41,8 @@ const createJob = async (req, res, next) => {
             part:        part._id,
             name:        part.name,
             quantity:    Math.max(1, Number(p.quantity) || 1),
-            // Snapshots stored in integer pesewas — same unit as Part.
-            priceAtTime: Math.round(Number(part.sellingPrice)),
+            // Snapshots stored in integer pesewas — same unit as the catalogue.
+            priceAtTime: Math.round(Number(part.price)),
             costAtTime:  Math.round(Number(part.costPrice)),
           };
         });
@@ -375,17 +375,17 @@ const updateJob = async (req, res, next) => {
     if (imei !== undefined)  job.imei  = sanitizeText(imei, 20);
     if (color !== undefined) job.color = sanitizeText(color, 40);
 
-    // Replace parts list — for inventory-linked parts, always use current sellingPrice
+    // Replace parts list — for inventory-linked parts, always use current price
     if (Array.isArray(parts)) {
       const inventoryIds = parts
         .filter(p => p.partId)
         .map(p => p.partId);
 
       const inventoryParts = inventoryIds.length
-        ? await Part.find({ _id: { $in: inventoryIds } }).select('_id sellingPrice costPrice name')
+        ? await Product.find({ _id: { $in: inventoryIds } }).select('_id price costPrice name')
         : [];
 
-      const priceMap = Object.fromEntries(inventoryParts.map(p => [p._id.toString(), { sell: p.sellingPrice, cost: p.costPrice }]));
+      const priceMap = Object.fromEntries(inventoryParts.map(p => [p._id.toString(), { sell: p.price, cost: p.costPrice }]));
 
       job.parts = parts
         .filter(p => p.name && String(p.name).trim())
@@ -435,7 +435,10 @@ const updateJob = async (req, res, next) => {
     // cancelled — mirrors the shop-order restock in orderController.js.
     if (status === 'cancelled' && prevStatus !== 'cancelled' && job.stockDeducted && !job.stockRestored) {
       for (const p of deductedParts) {
-        await Part.findByIdAndUpdate(p.part, { $inc: { quantity: p.quantity } });
+        await Product.findByIdAndUpdate(p.part, { $inc: { stock: p.quantity } });
+        // Reverse the sale on the popularity counter as well — clamped, since
+        // parts deducted before the counter existed have nothing to subtract.
+        await Product.decrementSold(p.part, p.quantity);
       }
       job.stockRestored = true;
     }
@@ -796,7 +799,7 @@ const createRepairOrder = async (req, res, next) => {
       if (!mongoose.Types.ObjectId.isValid(partId)) {
         return res.status(400).json({ success: false, error: 'Invalid part selected.' });
       }
-      const part = await Part.findById(partId).lean();
+      const part = await Product.findById(partId).lean();
       if (!part || !Number(part.sellingPrice) || part.sellingPrice <= 0) {
         return res.status(400).json({ success: false, error: 'That part is not available for ordering.' });
       }

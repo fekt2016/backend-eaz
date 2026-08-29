@@ -37,6 +37,15 @@ const deliveryZoneRoutes = require('./routes/deliveryZoneRoutes');
 const activityLogRoutes  = require('./routes/activityLogRoutes');
 const productReviewRoutes = require('./routes/productReviewRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const shippingRoutes = require('./routes/shippingRoutes');
+const adminShippingRoutes = require('./routes/adminShippingRoutes');
+const locationRoutes = require('./routes/locationRoutes');
+const adminLocationRoutes = require('./routes/adminLocationRoutes');
+const neighborhoodRoutes = require('./routes/neighborhoodRoutes');
+const adminNeighborhoodRoutes = require('./routes/adminNeighborhoodRoutes');
+const pickupRoutes = require('./routes/pickupRoutes');
+const adminPickupRoutes = require('./routes/adminPickupRoutes');
+const cartRoutes          = require('./routes/cartRoutes');
 
 const app = express();
 
@@ -176,6 +185,11 @@ app.use('/api/v1/products/:productId/reviews', rateLimit({
 // Chat — public and unbounded by default, so lock it down
 app.use('/api/v1/chat',                 makeLimit(15, 60,  'Too many chat messages. Please slow down.'));
 
+// Shipping quote — public but calls the DB for every product lookup; tighten
+// it relative to the global limit so a checkout flood can't starve other
+// endpoints.
+app.use('/api/v1/shipping/quote',       makeLimit(15, 30,  'Too many quote requests. Please try again later.'));
+
 // Domain search — calls paid Namecheap API
 app.use('/api/v1/domain/search',        makeLimit(15, 30,  'Too many domain searches. Please try again later.'));
 app.use('/api/v1/domain/check',         makeLimit(15, 30,  'Too many domain checks. Please try again later.'));
@@ -214,6 +228,16 @@ app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/orders',   orderRoutes);
 app.use('/api/v1/shipments', require('./routes/shipmentRoutes'));
 app.use('/api/v1/delivery-zones', deliveryZoneRoutes);
+app.use('/api/v1/shipping',      shippingRoutes);
+app.use('/api/v1/admin/shipping', adminShippingRoutes);
+app.use('/api/v1/locations',      locationRoutes);
+app.use('/api/v1/admin/locations', adminLocationRoutes);
+app.use('/api/v1/neighborhoods', neighborhoodRoutes);
+app.use('/api/v1/admin/neighborhoods', adminNeighborhoodRoutes);
+app.use('/api/v1/pickups',        pickupRoutes);
+app.use('/api/v1/admin/pickups',  adminPickupRoutes);
+app.use('/api/v1/cart',           cartRoutes);
+app.use('/api/v1/addresses',      require('./routes/addressRoutes'));
 app.use('/api/v1/activity-logs', activityLogRoutes); // admin/superadmin only
 app.use('/api/v1/product-reviews', productReviewRoutes);
 app.use('/api/v1/notifications', notificationRoutes);

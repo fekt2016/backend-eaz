@@ -16,7 +16,7 @@ const orderSchema = new mongoose.Schema({
     },
     part: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Part',
+      ref: 'Product',
       required: false,
     },
     name: {
@@ -68,15 +68,127 @@ const orderSchema = new mongoose.Schema({
     required: true,
     min: [0, 'Subtotal cannot be negative']
   },
+  // ── Legacy delivery fields (deprecated — kept for backward compat with old
+  //    admin views; synced from shippingFee by the pre-save hook below) ──────
   deliveryZone: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'DeliveryZone'
   },
+  /** @deprecated Use shippingFee. Synced automatically by pre-save hook. */
   deliveryFee: {
     type: Number,
     default: 0,
     min: [0, 'Delivery fee cannot be negative']
   },
+
+  // ── T78 shipping fields ──────────────────────────────────────────────────
+  // These are the authoritative shipping figures. The calculator writes them;
+  // the pre-save hook copies shippingFee → deliveryFee for legacy compat.
+  shippingFee: {
+    type: Number,
+    default: 0,
+    min: [0, 'Shipping fee cannot be negative'],
+    validate: {
+      validator: (v) => Number.isInteger(v),
+      message: 'Shipping fee must be a whole number in pesewas',
+    },
+  },
+  shippingZoneCode: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  shippingZoneName: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  shippingNeighborhood: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  shippingMethod: {
+    type: String,
+    enum: {
+      values: ['in_house_delivery', 'courier_dispatch', 'bus_station_pickup', null],
+      message: 'Shipping method must be one of: {VALUES}',
+    },
+    default: null,
+  },
+  shippingSpeed: {
+    type: String,
+    enum: {
+      values: ['standard', 'same_day', 'next_day', 'express', null],
+      message: 'Shipping speed must be one of: {VALUES}',
+    },
+    default: 'standard',
+  },
+  // The ShippingQuote doc that was consumed to produce these figures. Null when
+  // the legacy deliveryZone path was used or when shipping was manually set.
+  shippingQuoteId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ShippingQuote',
+    default: null,
+  },
+  shippingWeightKg: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  shippingTierLevel: {
+    type: Number,
+    default: 0,
+  },
+
+  // ── T80 E2 pickup-fulfilment fields ─────────────────────────────────────
+  // Set when shippingMethod === 'bus_station_pickup'. The id points back to a
+  // PickupLocation doc for live lookups; the name is a snapshot so historical
+  // orders keep the exact label the customer chose even if the pickup is later
+  // renamed, disabled, or deleted.
+  pickupLocationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PickupLocation',
+    default: null,
+  },
+  // The fulfilment choice as the customer saw it — "Courier — Next Day".
+  // Snapshotted like pickupLocationName so renaming a speed tier later never
+  // rewrites what someone actually bought, and so the confirmation and order
+  // pages render one field instead of each re-deriving a label from raw enums.
+  shippingMethodLabel: {
+    type: String,
+    trim: true,
+    maxlength: 80,
+    default: "",
+  },
+  pickupLocationName: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  // T80 — pickup-region context. Mirrors ShippingQuote.region; the calculator
+  // resolves region → fulfilment, but the order also stores it so the
+  // tracking/email copy can name the region without re-querying the quote.
+  shippingRegion: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  // T80 — pickup lifecycle markers. `readyForPickupAt` is set by staff when
+  // the parcel reaches the chosen pickup point (status reaches 'shipped' for
+  // pickup orders); `pickedUpAt` is set when the customer collects (status
+  // reaches 'delivered'). Both null for home-delivery orders. Kept as separate
+  // fields rather than new status enum values so the existing forward-only
+  // transition rules keep working and reports/dashboards don't break.
+  readyForPickupAt: {
+    type: Date,
+    default: null,
+  },
+  pickedUpAt: {
+    type: Date,
+    default: null,
+  },
+
   total: {
     type: Number,
     required: true,
@@ -146,6 +258,19 @@ const orderSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
+
+  // ── T78 address-change tracking ───────────────────────────────────────────
+  // When the delivery address changes after order creation, the shipping fee
+  // is recalculated and the delta recorded here. Once status reaches "shipped"
+  // no further address changes are allowed (controller enforces; model stores).
+  addressHistory: [{
+    address: { type: String, trim: true },
+    shippingFee: { type: Number },
+    zoneCode: { type: String, trim: true },
+    changedBy: { type: String, trim: true, default: 'customer' },
+    changedAt: { type: Date, default: Date.now },
+  }],
+
   // T15 — full-order refunds via Paystack. Not a `status` value: refund is a
   // payment outcome, orthogonal to fulfilment status. `status` here starts
   // 'none' and is atomically claimed to 'processing' before the Paystack call
@@ -174,7 +299,19 @@ const orderSchema = new mongoose.Schema({
 
 orderSchema.index({ paystackReference: 1 }, { sparse: true });
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ shippingQuoteId: 1 }, { sparse: true });
 // trackingNumber already gets a unique sparse index from `unique: true` on the
 // field definition — no separate index() call (avoids a duplicate-index warning).
+
+// ── T78 pre-save hook ────────────────────────────────────────────────────────
+// Keep the legacy `deliveryFee` field in sync with the new `shippingFee` so old
+// admin views and reports that still read deliveryFee keep working. The two
+// fields are never set independently — shippingFee is the source of truth.
+orderSchema.pre('save', function syncDeliveryFee(next) {
+  if (this.isModified('shippingFee')) {
+    this.deliveryFee = this.shippingFee;
+  }
+  next();
+});
 
 module.exports = mongoose.model('Order', orderSchema);

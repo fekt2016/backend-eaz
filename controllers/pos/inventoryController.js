@@ -1,48 +1,42 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, canTransitionPartRepairOrder
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, PART_REPAIR_ORDER_STATUSES, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, asInventoryItem, asProductFields, formatDateOnly, pctChange, canTransitionPartRepairOrder
 } = require('./common');
 
 const getParts = async (req, res, next) => {
   try {
-    const { q, category, lowStock, retail, includeProducts, page = 1, limit = 50 } = req.query;
+    // `includeProducts` is accepted and ignored — shop stock and bench parts are
+    // one collection now, so every search already spans both. It used to give
+    // products only what was left of `limit` after the parts, so a search
+    // matching a full page of parts returned no products at all.
+    const { q, category, lowStock, retail, page = 1, limit = 50 } = req.query;
     const query = {};
-    if (category)       query.category  = category;
-    if (retail === 'true') query.isRetail = true;
-    if (lowStock === 'true') query.$expr = { $lte: ['$quantity', '$lowStockThreshold'] };
+
+    // Category matches either taxonomy: the repair one (Screen, Battery, …) or
+    // the shop one (Phones, Accessories, …).
+    if (category) query.$and = [{ $or: [{ partCategory: category }, { category }] }];
+    // Only what the counter may sell.
+    if (retail === 'true') query.sellInStore = true;
+    // Applies to everything now — products had no threshold field before the
+    // merge, so shop stock could never show up in a low-stock check.
+    if (lowStock === 'true') query.$expr = { $lte: ['$stock', '$lowStockThreshold'] };
     if (q) query.$or = [
       { name:    { $regex: escapeRegex(q), $options: 'i' } },
       { sku:     { $regex: escapeRegex(q), $options: 'i' } },
+      // Barcode search reaches shop stock now; Product had no barcode at all.
       { barcode: { $regex: escapeRegex(q), $options: 'i' } },
     ];
-    const [parts, total] = await Promise.all([
-      Part.find(query).sort({ name: 1 }).skip((page - 1) * limit).limit(Number(limit)).populate('supplier', 'name phone'),
-      Part.countDocuments(query),
+
+    const [items, total] = await Promise.all([
+      Product.find(query)
+        .sort({ name: 1 })
+        .skip((page - 1) * limit)
+        .limit(Number(limit))
+        .populate('supplier', 'name phone')
+        .lean(),
+      Product.countDocuments(query),
     ]);
 
-    // Optionally merge shop products (the online shop catalogue) into POS
-    // searches so cashiers can ring up in-store products too.
-    let data = parts;
-    if (includeProducts === 'true') {
-      // Products get whatever is left of `limit` after the parts, so the merged
-      // response honours the limit the caller asked for. It used to fetch a further
-      // `limit` products and concatenate, which meant ?limit=10 could return 20 rows.
-      const remaining = Math.max(0, Number(limit) - parts.length);
-      if (remaining > 0) {
-        const prodQuery = { isActive: true };
-        if (q) prodQuery.$or = [
-          { name: { $regex: escapeRegex(q), $options: 'i' } },
-          { sku:  { $regex: escapeRegex(q), $options: 'i' } },
-        ];
-        const products = await Product.find(prodQuery)
-          .select('name sku price stock category images')
-          .sort({ name: 1 })
-          .limit(remaining)
-          .lean();
-        data = [...data, ...products.map(normalizeProduct)];
-      }
-    }
-
-    res.json({ success: true, data, total });
+    res.json({ success: true, data: items.map(asInventoryItem), total });
   } catch (err) { next(err); }
 };
 
@@ -51,7 +45,7 @@ const getParts = async (req, res, next) => {
 
 /**
  * Shape a shop Product into the sellable line the POS cashier expects. Products
- * store price (pesewas) + stock; parts store sellingPrice + quantity. Both map
+ * The POS clients still speak the old part vocabulary (sellingPrice, quantity),
  * onto the same frontend cart shape, flagged with `_kind` so the client can
  * send back the right id.
  */
@@ -61,9 +55,10 @@ const scanLookup = async (req, res, next) => {
     const code = sanitizeText(req.params.code, 100).trim();
     if (!code) return res.status(400).json({ success: false, error: 'Code required.' });
 
-    // 1. Exact barcode match on Part (fastest path — indexed)
-    const part = await Part.findOne({ barcode: code });
-    if (part) return res.json({ success: true, type: 'product', data: part });
+    // 1. Exact barcode match (indexed). Reaches shop stock as well as bench
+    //    parts now — a shop product could not be scanned at all before.
+    const byBarcode = await Product.findOne({ barcode: code }).lean();
+    if (byBarcode) return res.json({ success: true, type: 'product', data: asInventoryItem(byBarcode) });
 
     // 2. IMEI match on an active repair job
     if (/^\d{14,15}$/.test(code)) {
@@ -73,12 +68,14 @@ const scanLookup = async (req, res, next) => {
       if (job) return res.json({ success: true, type: 'repair_job', data: job });
     }
 
-    // 3. SKU fallback on Part, then shop Product
-    const bySku = await Part.findOne({ sku: code });
-    if (bySku) return res.json({ success: true, type: 'product', data: bySku });
+    // 3. SKU fallback — one collection, so one query where there were two.
+    const bySku = await Product.findOne({ sku: code }).lean();
+    if (bySku) return res.json({ success: true, type: 'product', data: asInventoryItem(bySku) });
 
-    const product = await Product.findOne({ sku: code, isActive: true }).lean();
-    if (product) return res.json({ success: true, type: 'product', data: normalizeProduct(product) });
+    // 4. A variant's own SKU. Variants live on shop stock and were invisible to
+    //    the scanner while POS read a separate collection.
+    const byVariant = await Product.findOne({ 'variants.sku': code }).lean();
+    if (byVariant) return res.json({ success: true, type: 'product', data: asInventoryItem(byVariant) });
 
     return res.status(404).json({ success: false, error: 'Not found. Try searching manually.' });
   } catch (err) { next(err); }
@@ -86,80 +83,83 @@ const scanLookup = async (req, res, next) => {
 
 const createPart = async (req, res, next) => {
   try {
-    const { name, sku, category, quantity, lowStockThreshold, costPrice, sellingPrice, compatibleWith, description, images, notes, supplier } = req.body;
+    const { name, category, quantity, lowStockThreshold, costPrice, sellingPrice } = req.body;
     if (!name || costPrice == null || sellingPrice == null) {
       return res.status(400).json({ success: false, error: 'Name, cost price, and selling price are required.' });
     }
-    const part = await Part.create({
+
+    const part = await Product.create({
+      ...asProductFields(req.body),
       name:              sanitizeText(name, 150),
-      sku:               sku ? sanitizeText(sku, 50) : undefined,
       category:          category || 'Other',
-      quantity:          Number(quantity) || 0,
+      partCategory:      category || 'Other',
+      stock:             Number(quantity) || 0,
       lowStockThreshold: Number(lowStockThreshold) || 3,
-      costPrice:         Number(costPrice),
-      sellingPrice:      Number(sellingPrice),
-      supplier:          supplier || undefined,
-      compatibleWith:    Array.isArray(compatibleWith) ? compatibleWith.map(s => sanitizeText(s, 100)).filter(Boolean) : [],
-      description:       description ? sanitizeText(description, 1000) : '',
-      images:            Array.isArray(images) ? images.map(i => sanitizeText(i, 500)).filter(Boolean) : [],
-      notes:             notes ? sanitizeText(notes, 500) : undefined,
+      compatibleWith:    Array.isArray(req.body.compatibleWith) ? req.body.compatibleWith.map(v => sanitizeText(v, 100)).filter(Boolean) : [],
+      description:       req.body.description ? sanitizeText(req.body.description, 1000) : '',
+      images:            Array.isArray(req.body.images) ? req.body.images.map(i => sanitizeText(i, 500)).filter(Boolean) : [],
+      notes:             req.body.notes ? sanitizeText(req.body.notes, 500) : '',
+      // Bench stock is not listed online by default — the old Part model
+      // defaulted `isRetail` to false and inventory screens relied on that.
+      // Staff opt an item into the shop deliberately.
+      sellOnline:   false,
+      sellInStore:  true,
+      useInRepairs: true,
+      isActive:     false,
+      // slug is generated by the model when absent (POS supplies only a name).
     });
+
     await logFromRequest(req, {
       action: ACTIONS.INVENTORY_CREATED,
       resourceType: RESOURCES.INVENTORY,
       resourceId: part._id,
       resourceName: part.name,
-      description: `Created inventory item ${part.name} (qty ${part.quantity})`,
-      metadata: { sku: part.sku || '', category: part.category },
+      description: `Created inventory item ${part.name} (qty ${part.stock})`,
+      metadata: { sku: part.sku || '', category: part.partCategory },
     });
-    res.status(201).json({ success: true, data: part });
+    res.status(201).json({ success: true, data: asInventoryItem(part) });
   } catch (err) { next(err); }
 };
 
 const updatePart = async (req, res, next) => {
   try {
-    const existing = await Part.findById(req.params.id);
+    const existing = await Product.findById(req.params.id);
     if (!existing) return res.status(404).json({ success: false, error: 'Part not found.' });
 
-    const update = {};
-    const fields = ['name', 'sku', 'category', 'quantity', 'lowStockThreshold', 'costPrice', 'sellingPrice', 'supplier', 'compatibleWith', 'description', 'images', 'notes'];
-    for (const f of fields) {
-      if (req.body[f] !== undefined) update[f] = req.body[f];
-    }
-    const part = await Part.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
+    const update = asProductFields(req.body);
+    const part = await Product.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
     if (!part) return res.status(404).json({ success: false, error: 'Part not found.' });
 
-    const before = {
-      name: existing.name, sku: existing.sku, category: existing.category, quantity: existing.quantity,
-      lowStockThreshold: existing.lowStockThreshold, costPrice: existing.costPrice, sellingPrice: existing.sellingPrice,
-    };
-    const after = {
-      name: part.name, sku: part.sku, category: part.category, quantity: part.quantity,
-      lowStockThreshold: part.lowStockThreshold, costPrice: part.costPrice, sellingPrice: part.sellingPrice,
-    };
-    const changes = buildChanges(before, after, {
+    // The audit trail keeps speaking the inventory screen's language, so a
+    // stock adjustment logged before the merge and one logged after read the
+    // same in the activity log.
+    const snapshot = (d) => ({
+      name: d.name, sku: d.sku, category: d.partCategory || d.category, quantity: d.stock,
+      lowStockThreshold: d.lowStockThreshold, costPrice: d.costPrice, sellingPrice: d.price,
+    });
+    const changes = buildChanges(snapshot(existing), snapshot(part), {
       name: 'Name', sku: 'SKU', category: 'Category', quantity: 'Quantity',
       lowStockThreshold: 'Low Stock Threshold', costPrice: 'Cost Price', sellingPrice: 'Selling Price',
     });
-    const stockAdjusted = 'quantity' in update;
+    const stockAdjusted = 'stock' in update;
     await logFromRequest(req, {
       action: stockAdjusted ? ACTIONS.INVENTORY_STOCK_ADJUSTED : ACTIONS.INVENTORY_UPDATED,
       resourceType: RESOURCES.INVENTORY,
       resourceId: part._id,
       resourceName: part.name,
       description: stockAdjusted
-        ? `Stock adjusted for ${part.name} (${existing.quantity} → ${part.quantity})`
+        ? `Stock adjusted for ${part.name} (${existing.stock} → ${part.stock})`
         : `Updated inventory item ${part.name}`,
       changes,
     });
 
-    res.json({ success: true, data: part });
+    res.json({ success: true, data: asInventoryItem(part) });
   } catch (err) { next(err); }
 };
 
 const deletePart = async (req, res, next) => {
   try {
-    const part = await Part.findByIdAndDelete(req.params.id);
+    const part = await Product.findByIdAndDelete(req.params.id);
     if (!part) return res.status(404).json({ success: false, error: 'Part not found.' });
     await logFromRequest(req, {
       action: ACTIONS.INVENTORY_DELETED,
@@ -179,8 +179,12 @@ const deletePart = async (req, res, next) => {
 const getPublicParts = async (req, res, next) => {
   try {
     const { q, category } = req.query;
-    const query = { sellingPrice: { $gt: 0 } };
-    if (category && category !== 'all') query.category = category;
+    // Only what a customer may actually buy for their repair: priced, and
+    // flagged for the counter. `sellInStore` replaces the old `isRetail`.
+    const query = { price: { $gt: 0 }, sellInStore: true };
+    if (category && category !== 'all') {
+      query.$and = [{ $or: [{ partCategory: category }, { category }] }];
+    }
     if (q && String(q).trim()) {
       const term = String(q).trim();
       query.$or = [
@@ -190,12 +194,13 @@ const getPublicParts = async (req, res, next) => {
         { compatibleWith: { $regex: escapeRegex(term), $options: 'i' } },
       ];
     }
-    const parts = await Part.find(query)
-      .select('name sku category sellingPrice quantity lowStockThreshold compatibleWith description images')
+    const parts = await Product.find(query)
+      .select('name sku category partCategory price stock lowStockThreshold compatibleWith description images')
       .sort({ name: 1 })
       .limit(100)
       .lean();
-    res.json({ success: true, data: parts });
+    // Cost and supplier are never selected above, so they cannot leak here.
+    res.json({ success: true, data: parts.map(asInventoryItem) });
   } catch (err) { next(err); }
 };
 

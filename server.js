@@ -82,6 +82,17 @@ const startServer = async () => {
     });
     console.log(`✅ MongoDB connected: ${conn.connection.host}`);
 
+    // Verify the distance-zone bands still tile 0 → the serviceable radius with
+    // no gap and no overlap. A bad admin edit then shows up here, on deploy,
+    // instead of as a thrown quote on a customer's checkout. Logs only — a
+    // coverage problem must not stop the server from serving everything else.
+    try {
+      const { assertCoverageAtStartup } = require("./services/shipping/zoneClassification");
+      await assertCoverageAtStartup();
+    } catch (err) {
+      console.warn(`⚠️  shipping zone coverage check skipped: ${err.message}`);
+    }
+
     // Start Express server
     const server = app.listen(PORT, HOST, () => {
       console.log(`🚀 Server running on http://${HOST}:${PORT}`);

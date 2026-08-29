@@ -1,5 +1,4 @@
 const Order = require('../models/Order');
-const Part = require('../models/Part');
 const Product = require('../models/Product');
 const DeliveryZone = require('../models/DeliveryZone');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
@@ -8,13 +7,55 @@ const { notifyRoles, NOTIFICATION_TYPES } = require('./notifications');
 const { sendShopOrderConfirmationEmail } = require('./email');
 
 /**
+ * Build a guard rejection. `code` is what callers branch on — the message
+ * carries the detail for the log.
+ */
+function paymentGuardError(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+/** Codes thrown by fulfilShopOrder's payment guard. Callers import this to
+ *  tell a rejected charge from a genuine failure. */
+const PAYMENT_GUARD_CODES = ['MISSING_PAYMENT_GUARD', 'CURRENCY_MISMATCH', 'AMOUNT_MISMATCH'];
+
+/**
  * Atomically transition a shop order pending→paid and decrement stock.
+ *
+ * `payment` is mandatory and must carry what Paystack actually charged:
+ * `{ amountPesewas, currency }`. The amount is folded into the update's own
+ * filter, so an order cannot be flipped to paid by a charge that doesn't match
+ * its total — no caller can fulfil an order without proving the amount. This
+ * guard used to be duplicated at each call site; it lives here so a future
+ * caller inherits it instead of forgetting it.
+ *
  * Idempotent: if the order is not pending it does nothing and returns null,
  * so concurrent webhook + verification paths never double-decrement.
+ *
+ * Throws (see PAYMENT_GUARD_CODES) on MISSING_PAYMENT_GUARD, CURRENCY_MISMATCH,
+ * or AMOUNT_MISMATCH — never a silent no-op, since those mean a charge that
+ * must not fulfil.
  */
-async function fulfilShopOrder(reference) {
+async function fulfilShopOrder(reference, payment) {
+  const amountPesewas = Number(payment?.amountPesewas);
+  const currency      = payment?.currency;
+
+  if (!Number.isFinite(amountPesewas) || amountPesewas <= 0) {
+    throw paymentGuardError(
+      'MISSING_PAYMENT_GUARD',
+      `fulfilShopOrder(${reference}) called without the charged amount — refusing to fulfil`
+    );
+  }
+  if (currency && currency !== 'GHS') {
+    throw paymentGuardError(
+      'CURRENCY_MISMATCH',
+      `Order ${reference} was charged in ${currency}, expected GHS`
+    );
+  }
+
   const paid = await Order.findOneAndUpdate(
-    { paystackReference: reference, status: 'pending' },
+    { paystackReference: reference, status: 'pending', total: amountPesewas },
     {
       $set: { status: 'paid', paidAt: new Date() },
       $push: {
@@ -28,7 +69,21 @@ async function fulfilShopOrder(reference) {
     { new: true }
   );
 
-  if (!paid) return null;
+  if (!paid) {
+    // Either already fulfilled (idempotent no-op) or the amount clause in the
+    // filter above rejected it. Only re-read to tell those apart — the happy
+    // path stays a single atomic write.
+    const existing = await Order.findOne({ paystackReference: reference })
+      .select('status total orderNumber')
+      .lean();
+    if (existing && existing.status === 'pending' && existing.total !== amountPesewas) {
+      throw paymentGuardError(
+        'AMOUNT_MISMATCH',
+        `Order ${existing.orderNumber} expects ${existing.total} pesewas, Paystack charged ${amountPesewas}`
+      );
+    }
+    return null;
+  }
 
   await log({
     action: ACTIONS.ORDER_PAID,
@@ -81,9 +136,12 @@ async function fulfilShopOrder(reference) {
   // fails the stock guard is not counted as sold either.
   for (const item of paid.items) {
     if (item.part) {
-      const result = await Part.findOneAndUpdate(
-        { _id: item.part, quantity: { $gte: item.qty } },
-        { $inc: { quantity: -item.qty } }
+      // T48's `sold` counter rides on the same guarded update as the stock
+      // move, exactly as it does for products below — a line that fails the
+      // stock guard is not counted as sold either.
+      const result = await Product.findOneAndUpdate(
+        { _id: item.part, stock: { $gte: item.qty } },
+        { $inc: { stock: -item.qty, sold: item.qty } }
       );
       if (!result) {
         console.error(
@@ -137,7 +195,10 @@ async function restockOrderItems(order) {
     if (item.isPreorder && !item.preorderReleasedAt) continue;
 
     if (item.part) {
-      await Part.findByIdAndUpdate(item.part, { $inc: { quantity: item.qty } });
+      await Product.findByIdAndUpdate(item.part, { $inc: { stock: item.qty } });
+      // Take the units back off `sold` too — clamped, since items sold before
+      // the counter existed have no field to decrement.
+      await Product.decrementSold(item.part, item.qty);
       continue;
     }
 
@@ -157,4 +218,4 @@ async function restockOrderItems(order) {
   }
 }
 
-module.exports = { fulfilShopOrder, restockOrderItems };
+module.exports = { fulfilShopOrder, restockOrderItems, PAYMENT_GUARD_CODES };

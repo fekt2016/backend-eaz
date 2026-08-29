@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, formatGhs
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange, formatGhs
 } = require('./common');
 
 // Thrown for a deliberate business-rule abort inside a withTransaction()
@@ -53,15 +53,17 @@ const createSale = async (req, res, next) => {
 
           // Repair-part line (inventory)
           if (partId) {
-            const part = await Part.findById(partId).session(session);
+            const part = await Product.findById(partId).session(session);
             if (!part) throw new SaleError(404, `Product not found: ${partId}`);
 
             // Stock check — respect allowNegativeStock flag
-            if (!part.allowNegativeStock && part.quantity < qty) {
-              throw new SaleError(400, `Insufficient stock for "${part.name}". Available: ${part.quantity}, Requested: ${qty}`);
+            if (!part.allowNegativeStock && part.stock < qty) {
+              throw new SaleError(400, `Insufficient stock for "${part.name}". Available: ${part.stock}, Requested: ${qty}`);
             }
 
-            await Part.findByIdAndUpdate(part._id, { $inc: { quantity: -qty } }, { session });
+            // `sold` rides on the same update as the stock deduction, exactly
+            // as it does for the Product branch below, so the two never diverge.
+            await Product.findByIdAndUpdate(part._id, { $inc: { stock: -qty, sold: qty } }, { session });
 
             saleItems.push({
               part:      part._id,
@@ -70,10 +72,10 @@ const createSale = async (req, res, next) => {
               sku:       part.sku,
               quantity:  qty,
               // Sale stored in integer pesewas — same unit as Part.
-              unitPrice: Math.round(Number(part.sellingPrice)),
-              subtotal:  Math.round(Number(part.sellingPrice)) * qty,
+              unitPrice: Math.round(Number(part.price)),
+              subtotal:  Math.round(Number(part.price)) * qty,
             });
-            subtotal += Math.round(Number(part.sellingPrice)) * qty;
+            subtotal += Math.round(Number(part.price)) * qty;
             continue;
           }
 
@@ -303,7 +305,8 @@ const voidSale = async (req, res, next) => {
         // Restore stock
         for (const item of found.items) {
           if (item.part) {
-            await Part.findByIdAndUpdate(item.part, { $inc: { quantity: item.quantity } }, { session });
+            await Product.findByIdAndUpdate(item.part, { $inc: { stock: item.quantity } }, { session });
+            await Product.decrementSold(item.part, item.quantity, session);
           }
           if (item.product) {
             await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.quantity } }, { session });

@@ -58,6 +58,24 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    // Shipping attributes (shipping charges feature). Read ONLY from the DB by
+    // the shipping calculator — never off a client payload. `weight: 0` means
+    // "unknown": the calculator prices the line at an assumed 0.5 kg and flags
+    // `weightAssumed` on the quote so support can explain the charge.
+    weight: {
+      type: Number,
+      min: [0, "Weight cannot be negative"],
+      default: 0,
+    },
+    weightUnit: {
+      type: String,
+      enum: { values: ["g", "kg", "lb"], message: "Weight unit must be one of: {VALUES}" },
+      default: "kg",
+    },
+    isFragile: {
+      type: Boolean,
+      default: false,
+    },
     // Structured variants — simple options (color/storage/length/model) as
     // distinct SKUs (Decision #1). Each variant has its own SKU, flexible
     // attribute key-values, stock, and optional images. Products without
@@ -138,6 +156,69 @@ const productSchema = new mongoose.Schema(
       ),
       default: () => ({}),
     },
+    // ── Inventory / POS fields (merged from the retired Part model) ──────
+    // A shop product and a repair part are the same thing — something we stock
+    // and sell — reached from two directions. These fields came from Part so a
+    // single record can be rung up at the counter, listed online, or fitted on
+    // a repair job without a second document or an adapter in between.
+
+    // What we paid, in pesewas. Parts always carried this; products never did,
+    // which left every counter-sold product invisible to COGS and inventory
+    // valuation. Defaults to 0 = "cost unknown" — reports must exclude those
+    // lines rather than assume a margin. Products migrated before costs were
+    // captured read 0 until someone fills them in.
+    costPrice: {
+      type: Number,
+      default: 0,
+      min: [0, "Cost price cannot be negative"],
+      validate: {
+        validator: (v) => Number.isInteger(v),
+        message: "Cost price must be a whole number in pesewas",
+      },
+    },
+    // Scanner lookup. Products had no barcode at all, so a cashier could not
+    // scan one — the POS search matched barcodes for parts only.
+    barcode: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Barcode cannot exceed 100 characters"],
+      default: "",
+    },
+    supplier: { type: mongoose.Schema.Types.ObjectId, ref: "Supplier" },
+    // Devices a repair part fits ("iPhone 14", "Redmi Note 12"). Empty for
+    // ordinary shop stock.
+    compatibleWith: [{ type: String, trim: true, maxlength: 100 }],
+    // Repair taxonomy (Screen, Battery, …), deliberately separate from the
+    // shop-facing `category` above (Phones, Accessories, …): they are different
+    // namespaces, which is why the old catalogue union refused to mix them.
+    // Null on ordinary shop stock.
+    partCategory: {
+      type: String,
+      enum: {
+        values: ["Screen", "Battery", "Charging Port", "Speaker", "Camera", "Button",
+                 "Housing", "Board", "Accessory", "Cable", "IC / Chip", "Other"],
+        message: "Part category must be one of: {VALUES}",
+      },
+      default: null,
+    },
+    lowStockThreshold: { type: Number, default: 0, min: [0, "Threshold cannot be negative"] },
+    // Admin override letting stock go below zero (back-ordered bench parts).
+    allowNegativeStock: { type: Boolean, default: false },
+    // Internal note — never shown to customers.
+    notes: { type: String, trim: true, maxlength: [500, "Notes cannot exceed 500 characters"], default: "" },
+
+    // ── Where this item may be sold ──────────────────────────────────────
+    // Behaviour, not type. The old split forced "is it a Product or a Part?"
+    // when the real questions are where it can be sold and whether it can go on
+    // a repair job — and an item can answer yes to all three.
+    //
+    // sellOnline  — listed in the shop  (was Product.isActive)
+    // sellInStore — offered in POS search/scan  (was Part.isRetail)
+    // useInRepairs — selectable as a job part  (was: being a Part at all)
+    sellOnline:   { type: Boolean, default: true },
+    sellInStore:  { type: Boolean, default: true },
+    useInRepairs: { type: Boolean, default: false },
+
     // T48 — popularity counters. Both move only through $inc from the server
     // (detail-page reads, and the same update that deducts stock on a sale);
     // neither is ever read off a client payload, so create/update must keep
@@ -175,8 +256,49 @@ productSchema.statics.decrementSold = function (productId, qty, session) {
   );
 };
 
+/**
+ * Auto-slug from the name when none is given. The shop has always supplied its
+ * own slug; the POS inventory screens (which used to create Parts, a model with
+ * no slug) supply only a name. Uniqueness is enforced by the index below — this
+ * appends the document's own id tail on collision, which cannot clash.
+ */
+/**
+ * `isActive` is the admin's on/off switch and its soft-delete — it predates the
+ * channel flags and the admin UI still writes it. Keep `sellOnline` in step
+ * unless the caller set it deliberately, so turning a product off (or deleting
+ * it) still takes it out of the shop.
+ */
+productSchema.pre("validate", function syncSellOnlineWithIsActive(next) {
+  if (this.$isDefault("sellOnline")) this.sellOnline = this.isActive;
+  return next();
+});
+
+productSchema.pre("validate", async function ensureSlug(next) {
+  if (this.slug) return next();
+  const base =
+    String(this.name || "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "item";
+
+  const taken = await this.constructor.exists({ slug: base, _id: { $ne: this._id } });
+  this.slug = taken ? `${base}-${String(this._id).slice(-6)}` : base;
+  return next();
+});
+
 productSchema.index({ category: 1, isActive: 1 });
 productSchema.index({ isActive: 1 });
+// Channel lookups: the shop lists sellOnline, POS searches sellInStore, the
+// job-parts picker uses useInRepairs. Each is the first filter of its query.
+productSchema.index({ sellOnline: 1 });
+productSchema.index({ sellInStore: 1 });
+productSchema.index({ useInRepairs: 1 });
+// Barcode scan — sparse because most shop stock has none. Carried over from
+// models/Part.js, which indexed it the same way.
+productSchema.index({ barcode: 1 }, { sparse: true });
+// POS low-stock filter reads threshold against stock.
+productSchema.index({ partCategory: 1 });
 // Unique SKU — but only for non-empty SKUs (sku defaults to "" and is optional).
 // Run `npm run check:duplicate-skus` before deploying so this index can build.
 productSchema.index({ sku: 1 }, { unique: true, partialFilterExpression: { sku: { $gt: "" } } });

@@ -6,12 +6,12 @@ const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const User = require("../models/User");
+const Product = require("../models/Product");
 const PosCustomer = require("../models/PosCustomer");
 const RepairJob = require("../models/RepairJob");
 const PosPayment = require("../models/PosPayment");
 const Sale = require("../models/Sale");
 const Order = require("../models/Order");
-const Part = require("../models/Part");
 
 async function makeUser(role) {
   const user = await User.create({
@@ -54,10 +54,9 @@ async function seedShopData() {
   });
 
   // Inventory: one part below its threshold
-  await Part.create({
-    name: "Battery", category: "Battery", quantity: 2, lowStockThreshold: 5,
-    costPrice: 1000, sellingPrice: 2000,
-  });
+  await Product.create({
+    name: "Battery", category: "Battery", partCategory: "Battery", stock: 2, lowStockThreshold: 5,
+    costPrice: 1000, price: 2000, useInRepairs: true});
 }
 
 describe("GET /api/v1/pos/reports/analytics", () => {

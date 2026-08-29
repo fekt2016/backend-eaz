@@ -17,7 +17,7 @@ const partOrderSchema = new mongoose.Schema(
     job: { type: mongoose.Schema.Types.ObjectId, ref: 'RepairJob', required: true },
 
     // Inventory link is optional — a job may use a custom, non-stocked part.
-    part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' },
+    part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     partName:    { type: String, required: true, trim: true, maxlength: 150 },
 
     quantity:         { type: Number, default: 1, min: 1, max: 10 },

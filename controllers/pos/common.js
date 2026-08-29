@@ -11,7 +11,6 @@ const crypto      = require('crypto');
 const Paystack    = require('@paystack/paystack-sdk');
 const PosCustomer = require('../../models/PosCustomer');
 const RepairJob   = require('../../models/RepairJob');
-const Part        = require('../../models/Part');
 const Product     = require('../../models/Product');
 const PosPayment  = require('../../models/PosPayment');
 const PartOrder   = require('../../models/PartOrder');
@@ -154,16 +153,62 @@ async function findTechnicianToAssign() {
   return technicians[0]._id;
 }
 
-/** Shape a shop Product like a POS Part so both flow through the scan/inventory UI. */
-function normalizeProduct(product) {
+/**
+ * Shape one stock item for the POS clients.
+ *
+ * Shop stock and bench parts are one collection now, but the POS screens were
+ * written against the old Part field names (`sellingPrice`, `quantity`) and are
+ * still deployed against them, so the outward contract is kept: the translation
+ * happens here, once, instead of in an adapter per call site. `_kind` is always
+ * 'product' now — there is only one kind — which is what tells the Sell page to
+ * send `productId`.
+ *
+ * `category` reports the repair taxonomy when the item has one (Screen,
+ * Battery, …) and the shop category otherwise, matching what the inventory
+ * screen has always displayed.
+ */
+function asInventoryItem(doc) {
+  const item = doc && typeof doc.toObject === 'function' ? doc.toObject() : doc;
+  if (!item) return item;
   return {
-    ...product,
-    _kind: 'product',
-    sellingPrice:  Number(product.price) || 0,
-    quantity:      Number(product.stock) || 0,
-    lowStockThreshold: 0,
-    allowNegativeStock: false,
+    ...item,
+    _kind:              'product',
+    sellingPrice:       Number(item.price) || 0,
+    quantity:           Number(item.stock) || 0,
+    category:           item.partCategory || item.category || 'Other',
+    lowStockThreshold:  Number(item.lowStockThreshold) || 0,
+    allowNegativeStock: Boolean(item.allowNegativeStock),
   };
+}
+
+/**
+ * The reverse: POS inventory payloads still speak Part, so map them onto the
+ * Product fields. Only keys actually present are returned, so an update
+ * touching one field does not blank the rest.
+ */
+function asProductFields(body = {}) {
+  const out = {};
+  if (body.name !== undefined)               out.name = body.name;
+  if (body.sku !== undefined)                out.sku = body.sku;
+  if (body.barcode !== undefined)            out.barcode = body.barcode;
+  if (body.quantity !== undefined)           out.stock = Math.max(0, Number(body.quantity) || 0);
+  if (body.sellingPrice !== undefined)       out.price = Math.round(Number(body.sellingPrice) || 0);
+  if (body.costPrice !== undefined)          out.costPrice = Math.round(Number(body.costPrice) || 0);
+  if (body.lowStockThreshold !== undefined)  out.lowStockThreshold = Math.max(0, Number(body.lowStockThreshold) || 0);
+  if (body.allowNegativeStock !== undefined) out.allowNegativeStock = Boolean(body.allowNegativeStock);
+  if (body.supplier !== undefined)           out.supplier = body.supplier || undefined;
+  if (body.compatibleWith !== undefined)     out.compatibleWith = body.compatibleWith;
+  if (body.description !== undefined)        out.description = body.description;
+  if (body.images !== undefined)             out.images = body.images;
+  if (body.notes !== undefined)              out.notes = body.notes;
+  // The repair taxonomy is stored in its own field; `category` stays the
+  // shop-facing one so a bench part still has something to show if it is ever
+  // listed online.
+  if (body.category !== undefined) {
+    out.partCategory = body.category;
+    out.category = body.category;
+  }
+  return out;
 }
 
 /** Date → 'YYYY-MM-DD' (UTC; Ghana is UTC+0 so no DST drift). */
@@ -180,7 +225,7 @@ function pctChange(current, previous) {
 module.exports = {
   // deps
   mongoose, crypto, Paystack,
-  PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder,
+  PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder,
   Order, DeliveryZone, Sale, User, Expense, Supplier,
   sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText,
   deductPartStock, cloudinary, streamifier,
@@ -194,6 +239,7 @@ module.exports = {
   PART_REPAIR_ORDER_STATUSES,
   // helpers
   computeJobBalancePesewas, deductJobPartsOnce, generatePassword,
-  findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange,
+  asInventoryItem, asProductFields,
+  findTechnicianToAssign, formatDateOnly, pctChange,
   canTransitionPartRepairOrder, canTransitionJobStatus,
 };

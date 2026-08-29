@@ -6,9 +6,9 @@ const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const User = require("../models/User");
+const Product = require("../models/Product");
 const PosCustomer = require("../models/PosCustomer");
 const RepairJob = require("../models/RepairJob");
-const Part = require("../models/Part");
 
 async function makeUser(role) {
   const user = await User.create({
@@ -142,12 +142,11 @@ describe("PATCH /api/v1/pos/jobs/:id — money-field guard (T57)", () => {
     }
   });
 
-  it("lets an inventory-linked part's price stay anchored to Part.sellingPrice even for a technician (unaffected by this guard)", async () => {
+  it("lets an inventory-linked part's price stay anchored to Part.price even for a technician (unaffected by this guard)", async () => {
     const { token } = await makeUser("technician");
-    const part = await Part.create({
-      name: "iPhone 13 Screen", category: "Screen",
-      quantity: 5, costPrice: 10000, sellingPrice: 20000,
-    });
+    const part = await Product.create({
+      name: "iPhone 13 Screen", category: "Screen", partCategory: "Screen",
+      stock: 5, costPrice: 10000, price: 20000, useInRepairs: true});
     const job = await makeJob();
 
     const res = await request(app)
@@ -158,6 +157,6 @@ describe("PATCH /api/v1/pos/jobs/:id — money-field guard (T57)", () => {
     expect(res.status).toBe(200);
     const fresh = await RepairJob.findById(job._id);
     const line = fresh.parts.find((p) => p.part?.toString() === part._id.toString());
-    expect(line.priceAtTime).toBe(20000); // anchored to Part.sellingPrice, client value ignored
+    expect(line.priceAtTime).toBe(20000); // anchored to Part.price, client value ignored
   });
 });

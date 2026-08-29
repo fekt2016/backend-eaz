@@ -1,14 +1,13 @@
-const Part = require("../models/Part");
 const RepairJob = require("../models/RepairJob");
+const Product = require("../models/Product");
 const PosCustomer = require("../models/PosCustomer");
 const { applyPaidPartToJob } = require("../controllers/webhookController");
 
 async function seedJobWithPart(partOverrides = {}) {
   const customer = await PosCustomer.create({ phone: "0244000000", name: "C" });
-  const part = await Part.create({
-    name: "iPhone 13 Screen", category: "Screen", isRetail: true, quantity: 5,
-    costPrice: 30000, sellingPrice: 55000, ...partOverrides,
-  });
+  const part = await Product.create({
+    name: "iPhone 13 Screen", category: "Screen", partCategory: "Screen", sellOnline: true, sellInStore: true, stock: 5,
+    costPrice: 30000, price: 55000, ...partOverrides, useInRepairs: true});
   const job = await RepairJob.create({
     customer: customer._id, faultDescription: "Cracked screen", parts: [],
   });
@@ -29,8 +28,8 @@ describe("applyPaidPartToJob — online part fulfilment (#9 cost, #10 reserve)",
     expect(line.costAtTime).toBe(30000);      // real Part.costPrice, NOT 55000
     expect(line.stockDeducted).toBe(true);
 
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(3);       // 5 − 2 reserved
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(3);       // 5 − 2 reserved
   });
 
   it("does not double-deduct when the same order is applied twice", async () => {
@@ -42,8 +41,8 @@ describe("applyPaidPartToJob — online part fulfilment (#9 cost, #10 reserve)",
     await job.save({ validateBeforeSave: false });
 
     expect(job.parts).toHaveLength(1);
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(3); // still only decremented once
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(3); // still only decremented once
   });
 
   it("does not attach an inventory part to a same-named custom line", async () => {
@@ -62,19 +61,19 @@ describe("applyPaidPartToJob — online part fulfilment (#9 cost, #10 reserve)",
     expect(customLine.stockDeducted).toBe(false);       // untouched
     expect(invLine).toBeTruthy();                        // new inventory line added
     expect(invLine.stockDeducted).toBe(true);
-    expect((await Part.findById(part._id)).quantity).toBe(3); // 5 − 2, deducted once
+    expect((await Product.findById(part._id)).stock).toBe(3); // 5 − 2, deducted once
   });
 
   it("never drives stock negative unless the Part allows it", async () => {
-    const { part, job } = await seedJobWithPart({ quantity: 1 });
+    const { part, job } = await seedJobWithPart({ stock: 1 });
 
     await applyPaidPartToJob(job, {
       part: part._id, partName: part.name, quantity: 4, unitPricePesewas: 55000,
     });
     await job.save({ validateBeforeSave: false });
 
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(1);          // guarded — unchanged
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(1);          // guarded — unchanged
     expect(job.parts[0].stockDeducted).toBe(true); // still flagged so staff won't retry
   });
 });

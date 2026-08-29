@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
 } = require('./common');
 
 const getExpenses = async (req, res, next) => {
@@ -136,7 +136,7 @@ const getSupplier = async (req, res, next) => {
     if (!supplier) return res.status(404).json({ success: false, error: 'Supplier not found.' });
 
     // Parts linked to this supplier
-    const parts = await Part.find({ supplier: supplier._id })
+    const parts = await Product.find({ supplier: supplier._id })
       .select('name sku category quantity costPrice sellingPrice lowStockThreshold')
       .sort({ name: 1 });
 
@@ -214,7 +214,7 @@ const updateSupplier = async (req, res, next) => {
 const deleteSupplier = async (req, res, next) => {
   try {
     // Unlink parts before deleting
-    await Part.updateMany({ supplier: req.params.id }, { $unset: { supplier: '' } });
+    await Product.updateMany({ supplier: req.params.id }, { $unset: { supplier: '' } });
     const supplier = await Supplier.findByIdAndDelete(req.params.id);
     if (!supplier) return res.status(404).json({ success: false, error: 'Supplier not found.' });
     await logFromRequest(req, {

@@ -264,7 +264,21 @@ const sendMessage = async (req, res, next) => {
 
     // Find or create session
     let session = await ChatSession.findOne({ sessionId });
+    console.log('[chat] sendMessage sessionId=%s found=%s humanRequested=%s resolved=%s', sessionId, !!session, session?.humanRequested, session?.resolved);
     if (!session) {
+      // If the user already has an open (unresolved) session, redirect them
+      // to it instead of creating a duplicate. Identified by email for logged-in
+      // users, or by sessionId cookie for anonymous visitors.
+      const existingEmail = email || req.user?.email;
+      if (existingEmail) {
+        const open = await ChatSession.findOne({ email: existingEmail, resolved: false });
+        if (open) {
+          return res.status(200).json({
+            success: true,
+            data: { response: null, suggestions: [], sessionId: open.sessionId, existingSession: true },
+          });
+        }
+      }
       session = await ChatSession.create({ sessionId, messages: [] });
     }
 
@@ -353,12 +367,29 @@ const getSessions = async (req, res, next) => {
     if (resolved === 'true')  filter.resolved = true;
     if (resolved === 'false') filter.resolved = false;
 
+    // Staff see all open (unresolved) sessions. Resolved/closed sessions are
+    // admin-only. Admins and superadmins see everything.
+    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
+    if (!isAdmin) {
+      delete filter.resolved;
+      filter.resolved = false;
+    }
+
     const sessions = await ChatSession.find(filter)
       // Sort: pending (requested but not accepted) first, then active live chats, then rest
       .sort({ humanAccepted: -1, humanRequested: -1, lastActivity: -1 })
       .select('sessionId name email phone resolved resolvedAt humanRequested humanAccepted humanAcceptedAt acceptedBy acceptedByName acceptedAt rating ratingComment ratedAt lastActivity createdAt messages');
 
-    res.status(200).json({ success: true, data: sessions });
+    // Deduplicate by sessionId (safety net — $or branches are mutually exclusive
+    // but this guards against any edge case).
+    const seen = new Set();
+    const unique = sessions.filter((s) => {
+      if (seen.has(s.sessionId)) return false;
+      seen.add(s.sessionId);
+      return true;
+    });
+
+    res.status(200).json({ success: true, data: unique });
   } catch (error) {
     next(error);
   }
@@ -372,6 +403,13 @@ const getSession = async (req, res, next) => {
   try {
     const session = await ChatSession.findOne({ sessionId: req.params.sessionId });
     if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+
+    // Staff can view any open session. Admins can view everything.
+    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
+    if (!isAdmin && session.resolved) {
+      return res.status(403).json({ success: false, error: 'Access denied.' });
+    }
+
     res.status(200).json({ success: true, data: session });
   } catch (error) {
     next(error);
@@ -387,6 +425,12 @@ const updateSession = async (req, res, next) => {
     const { resolved } = req.body;
     const session = await ChatSession.findOne({ sessionId: req.params.sessionId });
     if (!session) return res.status(404).json({ success: false, error: 'Session not found.' });
+
+    // Staff can resolve (end) chats but cannot reopen them — only admins can.
+    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
+    if (!isAdmin && resolved === false && session.resolved) {
+      return res.status(403).json({ success: false, error: 'Only admins can reopen a resolved chat.' });
+    }
 
     if (resolved === true && !session.resolved) {
       // Save a visible system message so the user's widget picks it up via polling

@@ -2,8 +2,11 @@ const crypto = require("crypto");
 const Paystack = require("@paystack/paystack-sdk");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
-const Part = require("../models/Part");
 const DeliveryZone = require("../models/DeliveryZone");
+const ShippingQuote = require("../models/ShippingQuote");
+const PickupLocation = require("../models/PickupLocation");
+const { quoteShipping, splitCourierMethodId } = require("../services/shipping/shippingCalculator");
+const { buildCartHash } = require("../models/ShippingQuote");
 const { fulfilShopOrder, restockOrderItems } = require("../utils/fulfilShopOrder");
 const { generateTrackingNumber } = require("../utils/trackingNumber");
 const { formatGhs } = require("../utils/money");
@@ -35,10 +38,34 @@ function generateOrderNumber() {
  * POST /api/v1/orders
  * Guest checkout — no auth required. Totals are always computed
  * server-side from the DB; client-submitted prices are never trusted.
+ *
+ * Two shipping paths coexist for backward compat:
+ *   1. NEW (preferred): body includes `shippingQuoteId`. The controller loads
+ *      the stored ShippingQuote, validates the cart hash, re-computes server-
+ *      side, and charges the verified fee. Tamper-proof.
+ *   2. LEGACY: body includes `deliveryZoneId` (old DeliveryZone model). The
+ *      controller reads the flat fee from that document. Kept so old checkout
+ *      pages don't break until the frontend ships quote support.
+ *
+ * When neither is provided, shipping is free (pickup / no-delivery orders).
+ * The client can never influence the stored fee — it's always computed here.
  */
 const createOrder = async (req, res, next) => {
   try {
-    const { items, deliveryZoneId, customer } = req.body;
+    const {
+      items, deliveryZoneId, customer,
+      // T78 new shipping params
+      shippingQuoteId, city, neighborhood, address,       method: rawMethod, deliverySpeed: rawSpeed,
+      // T80 E2 — region rides along so the calculator can pick the right
+      // formula. `pickupLocationId` is NOT destructured here: it would clash
+      // with the resolved local declared lower in this function, and the
+      // server resolves the authoritative pickup from the quote/DB below.
+      region: rawRegion,
+    } = req.body;
+
+    // Decompose compound courier method IDs (e.g. "courier_dispatch_express")
+    // into method + deliverySpeed so the calculator gets clean params.
+    let { method, deliverySpeed } = splitCourierMethodId(rawMethod, rawSpeed);
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: "Cart is empty" });
@@ -47,28 +74,58 @@ const createOrder = async (req, res, next) => {
       return res.status(400).json({ success: false, error: "Name and phone are required" });
     }
 
+    // T80 E2 — bus-station pickup without a quote: the customer must name a
+    // specific bus station in their city, and that station must be active. The
+    // shipping-quote path already validated this; we replicate the check here
+    // so a hand-built checkout body can't bypass it.
+    if (method === "bus_station_pickup" && !shippingQuoteId) {
+      const requestedPickupId = req.body.pickupLocationId;
+      if (!requestedPickupId) {
+        return res.status(400).json({
+          success: false,
+          error: "A pickup location is required for bus-station pickup.",
+        });
+      }
+      const pickup = await PickupLocation.findOne({
+        _id: requestedPickupId,
+        kind: "bus_station",
+        isActive: true,
+        ...(city ? { city } : {}),
+      }).lean();
+      if (!pickup) {
+        return res.status(400).json({
+          success: false,
+          error: "The selected pickup location is not available.",
+        });
+      }
+    }
+
+    // ── Build order lines (server-side prices) ─────────────────────────────
     const orderItems = [];
 
     for (const item of items) {
       const slug = typeof item === "string" ? item : item.slug;
       const qty = Math.max(1, Math.floor(Number(item.qty) || 1));
 
+      // `part-<id>` carts were minted before parts and products became one
+      // model. The ids survived the merge, so they still resolve — the line is
+      // recorded on `part` to match the carts and orders already in flight.
       if (slug.startsWith("part-")) {
         const partId = slug.replace("part-", "");
-        const part = await Part.findById(partId);
+        const part = await Product.findOne({ _id: partId, sellOnline: true });
         if (!part) {
           return res.status(400).json({ success: false, error: `Part with id ${partId} not found.` });
         }
-        if (!Number(part.sellingPrice) || part.sellingPrice <= 0) {
+        if (!Number(part.price) || part.price <= 0) {
           return res.status(400).json({ success: false, error: `${part.name} is not available for ordering.` });
         }
-        if (part.quantity < qty) {
-          return res.status(400).json({ success: false, error: `${part.name} only has ${part.quantity} in stock.` });
+        if (part.stock < qty) {
+          return res.status(400).json({ success: false, error: `${part.name} only has ${part.stock} in stock.` });
         }
         orderItems.push({
           part: part._id,
           name: part.name,
-          price: Math.round(Number(part.sellingPrice)),
+          price: Math.round(Number(part.price)),
           qty,
         });
         continue;
@@ -76,17 +133,12 @@ const createOrder = async (req, res, next) => {
 
       if (!slug) continue;
 
-      const product = await Product.findOne({ slug, isActive: true });
+      const product = await Product.findOne({ slug, sellOnline: true });
       if (!product) {
         return res.status(400).json({ success: false, error: `Product "${slug}" not found.` });
       }
 
-      // Structured variants (Decision #1): when a variant SKU is sent, stock is
-      // checked against that variant, and the order line records which variant
-      // was purchased. Products without variants keep the old single-SKU path.
       let variantInfo = null;
-      // Variant price wins over base price when set; `null`/unset falls back
-      // to product.price (see Product.js variants schema comment).
       let resolvedPrice = product.price;
       if (item.variant && item.variant.sku) {
         const variant = (product.variants || []).find(
@@ -115,23 +167,16 @@ const createOrder = async (req, res, next) => {
         resolvedPrice = variant.price != null ? variant.price : product.price;
       }
 
-      // T45: how much stock this line is actually drawing on — the variant's when
-      // one was chosen, the product's otherwise.
       const availableStock = variantInfo
         ? (product.variants || []).find((v) => v.sku === variantInfo.sku)?.stock ?? 0
         : product.stock;
 
-      // A line becomes a pre-order only when the stock genuinely isn't there AND
-      // the product is marked for it. An in-stock product is never sold as a
-      // pre-order, so enabling the flag cannot change how normal orders behave.
       const isPreorder = availableStock < qty && Boolean(product.preorder?.enabled);
 
       if (availableStock < qty && !isPreorder) {
         return res.status(400).json({ success: false, error: `${product.name} only has ${availableStock} in stock.` });
       }
 
-      // The cap is supply-side, so it is enforced here rather than only hidden in
-      // the storefront — a hand-rolled request must not be able to exceed it.
       const cap = product.preorder?.maxQty;
       if (isPreorder && cap != null && qty > cap) {
         return res.status(400).json({
@@ -152,17 +197,212 @@ const createOrder = async (req, res, next) => {
 
     const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
 
-    let deliveryFee = 0;
-    let deliveryZone = null;
-    if (deliveryZoneId) {
-      deliveryZone = await DeliveryZone.findOne({ _id: deliveryZoneId, isActive: true });
-      if (!deliveryZone) {
+    // ── Shipping fee resolution (server-computed, never client-supplied) ────
+    let shippingFee = 0;
+    let shippingZoneCode = null;
+    let shippingZoneName = null;
+    let shippingNeighborhood = null;
+    let shippingMethod = null;
+    let shippingSpeedVal = "standard";
+    let shippingQuoteDoc = null;
+    let shippingWeightKg = 0;
+    let shippingTierLevel = 0;
+    let legacyDeliveryZone = null;
+    // T80 E2 — region + pickup snapshot. `pickupLocationName` is the customer-
+    // facing label that we keep even if the PickupLocation is later renamed
+    // or deactivated; historical orders must read exactly what the buyer
+    // selected at checkout time.
+    let shippingRegion = null;
+    let shippingMethodLabel = "";
+    let pickupLocationId = null;
+    let pickupLocationName = null;
+
+    if (shippingQuoteId) {
+      // ── Path 1: consume a persisted quote (tamper-proof) ────────────────
+      shippingQuoteDoc = await ShippingQuote.findOne({
+        quoteId: shippingQuoteId,
+        consumed: false,
+      });
+      if (!shippingQuoteDoc) {
+        return res.status(400).json({
+          success: false,
+          error: "Shipping quote not found, expired, or already used. Please request a new quote.",
+        });
+      }
+
+      // Verify the cart hash — if the client changed any item, city, method,
+      // speed, region or pickup location after quoting, the hash won't match.
+      // Use the resolved product IDs from the order lines (not the
+      // client-supplied slugs) since the quote was built with MongoDB
+      // ObjectId strings. T80 E2: region + pickupLocationId ride along so a
+      // fulfilment switch (delivery → pickup, or vice-versa) invalidates the
+      // quote.
+      const resolvedItems = orderItems.map((i) => ({
+        productId: String(i.product || i.part || ""),
+        quantity: i.qty,
+      }));
+      const clientHash = buildCartHash(
+        resolvedItems,
+        shippingQuoteDoc.city,
+        shippingQuoteDoc.neighborhood,
+        shippingQuoteDoc.method,
+        shippingQuoteDoc.deliverySpeed,
+        shippingQuoteDoc.region || "",
+        shippingQuoteDoc.pickupLocationId ? String(shippingQuoteDoc.pickupLocationId) : "",
+      );
+      if (clientHash !== shippingQuoteDoc.cartHash) {
+        return res.status(400).json({
+          success: false,
+          error: "Cart contents changed since shipping quote. Please get a new quote.",
+        });
+      }
+
+      // Also reject if the client changed city/method/speed after quoting —
+      // the fee was computed for the quote's parameters, not the request's.
+      if (city && city !== shippingQuoteDoc.city) {
+        return res.status(400).json({
+          success: false,
+          error: "Delivery city changed since shipping quote. Please get a new quote.",
+        });
+      }
+      if (neighborhood && neighborhood !== shippingQuoteDoc.neighborhood) {
+        return res.status(400).json({
+          success: false,
+          error: "Delivery neighborhood changed since shipping quote. Please get a new quote.",
+        });
+      }
+      if (method && method !== shippingQuoteDoc.method) {
+        return res.status(400).json({
+          success: false,
+          error: "Delivery method changed since shipping quote. Please get a new quote.",
+        });
+      }
+
+      // Use the server-stored fee — the client cannot influence it.
+      shippingFee = shippingQuoteDoc.shippingFee;
+      shippingZoneCode = shippingQuoteDoc.zoneCode;
+      shippingZoneName = shippingQuoteDoc.zoneName || null;
+      shippingNeighborhood = shippingQuoteDoc.neighborhood || null;
+      shippingMethod = shippingQuoteDoc.method;
+      shippingSpeedVal = shippingQuoteDoc.deliverySpeed;
+      shippingWeightKg = shippingQuoteDoc.totalWeightKg || 0;
+      shippingTierLevel = shippingQuoteDoc.tierLevel || 0;
+      shippingMethodLabel = shippingQuoteDoc.methodLabel || "";
+      // T80 E2 — region + pickup snapshot from the persisted quote.
+      shippingRegion = shippingQuoteDoc.region || null;
+      pickupLocationId = shippingQuoteDoc.pickupLocationId || null;
+      // The quote doc only carries the id; the name is resolved live so the
+      // order can still display the human label even if the PickupLocation
+      // is later renamed (the order keeps the original label too — see below).
+      if (pickupLocationId) {
+        const pickup = await PickupLocation.findById(pickupLocationId).lean();
+        if (pickup) pickupLocationName = pickup.name;
+      }
+
+    } else if (method && city) {
+      // ── Path 2: fresh server-side recomputation (no quote) ──────────────
+      // The client sends city/address/method/speed but we compute the fee
+      // from scratch — this path is for checkouts that didn't pre-quote.
+      // T80 E2: region + pickupLocationId are forwarded so the calculator
+      // picks the right formula (delivery vs bus-station pickup). The station
+      // was validated against the DB at the top of this handler; adopt it here
+      // so the order also snapshots where the buyer is actually collecting.
+      // Gated on the method so a delivery order carries no stray station id.
+      if (method === "bus_station_pickup") {
+        pickupLocationId = req.body.pickupLocationId || null;
+      }
+
+      const quoteItems = orderItems.map((item) => {
+        // Reconstitute a product-like object the calculator needs.
+        const pid = item.product || item.part;
+        return {
+          product: {
+            _id: pid,
+            name: item.name,
+            price: item.price,
+            weight: 0,
+            weightUnit: "kg",
+            isFragile: false,
+            category: "",
+          },
+          quantity: item.qty,
+        };
+      });
+
+      try {
+        const quote = await quoteShipping({
+          city,
+          neighborhood: neighborhood || "",
+          address: address || "",
+          method,
+          deliverySpeed: deliverySpeed || "standard",
+          items: quoteItems,
+          subtotal,
+            ...(rawRegion ? { region: rawRegion } : {}),
+          ...(pickupLocationId ? { pickupLocationId } : {}),
+          // Thread the picked neighbourhood through: without it the zone
+          // resolver has only free text to work with, and a pricing parameter
+          // that quietly defaults to null looks exactly like a working one.
+          ...(req.body.neighborhoodId ? { neighborhoodId: req.body.neighborhoodId } : {}),
+        });
+        shippingFee = quote.shippingFee;
+        shippingZoneCode = quote.zoneCode;
+        shippingZoneName = quote.zoneName || null;
+        shippingNeighborhood = neighborhood || null;
+        shippingMethod = method;
+        shippingSpeedVal = quote.deliverySpeed || "standard";
+        shippingWeightKg = quote.totalWeightKg || 0;
+        shippingTierLevel = quote.tierLevel || 0;
+        shippingMethodLabel = quote.methodLabel || "";
+        // T80 E2 — region rides through; pickupLocationId was adopted from the
+        // request body above, and the snapshot name comes from the live
+        // PickupLocation so the order survives a rename.
+        shippingRegion = quote.region || rawRegion || null;
+        if (pickupLocationId) {
+          const pickup = await PickupLocation.findById(pickupLocationId).lean();
+          if (pickup) pickupLocationName = pickup.name;
+        }
+      } catch (err) {
+        return res.status(err.statusCode || 400).json({
+          success: false,
+          error: err.message,
+        });
+      }
+
+    } else if (deliveryZoneId) {
+      // ── Path 3: LEGACY delivery zone (deprecated, kept for compat) ──────
+      legacyDeliveryZone = await DeliveryZone.findOne({ _id: deliveryZoneId, isActive: true });
+      if (!legacyDeliveryZone) {
         return res.status(400).json({ success: false, error: "Invalid delivery zone" });
       }
-      deliveryFee = deliveryZone.fee;
+      shippingFee = legacyDeliveryZone.fee;
     }
 
-    const total = subtotal + deliveryFee;
+    // ── Total assertion ────────────────────────────────────────────────────
+    // The total must never go negative (e.g. a coupon > subtotal).
+    // ── Client-supplied fee guard ──────────────────────────────────────────
+    // Echoing back the figure the buyer saw at checkout is a legitimate UX
+    // goal — the total should not shift between checkout and confirmation.
+    // Satisfy it by VALIDATING the echoed value, never by trusting it: a
+    // crafted body with shippingFee: 0 must not be honoured.
+    //
+    // Tolerance absorbs client/server rounding only. Below it we refuse (the
+    // price genuinely moved, or someone is probing); above it we clamp down to
+    // the server figure, because overcharging is not a fix for a stale quote.
+    const clientFee = req.body.shippingFee;
+    if (clientFee != null && clientFee !== "") {
+      const claimed = Number(clientFee);
+      const TOLERANCE_PESEWAS = 50; // GH₵0.50
+      if (!Number.isFinite(claimed) || claimed < shippingFee - TOLERANCE_PESEWAS) {
+        return res.status(409).json({
+          success: false,
+          error: "Shipping cost has changed since checkout. Please refresh and try again.",
+        });
+      }
+      // Higher than the server's figure: silently use ours, never theirs.
+    }
+
+    const total = Math.max(0, subtotal + shippingFee);
 
     if (!paystack) {
       return res.status(500).json({ success: false, error: "Paystack not configured." });
@@ -190,8 +430,24 @@ const createOrder = async (req, res, next) => {
       trackingNumber: generateTrackingNumber(),
       items: orderItems,
       subtotal,
-      ...(deliveryZone && { deliveryZone: deliveryZone._id }),
-      deliveryFee,
+      // Legacy fields
+      ...(legacyDeliveryZone && { deliveryZone: legacyDeliveryZone._id }),
+      // T78 shipping fields
+      shippingFee,
+      shippingZoneCode,
+      shippingZoneName,
+      shippingNeighborhood,
+      shippingMethod,
+      shippingSpeed: shippingSpeedVal,
+      ...(shippingQuoteDoc && { shippingQuoteId: shippingQuoteDoc._id }),
+      shippingWeightKg,
+      shippingTierLevel,
+      // T80 E2 — region + pickup snapshot live with the order so historical
+      // tracking/email copy and admin views don't need to chase references.
+      ...(shippingRegion && { shippingRegion }),
+      ...(shippingMethodLabel && { shippingMethodLabel }),
+      ...(pickupLocationId && { pickupLocationId }),
+      ...(pickupLocationName && { pickupLocationName }),
       total,
       customer: {
         name: customer.name.trim(),
@@ -208,6 +464,14 @@ const createOrder = async (req, res, next) => {
         timestamp: new Date(),
       }],
     });
+
+    // Mark the quote as consumed (atomic — prevents double-spend in a race).
+    if (shippingQuoteDoc) {
+      await ShippingQuote.findOneAndUpdate(
+        { _id: shippingQuoteDoc._id, consumed: false },
+        { $set: { consumed: true, consumedAt: new Date(), orderId: order._id } },
+      );
+    }
 
     await logOrderCreated(order);
 
@@ -338,11 +602,31 @@ const getOrderTracking = async (req, res, next) => {
         orderNumber: order.orderNumber,
         status: order.status,
         destination: order.deliveryZone?.name || '',
+        shippingMethod: order.shippingMethod || null,
+        shippingSpeed: order.shippingSpeed || null,
+        // The label the customer picked, snapshotted at order time.
+        shippingMethodLabel: order.shippingMethodLabel || null,
+        shippingFee: order.shippingFee || 0,
+        shippingZoneCode: order.shippingZoneCode || null,
+        shippingZoneName: order.shippingZoneName || null,
+        shippingNeighborhood: order.shippingNeighborhood || null,
         createdAt: order.createdAt,
         history,
         latestEvent: history.length ? history[history.length - 1] : null,
         // Null for an ordinary order, so existing clients are unaffected.
         preorder,
+        // T80 E2 — pickup-fulfilment snapshot. Null for home-delivery orders.
+        // `pickupLocation` is shaped for direct display in the tracking UI;
+        // it omits internal fields the public endpoint never exposes.
+        pickup: order.shippingMethod === "bus_station_pickup"
+          ? {
+              name: order.pickupLocationName || null,
+              address: null, // live address lookup is admin-only
+              region: order.shippingRegion || null,
+              readyForPickupAt: order.readyForPickupAt || null,
+              pickedUpAt: order.pickedUpAt || null,
+            }
+          : null,
       },
     });
   } catch (error) {
@@ -368,16 +652,13 @@ const getOrderByReference = async (req, res, next) => {
         const verify = await paystack.transaction.verify({ reference: order.paystackReference });
         const tx = verify?.data || {};
         if (verify?.status && tx.status === 'success') {
-          if (Number(tx.amount) === order.total && (!tx.currency || tx.currency === 'GHS')) {
-            // Idempotent: no-op if a webhook already fulfilled it.
-            const paid = await fulfilShopOrder(order.paystackReference);
-            if (paid) order.status = 'paid';
-          } else {
-            console.error(
-              `[verify] Amount/currency mismatch for order ${order.orderNumber}: ` +
-              `expected ${order.total} GHS, Paystack reports ${tx.amount} ${tx.currency}`
-            );
-          }
+          // Idempotent (no-op if a webhook already fulfilled it) and guarded —
+          // fulfilShopOrder throws rather than fulfil a mismatched charge.
+          const paid = await fulfilShopOrder(order.paystackReference, {
+            amountPesewas: tx.amount,
+            currency:      tx.currency,
+          });
+          if (paid) order.status = 'paid';
         }
       } catch (e) {
         // Verification is best-effort here; the webhook remains authoritative.
@@ -656,6 +937,19 @@ const updateOrderStatus = async (req, res, next) => {
       await restockOrderItems(order);
       order.stockRestored = true;
     }
+    // T80 E2 — pickup lifecycle markers. For bus-station-pickup orders:
+    //   `shipped`   → readyForPickupAt (parcel reached the chosen station)
+    //   `delivered` → pickedUpAt      (customer collected the parcel)
+    // We deliberately reuse the existing 'shipped' / 'delivered' status values
+    // (no new enum) so reports and forward-only transitions keep working.
+    if (order.shippingMethod === "bus_station_pickup") {
+      if (status === "shipped" && !order.readyForPickupAt) {
+        order.readyForPickupAt = new Date();
+      }
+      if (status === "delivered" && !order.pickedUpAt) {
+        order.pickedUpAt = new Date();
+      }
+    }
     order.trackingHistory.push({
       status,
       note: `Status updated to ${status}.`,
@@ -676,12 +970,21 @@ const updateOrderStatus = async (req, res, next) => {
         changes: [{ field: 'status', label: 'Order Status', before: prevStatus, after: status }],
       });
 
-      // T62 — the customer hears about meaningful moves, like repair jobs already
-      // do. Best-effort: never let a mail problem fail a status change.
-      sendShopStatusEmail(order).catch(() => {});
+    // T78 — when an order reaches delivered, settle the courier payout.
+    // Best-effort: a settlement failure must not block the status update.
+    if (status === "delivered" && prevStatus !== "delivered") {
+      const { settleDeliveryCharge } = require("../services/shipping/settleDeliveryCharge");
+      settleDeliveryCharge(order).catch((err) => {
+        console.error("[settle] delivery charge settlement failed:", err.message);
+      });
     }
 
-    res.status(200).json({ success: true, data: order });
+    // T62 — the customer hears about meaningful moves, like repair jobs already
+    // do. Best-effort: never let a mail problem fail a status change.
+    sendShopStatusEmail(order).catch(() => {});
+  }
+
+  res.status(200).json({ success: true, data: order });
   } catch (error) {
     next(error);
   }
@@ -729,6 +1032,16 @@ const addTrackingEvent = async (req, res, next) => {
         await restockOrderItems(order);
         order.stockRestored = true;
       }
+      // T80 E2 — pickup lifecycle markers (see updateOrderStatus for the
+      // rationale — same rules apply on this door).
+      if (order.shippingMethod === "bus_station_pickup") {
+        if (status === "shipped" && !order.readyForPickupAt) {
+          order.readyForPickupAt = new Date();
+        }
+        if (status === "delivered" && !order.pickedUpAt) {
+          order.pickedUpAt = new Date();
+        }
+      }
     }
 
     order.trackingHistory.push({
@@ -768,6 +1081,14 @@ const addTrackingEvent = async (req, res, next) => {
     // Notes-only updates don't email; only a real status move does.
     if (statusChanged) sendShopStatusEmail(order).catch(() => {});
 
+    // T78 — settle courier payout on delivered (same as updateOrderStatus).
+    if (status === "delivered" && statusChanged) {
+      const { settleDeliveryCharge } = require("../services/shipping/settleDeliveryCharge");
+      settleDeliveryCharge(order).catch((err) => {
+        console.error("[settle] delivery charge settlement failed:", err.message);
+      });
+    }
+
     res.status(200).json({ success: true, data: order });
   } catch (error) {
     next(error);
@@ -775,9 +1096,9 @@ const addTrackingEvent = async (req, res, next) => {
 };
 
 // T15 — a refund is a payment outcome, not a fulfilment stage: no "refunded"
-// value was added to ORDER_STATUSES. Eligibility mirrors canTransition's own
-// definition of "live" (pending is excluded too — nothing's been paid yet).
-const REFUND_ELIGIBLE_STATUSES = ['paid', 'processing', 'shipped'];
+// value was added to ORDER_STATUSES. T78 — delivered orders are now eligible
+// too (refund the shipping charge after settlement).
+const REFUND_ELIGIBLE_STATUSES = ['paid', 'processing', 'shipped', 'delivered'];
 
 /**
  * POST /api/v1/orders/:id/refund  (admin only)
@@ -884,6 +1205,15 @@ const refundOrder = async (req, res, next) => {
     });
     await claimed.save();
 
+    // T78 — if a delivery charge was settled, mark it refunded so the summary
+    // reports don't double-count. Best-effort: a DeliveryCharge write failure
+    // must not block the order refund.
+    const DeliveryCharge = require("../models/DeliveryCharge");
+    DeliveryCharge.findOneAndUpdate(
+      { orderId: claimed._id, refunded: false },
+      { $set: { refunded: true, refundedAt: new Date() } },
+    ).catch(() => {});
+
     res.status(200).json({ success: true, data: claimed });
   } catch (error) {
     next(error);
@@ -924,6 +1254,176 @@ const syncRefund = async (req, res, next) => {
   }
 };
 
+/**
+ * PATCH /api/v1/orders/:id/address  (admin/staff)
+ * Change the delivery address and recalculate the shipping fee. Blocked once
+ * the order reaches "shipped" status — the goods are already on the way.
+ *
+ * The old address + fee + zone are pushed onto `addressHistory` so the
+ * complete trail is auditable. If the fee changes, the order total is
+ * adjusted accordingly and the delta is surfaced in the response.
+ *
+ * T80 E2: accepts `region` + `pickupLocationId` so an address change can
+ * also move a customer between delivery zones (e.g. East Legon → Kumasi
+ * switches fulfilment from in-house to bus-station pickup). Pickup
+ * location id is validated live; the snapshot name is preserved.
+ *
+ * NOTE: this does NOT re-authorize a Paystack payment. If the new total is
+ * higher the customer must pay the difference separately (Phase 5 settle
+ * endpoint); if lower the delta is a credit. The webhook handler must be
+ * aware of this.
+ */
+const changeOrderAddress = async (req, res, next) => {
+  try {
+    let { address, neighborhood, city, method, deliverySpeed, region, pickupLocationId } = req.body;
+
+    // Decompose compound courier method IDs.
+    ({ method, deliverySpeed } = splitCourierMethodId(method, deliverySpeed));
+
+    if (!neighborhood || !city || !method) {
+      return res.status(400).json({
+        success: false,
+        error: "neighborhood, city, and method are required.",
+      });
+    }
+
+    // T80 E2 — bus-station pickup on an address change must still name a
+    // real, active station in the destination city.
+    let pickupLocationName = null;
+    if (method === "bus_station_pickup") {
+      if (!pickupLocationId) {
+        return res.status(400).json({
+          success: false,
+          error: "A pickup location is required for bus-station pickup.",
+        });
+      }
+      const pickup = await PickupLocation.findOne({
+        _id: pickupLocationId,
+        kind: "bus_station",
+        isActive: true,
+        ...(city ? { city } : {}),
+      }).lean();
+      if (!pickup) {
+        return res.status(400).json({
+          success: false,
+          error: "The selected pickup location is not available.",
+        });
+      }
+      pickupLocationName = pickup.name;
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Order not found." });
+    }
+    if (["shipped", "delivered", "cancelled"].includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot change address for an order with status "${order.status}".`,
+      });
+    }
+
+    // Build order-like items the calculator can consume.
+    const quoteItems = order.items.map((item) => ({
+      product: {
+        _id: item.product || item.part,
+        name: item.name,
+        price: item.price,
+        weight: 0,
+        weightUnit: "kg",
+        isFragile: false,
+        category: "",
+      },
+      quantity: item.qty,
+    }));
+
+    let newShippingFee = 0;
+    let newZoneCode = null;
+    let newWeightKg = 0;
+    let newTierLevel = 0;
+    let newRegion = null;
+
+    try {
+      const quote = await quoteShipping({
+        city,
+        neighborhood: neighborhood || "",
+        address: address || "",
+        method,
+        deliverySpeed: deliverySpeed || order.shippingSpeed || "standard",
+        items: quoteItems,
+        subtotal: order.subtotal,
+        ...(region ? { region } : {}),
+        ...(pickupLocationId ? { pickupLocationId } : {}),
+      });
+      newShippingFee = quote.shippingFee;
+      newZoneCode = quote.zoneCode;
+      newWeightKg = quote.totalWeightKg || 0;
+      newTierLevel = quote.tierLevel || 0;
+      newRegion = quote.region || region || null;
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({
+        success: false,
+        error: err.message,
+      });
+    }
+
+    // Record the change in addressHistory.
+    order.addressHistory.push({
+      address: order.customer.address,
+      shippingFee: order.shippingFee,
+      zoneCode: order.shippingZoneCode,
+      changedBy: req.user?.name || "staff",
+      changedAt: new Date(),
+    });
+
+    const oldFee = order.shippingFee;
+    const oldTotal = order.total;
+
+    // Update order fields.
+    order.customer.address = String(address || "").trim();
+    order.shippingFee = newShippingFee;
+    order.shippingZoneCode = newZoneCode;
+    order.shippingMethod = method;
+    order.shippingSpeed = deliverySpeed || order.shippingSpeed || "standard";
+    order.shippingWeightKg = newWeightKg;
+    order.shippingTierLevel = newTierLevel;
+    // T80 E2 — region + pickup live with the order so the historical
+    // record shows the new fulfilment context, not a re-query.
+    order.shippingRegion = newRegion;
+    order.pickupLocationId = method === "bus_station_pickup" ? pickupLocationId : null;
+    order.pickupLocationName = method === "bus_station_pickup" ? pickupLocationName : null;
+    order.total = Math.max(0, order.subtotal + newShippingFee);
+
+    await order.save();
+
+    await logFromRequest(req, {
+      action: ACTIONS.ORDER_UPDATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order.orderNumber,
+      resourceName: order.orderNumber,
+      description: `Address changed for ${order.orderNumber}: fee ${formatGhs(oldFee)} → ${formatGhs(newShippingFee)}`,
+      changes: [
+        { field: "customer.address", label: "Address", before: "(previous)", after: address },
+        { field: "shippingFee", label: "Shipping Fee", before: oldFee, after: newShippingFee },
+      ],
+    });
+
+    res.status(200).json({
+      success: true,
+      data: order,
+      meta: {
+        oldShippingFee: oldFee,
+        newShippingFee,
+        feeDifference: newShippingFee - oldFee,
+        oldTotal,
+        newTotal: order.total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createOrder,
   getPreorders,
@@ -939,5 +1439,6 @@ module.exports = {
   addTrackingEvent,
   refundOrder,
   syncRefund,
+  changeOrderAddress,
   normalizePhone
 };

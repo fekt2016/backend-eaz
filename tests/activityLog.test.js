@@ -11,8 +11,8 @@ const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const User = require("../models/User");
+const Product = require("../models/Product");
 const Order = require("../models/Order");
-const Part = require("../models/Part");
 const ActivityLog = require("../models/ActivityLog");
 
 async function makeUser(role) {
@@ -123,14 +123,13 @@ describe("Events are recorded", () => {
 
   it("records an inventory stock adjustment (INVENTORY_STOCK_ADJUSTED)", async () => {
     const { token } = await makeUser("staff");
-    const part = await Part.create({
+    const part = await Product.create({
       name: "Battery X",
-      category: "Battery",
-      quantity: 3,
+      category: "Battery", partCategory: "Battery",
+      stock: 3,
       lowStockThreshold: 2,
       costPrice: 1000,
-      sellingPrice: 2000,
-    });
+      price: 2000, useInRepairs: true});
 
     const res = await request(app)
       .patch(`/api/v1/pos/inventory/${part._id}`)
@@ -247,10 +246,9 @@ describe("Privacy — no secrets leak into audit records", () => {
       .patch(`/api/v1/orders/${order._id}`)
       .set("Authorization", `Bearer ${token}`)
       .send({ status: "processing" });
-    const part = await Part.create({
-      name: "Charging Port", category: "Charging Port", quantity: 1, lowStockThreshold: 1,
-      costPrice: 500, sellingPrice: 900,
-    });
+    const part = await Product.create({
+      name: "Charging Port", category: "Charging Port", partCategory: "Charging Port", stock: 1, lowStockThreshold: 1,
+      costPrice: 500, price: 900, useInRepairs: true});
     await request(app)
       .patch(`/api/v1/pos/inventory/${part._id}`)
       .set("Authorization", `Bearer ${token}`)

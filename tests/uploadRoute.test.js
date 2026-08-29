@@ -25,6 +25,7 @@ const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const User = require("../models/User");
+const Product = require("../models/Product");
 
 function tokenFor(user) {
   return jwt.sign({ id: user._id.toString() }, process.env.JWT_SECRET);

@@ -66,7 +66,6 @@ afterEach(async () => {
 
 const app = require("../app");
 const User = require("../models/User");
-const Part = require("../models/Part");
 const Product = require("../models/Product");
 const Sale = require("../models/Sale");
 
@@ -83,11 +82,10 @@ async function makeUser(role = "staff") {
 }
 
 async function makePart(over = {}) {
-  return Part.create({
-    name: "Screen", sku: `SKU-${Date.now()}`, category: "Screen",
-    quantity: 10, costPrice: 1000, sellingPrice: 2000,
-    ...over,
-  });
+  return Product.create({
+    name: "Screen", sku: `SKU-${Date.now()}`, category: "Screen", partCategory: "Screen",
+    stock: 10, costPrice: 1000, price: 2000,
+    ...over, useInRepairs: true});
 }
 
 async function makeProduct(over = {}) {
@@ -116,8 +114,8 @@ describe("POST /api/v1/pos/sales — parts-only sale (T30 regression)", () => {
     const saleCount = await Sale.countDocuments();
     expect(saleCount).toBe(1);
 
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(8); // 10 - 2
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(8); // 10 - 2
   });
 
   it("rejects an underpaid cash sale without touching stock", async () => {
@@ -130,8 +128,8 @@ describe("POST /api/v1/pos/sales — parts-only sale (T30 regression)", () => {
       .send({ items: [{ partId: part._id.toString(), quantity: 1 }], paymentMethod: "cash", amountPaid: 500 });
 
     expect(res.status).toBe(400);
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(10); // unchanged — transaction rolled back
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(10); // unchanged — transaction rolled back
   });
 });
 
@@ -157,8 +155,8 @@ describe("POST /api/v1/pos/sales — mixed parts + products (T31 verification)",
     expect(res.body.data.total).toBe(5000);
     expect(res.body.data.items).toHaveLength(2);
 
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(9);
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(9);
     const freshProduct = await Product.findById(product._id);
     expect(freshProduct.stock).toBe(8);
   });
@@ -212,8 +210,8 @@ describe("POST /api/v1/pos/sales — concurrent writes to the same part (withTra
     expect(res1.status).toBe(201);
     expect(res2.status).toBe(201);
 
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(8); // 10 - 1 - 1, both sales landed
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(8); // 10 - 1 - 1, both sales landed
 
     const saleCount = await Sale.countDocuments();
     expect(saleCount).toBe(2);

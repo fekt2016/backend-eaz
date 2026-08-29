@@ -154,7 +154,7 @@ describe("T12 trigger — new order paid", () => {
     const { user: customer } = await makeUser("user");
     const order = await Order.create(pendingOrder());
 
-    const paid = await fulfilShopOrder(order.paystackReference);
+    const paid = await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" });
     expect(paid).toBeTruthy();
 
     const [adminNotes, staffNotes, superNotes, techNotes, custNotes] = await Promise.all(
@@ -172,8 +172,8 @@ describe("T12 trigger — new order paid", () => {
     const { user: admin } = await makeUser("admin");
     const order = await Order.create(pendingOrder());
 
-    await fulfilShopOrder(order.paystackReference);
-    const second = await fulfilShopOrder(order.paystackReference); // already paid — no-op
+    await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" });
+    const second = await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" }); // already paid — no-op
 
     expect(second).toBeNull();
     const notes = await Notification.find({ recipient: admin._id });

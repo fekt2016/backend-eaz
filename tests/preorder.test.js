@@ -141,7 +141,7 @@ describe("Pre-order fulfilment (T45)", () => {
       status: "pending", paystackReference: "REF_PRE_1",
     });
 
-    const paid = await fulfilShopOrder("REF_PRE_1");
+    const paid = await fulfilShopOrder("REF_PRE_1", { amountPesewas: 500000, currency: "GHS" });
 
     expect(paid.status).toBe("paid");
     const fresh = await Product.findById(product._id);

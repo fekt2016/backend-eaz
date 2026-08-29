@@ -1,5 +1,5 @@
 const {
-  mongoose, crypto, Paystack, PosCustomer, RepairJob, Part, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, normalizeProduct, formatDateOnly, pctChange
+  mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, asInventoryItem, formatDateOnly, pctChange
 } = require('./common');
 
 const getOverview = async (req, res, next) => {
@@ -31,7 +31,7 @@ const getOverview = async (req, res, next) => {
         { $match: Object.keys(rangeMatch).length ? rangeMatch : {} },
         { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
       ]),
-      Part.countDocuments({ $expr: { $lte: ['$quantity', '$lowStockThreshold'] } }),
+      Product.countDocuments({ lowStockThreshold: { $gt: 0 }, $expr: { $lte: ['$stock', '$lowStockThreshold'] } }),
     ]);
 
     // Daily revenue for the range (or last 30 days)
@@ -226,7 +226,7 @@ const getMyOverview = async (req, res, next) => {
           { $match: { cashier: userId, voided: { $ne: true }, createdAt: { $gte: today, $lt: tomorrow } } },
           { $group: { _id: null, revenue: { $sum: '$total' }, count: { $sum: 1 } } },
         ]),
-        Part.countDocuments({ $expr: { $lte: ['$quantity', '$lowStockThreshold'] } }),
+        Product.countDocuments({ lowStockThreshold: { $gt: 0 }, $expr: { $lte: ['$stock', '$lowStockThreshold'] } }),
       ]);
       stats.mySalesCount        = salesAgg[0]?.count        || 0;
       stats.mySalesRevenue      = salesAgg[0]?.revenue      || 0;
@@ -487,25 +487,36 @@ const getReportsAnalytics = async (req, res, next) => {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
 
-    // ── Inventory (parts + active shop products) ────────────────────────────────
-    const [partAgg, partLow, partOut, prodAgg, prodOut, lowStockParts] = await Promise.all([
-      Part.aggregate([
-        { $group: { _id: null, count: { $sum: 1 }, units: { $sum: '$quantity' },
-          valueSell: { $sum: { $multiply: ['$quantity', '$sellingPrice'] } },
-          valueCost: { $sum: { $multiply: ['$quantity', '$costPrice'] } } } },
-      ]),
-      Part.countDocuments({ $expr: { $lte: ['$quantity', '$lowStockThreshold'] } }),
-      Part.countDocuments({ quantity: { $lte: 0 } }),
+    // ── Inventory (one collection: shop stock, counter stock, bench parts) ──
+    // `partCount`/`productCount` still separate the two for the dashboard, but
+    // they are now derived from whether an item carries a repair taxonomy
+    // rather than from which collection it lived in. valueCost finally spans
+    // everything: shop stock had no costPrice at all before the merge, so every
+    // product sold at the counter was invisible to inventory valuation.
+    const [invAgg, invLow, invOut, lowStockParts] = await Promise.all([
       Product.aggregate([
-        { $match: { isActive: true } },
-        { $group: { _id: null, count: { $sum: 1 }, units: { $sum: '$stock' }, valueSell: { $sum: { $multiply: ['$stock', '$price'] } } } },
+        {
+          $group: {
+            _id: { $cond: [{ $ifNull: ['$partCategory', false] }, 'part', 'product'] },
+            count: { $sum: 1 },
+            units: { $sum: '$stock' },
+            valueSell: { $sum: { $multiply: ['$stock', '$price'] } },
+            // $ifNull: items migrated before a real cost was entered read 0,
+            // so they contribute nothing rather than inventing a margin.
+            valueCost: { $sum: { $multiply: ['$stock', { $ifNull: ['$costPrice', 0] }] } },
+          },
+        },
       ]),
-      Product.countDocuments({ isActive: true, stock: { $lte: 0 } }),
-      Part.find({ $expr: { $lte: ['$quantity', '$lowStockThreshold'] } })
-        .sort({ quantity: 1 })
+      Product.countDocuments({ lowStockThreshold: { $gt: 0 }, $expr: { $lte: ['$stock', '$lowStockThreshold'] } }),
+      Product.countDocuments({ stock: { $lte: 0 } }),
+      Product.find({ lowStockThreshold: { $gt: 0 }, $expr: { $lte: ['$stock', '$lowStockThreshold'] } })
+        .sort({ stock: 1 })
         .limit(12)
-        .select('name sku category quantity lowStockThreshold sellingPrice'),
+        .select('name sku category partCategory stock lowStockThreshold price')
+        .lean(),
     ]);
+    const partAgg = invAgg.find((r) => r._id === 'part') || {};
+    const prodAgg = invAgg.find((r) => r._id === 'product') || {};
 
     // ── Expenses + net profit (admin/superadmin only — internal costs) ──────────
     const canSeeExpenses = ['superadmin', 'admin'].includes(req.user.role);
@@ -554,13 +565,13 @@ const getReportsAnalytics = async (req, res, next) => {
           orders:      { total: orderTotal, paid: orderPaid, pending: orderPending, cancelled: orderCancelled, aov },
           repairs:     { total: jobsTotal, open: jobsOpen, completed: jobsDone, cancelled: jobsCancelled, partsUsed, revenue: repairRevenue },
           inventory:   {
-            partCount:  partAgg[0]?.count   || 0,
-            productCount: prodAgg[0]?.count || 0,
-            units:      (partAgg[0]?.units || 0) + (prodAgg[0]?.units || 0),
-            lowStock:   partLow,
-            outOfStock: partOut + prodOut,
-            valueSell:  (partAgg[0]?.valueSell || 0) + (prodAgg[0]?.valueSell || 0),
-            valueCost:  partAgg[0]?.valueCost || 0,
+            partCount:    partAgg.count || 0,
+            productCount: prodAgg.count || 0,
+            units:      (partAgg.units || 0) + (prodAgg.units || 0),
+            lowStock:   invLow,
+            outOfStock: invOut,
+            valueSell:  (partAgg.valueSell || 0) + (prodAgg.valueSell || 0),
+            valueCost:  (partAgg.valueCost || 0) + (prodAgg.valueCost || 0),
           },
           payments: { count: (repairPay[0]?.count || 0) + (posSales[0]?.count || 0) },
           expenses: { total: expenseTotal, netProfit, canSeeExpenses },
@@ -571,7 +582,7 @@ const getReportsAnalytics = async (req, res, next) => {
         repairs: { byStatus: jobsByStatus, topParts },
         shipping: { byStatus: ordersByStatus },
         topProducts,
-        lowStockParts,
+        lowStockParts: lowStockParts.map(asInventoryItem),
         expenseByCategory,
       },
     });

@@ -96,10 +96,29 @@ const userSchema = new mongoose.Schema(
           trim: true,
           maxlength: 120,
         },
+        // The priced delivery area (models/Neighborhood.js). Stored so a saved
+        // address resolves to a shipping zone on its own, without the customer
+        // re-picking their area every time they select it.
+        neighborhoodId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Neighborhood",
+          default: null,
+        },
         city: {
           type: String,
           trim: true,
           maxlength: 120,
+        },
+        // Region is REQUIRED for pricing: it decides whether the address is in
+        // the Greater-Accra delivery core or is a regional bus-station pickup.
+        // It used to be dropped on save, so re-selecting a saved address
+        // produced an empty region, an empty city list, and no delivery options
+        // at all — with no error anywhere.
+        region: {
+          type: String,
+          trim: true,
+          maxlength: 120,
+          default: "",
         },
         isDefault: {
           type: Boolean,

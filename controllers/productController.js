@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 const Product = require("../models/Product");
-const Part = require("../models/Part");
 const { logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 // escapeRegex: match user-supplied search text literally (prevents ReDoS).
 const { escapeRegex } = require("../utils/regex");
@@ -9,28 +8,7 @@ const { getRatingSummary } = require("./productReviewController");
 
 // Shape a retail Part like a shop product so it flows through the same
 // product-detail page, metadata, JSON-LD and cart/checkout. Mirrors the part
-// mapping in getProducts. Price stays in integer pesewas (Part.sellingPrice).
-function partAsProduct(p) {
-  return {
-    _id: p._id,
-    slug: `part-${p._id}`,
-    name: p.name,
-    description: p.description || p.notes || "",
-    price: p.sellingPrice,
-    category: p.category,
-    stock: p.quantity,
-    sku: p.sku,
-    variants: [],
-    gallery: { images: [], videos: [] },
-    isActive: true,
-    kind: "part",
-    partId: p._id,
-    images: p.images || [],
-    createdAt: p.createdAt,
-    updatedAt: p.updatedAt,
-  };
-}
-
+// mapping in getProducts. Price stays in integer pesewas.
 function slugify(value) {
   return String(value || "")
     .toLowerCase()
@@ -49,21 +27,44 @@ const getProducts = async (req, res, next) => {
     );
     const skip = (page - 1) * limit;
 
-    const query = { isActive: true };
+    // One collection now holds shop stock, counter stock and bench parts, so
+    // the catalogue is a plain query — the $unionWith against `parts` that used
+    // to merge two collections here is gone, and with it the whole class of bug
+    // where a feature was written for products and forgotten for parts.
+    const query = { sellOnline: true };
+    const and = [];
 
     if (category) {
       query.category = category;
     }
 
+    // `kind=product` keeps its meaning: ordinary shop stock only, no repair
+    // parts (the homepage strip uses it). A repair part is an item carrying a
+    // `partCategory` — the repair taxonomy — which ordinary stock never has.
+    if (kind === "product") {
+      query.partCategory = null;
+    }
+
     if (q && q.trim()) {
       const search = escapeRegex(q.trim());
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { category: { $regex: search, $options: "i" } },
-        { sku: { $regex: search, $options: "i" } },
-      ];
+      and.push({
+        $or: [
+          { name: { $regex: search, $options: "i" } },
+          { description: { $regex: search, $options: "i" } },
+          { category: { $regex: search, $options: "i" } },
+          { sku: { $regex: search, $options: "i" } },
+          // `notes` came from the part side of the old union; keeping it means
+          // a bench note like "iPhone 14 compatible" still finds the item.
+          { notes: { $regex: search, $options: "i" } },
+        ],
+      });
     }
+
+    // A repair part with an empty shelf was never listed in the shop, and that
+    // stays true. Ordinary shop stock still lists at zero — it can be
+    // pre-ordered, or restocked without disappearing from the catalogue.
+    and.push({ $or: [{ partCategory: null }, { stock: { $gt: 0 } }] });
+    if (and.length) query.$and = and;
 
     let sortStage = { createdAt: -1 };
     if (sort === "price-asc") sortStage = { price: 1 };
@@ -71,71 +72,30 @@ const getProducts = async (req, res, next) => {
     if (sort === "name") sortStage = { name: 1 };
     if (sort === "newest") sortStage = { createdAt: -1 };
 
-    // Retail parts only belong in the unfiltered "All Products" view — a
-    // shop category (Phones, Screen Protectors, ...) is a different
-    // namespace from a part's own category (Battery, Screen, ...), so once
-    // a category chip is active, parts are excluded entirely rather than
-    // guessed at. When a search query is active, parts are matched by the
-    // same query text as products instead of being included unconditionally.
-    const partMatch = { isRetail: true, quantity: { $gt: 0 } };
-    if (q && q.trim()) {
-      const search = escapeRegex(q.trim());
-      partMatch.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { notes: { $regex: search, $options: "i" } },
-        { category: { $regex: search, $options: "i" } },
-        { sku: { $regex: search, $options: "i" } },
-      ];
-    }
-
-    // Merge shop products with sellable retail parts, then sort + paginate in
-    // the database (a single $unionWith aggregation) so we never load the whole
-    // catalogue into memory. Retail parts only appear in the unfiltered
-    // "All Products" view — a shop category excludes them, and a search query
-    // matches parts by the same text as products. Pass `kind=product` to list
-    // only real shop products (e.g. the homepage "Recent Products" strip).
     const pipeline = [
       { $match: query },
       {
         $project: {
           _id: 1, slug: 1, name: 1, description: 1, price: 1, category: 1,
           stock: 1, sku: 1, variants: 1, isActive: 1, images: 1,
-          createdAt: 1, updatedAt: 1,
+          partCategory: 1, createdAt: 1, updatedAt: 1,
           // T48 popularity counters. This list is an aggregation with an explicit
           // $project, so a new schema field does NOT reach the client until it is
-          // named here. $ifNull because products created before T48 have no such
+          // named here. $ifNull because documents created before T48 have no such
           // field stored at all — an aggregation applies no schema defaults.
           views: { $ifNull: ["$views", 0] },
           sold: { $ifNull: ["$sold", 0] },
         },
       },
-      { $addFields: { kind: "product", partId: null } },
-    ];
-
-    if (kind !== "product" && !category) {
-      pipeline.push({
-        $unionWith: {
-          coll: "parts",
-          pipeline: [
-            { $match: partMatch },
-            {
-              $project: {
-                _id: 1, name: 1, category: 1, sku: 1, createdAt: 1, updatedAt: 1,
-                slug: { $concat: ["part-", { $toString: "$_id" }] },
-                description: { $ifNull: ["$description", { $ifNull: ["$notes", ""] }] },
-                price: "$sellingPrice",
-                stock: "$quantity",
-                images: { $ifNull: ["$images", []] },
-              },
-            },
-            { $addFields: { variants: [], isActive: true, kind: "part", partId: "$_id" } },
-          ],
+      // `kind` and `partId` are kept for the clients that read them, but they
+      // are now derived rather than stamped by whichever half of a union the
+      // row came from.
+      {
+        $addFields: {
+          kind: { $cond: [{ $ifNull: ["$partCategory", false] }, "part", "product"] },
+          partId: { $cond: [{ $ifNull: ["$partCategory", false] }, "$_id", null] },
         },
-      });
-    }
-
-    pipeline.push(
+      },
       { $sort: sortStage },
       {
         $facet: {
@@ -143,7 +103,7 @@ const getProducts = async (req, res, next) => {
           totalCount: [{ $count: "n" }],
         },
       },
-    );
+    ];
 
     const [result] = await Product.aggregate(pipeline).collation({ locale: "en", strength: 2 });
     const data = result?.data || [];
@@ -166,26 +126,29 @@ const getProductBySlug = async (req, res, next) => {
   try {
     const slug = req.params.slug;
 
-    // Retail parts are listed in the catalogue with a synthetic `part-<id>`
-    // slug. Resolve those to the Part so the detail page no longer 404s.
+    // `part-<id>` URLs were minted before parts and products became one model
+    // and are in the wild — links, bookmarks, anything already shared. The id
+    // survived the merge unchanged, so resolve them against Product rather
+    // than 404 on history.
     if (typeof slug === "string" && slug.startsWith("part-")) {
       const partId = slug.slice("part-".length);
       if (!mongoose.Types.ObjectId.isValid(partId)) {
         return res.status(404).json({ success: false, error: "Product not found" });
       }
-      const part = await Part.findById(partId);
-      // Only expose parts that are actually sellable in the shop.
-      if (!part || !part.isRetail || !Number(part.sellingPrice) || part.sellingPrice <= 0) {
+      const item = await Product.findOne({ _id: partId, sellOnline: true });
+      if (!item || !Number(item.price) || item.price <= 0) {
         return res.status(404).json({ success: false, error: "Product not found" });
       }
-      const partAsProductDoc = partAsProduct(part);
-      const ratingSummary = await getRatingSummary(part._id);
-      return res.status(200).json({ success: true, data: { ...partAsProductDoc, ratingSummary } });
+      const ratingSummary = await getRatingSummary(item._id);
+      return res.status(200).json({
+        success: true,
+        data: { ...item.toObject(), kind: item.partCategory ? "part" : "product", partId: item._id, ratingSummary },
+      });
     }
 
     const product = await Product.findOne({
       slug,
-      isActive: true,
+      sellOnline: true,
     });
 
     if (!product) {
@@ -216,8 +179,27 @@ const getProductBySlug = async (req, res, next) => {
 // also means crawlers, which never run the script, cannot inflate the figure.
 const recordProductView = async (req, res, next) => {
   try {
+    // Same `part-<id>` compatibility as the detail route above — one lookup,
+    // one counter, because there is one collection.
+    const slug = req.params.slug;
+    if (typeof slug === "string" && slug.startsWith("part-")) {
+      const partId = slug.slice("part-".length);
+      if (!mongoose.Types.ObjectId.isValid(partId)) {
+        return res.status(404).json({ success: false, error: "Product not found" });
+      }
+      const item = await Product.findOneAndUpdate(
+        { _id: partId, sellOnline: true },
+        { $inc: { views: 1 } },
+        { new: true, projection: { views: 1 } },
+      );
+      if (!item) {
+        return res.status(404).json({ success: false, error: "Product not found" });
+      }
+      return res.status(200).json({ success: true, data: { views: item.views } });
+    }
+
     const product = await Product.findOneAndUpdate(
-      { slug: req.params.slug, isActive: true },
+      { slug, sellOnline: true },
       { $inc: { views: 1 } },
       // $inc rather than read-modify-write, so simultaneous visitors each count.
       { new: true, projection: { views: 1 } },
@@ -271,6 +253,9 @@ const createProduct = async (req, res, next) => {
       variants: Array.isArray(variants) ? variants.filter(Boolean) : [],
       gallery: gallery && typeof gallery === "object" ? gallery : {},
       isActive: isActive !== undefined ? Boolean(isActive) : true,
+      // The shop reads sellOnline; isActive is the switch the admin UI writes.
+      // Keep them in step so turning a product off still hides it.
+      sellOnline: isActive !== undefined ? Boolean(isActive) : true,
     });
 
     await logFromRequest(req, {
@@ -299,7 +284,11 @@ const updateProduct = async (req, res, next) => {
     const update = { ...req.body };
     if (update.price != null) update.price = Number(update.price);
     if (update.stock != null) update.stock = Number(update.stock);
-    if (update.isActive !== undefined) update.isActive = Boolean(update.isActive);
+    if (update.isActive !== undefined) {
+      update.isActive = Boolean(update.isActive);
+      // findByIdAndUpdate skips the model hook, so mirror it here too.
+      if (update.sellOnline === undefined) update.sellOnline = update.isActive;
+    }
     if (update.variants !== undefined) update.variants = Array.isArray(update.variants) ? update.variants.filter(Boolean) : [];
 
     const product = await Product.findByIdAndUpdate(req.params.id, update, {
@@ -336,7 +325,7 @@ const deleteProduct = async (req, res, next) => {
   try {
     const product = await Product.findByIdAndUpdate(
       req.params.id,
-      { isActive: false },
+      { isActive: false, sellOnline: false },
       { new: true },
     );
 

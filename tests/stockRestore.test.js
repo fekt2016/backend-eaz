@@ -2,7 +2,6 @@ const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const Order = require("../models/Order");
-const Part = require("../models/Part");
 const Product = require("../models/Product");
 const User = require("../models/User");
 const PosCustomer = require("../models/PosCustomer");
@@ -21,10 +20,9 @@ async function makeAdminToken() {
 // T2 — cancelling an order/job that already had stock deducted restores it.
 describe("Restock on cancellation (T2)", () => {
   it("restores Part quantity when a paid shop order is cancelled", async () => {
-    const part = await Part.create({
-      name: "iPhone 13 Screen", category: "Screen",
-      quantity: 5, costPrice: 10000, sellingPrice: 20000,
-    });
+    const part = await Product.create({
+      name: "iPhone 13 Screen", category: "Screen", partCategory: "Screen",
+      stock: 5, costPrice: 10000, price: 20000, useInRepairs: true});
     const order = await Order.create({
       orderNumber: "EZW-T2-1",
       items: [{ part: part._id, name: "iPhone 13 Screen", price: 20000, qty: 2 }],
@@ -44,8 +42,8 @@ describe("Restock on cancellation (T2)", () => {
     expect(res.status).toBe(200);
     expect(res.body.data.stockRestored).toBe(true);
 
-    const refreshedPart = await Part.findById(part._id);
-    expect(refreshedPart.quantity).toBe(7); // 5 + 2 restored
+    const refreshedPart = await Product.findById(part._id);
+    expect(refreshedPart.stock).toBe(7); // 5 + 2 restored
 
     // Idempotent: cancelling again (no-op transition) does not double-restock.
     const res2 = await request(app)
@@ -53,8 +51,8 @@ describe("Restock on cancellation (T2)", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ status: "cancelled" });
     expect(res2.status).toBe(200);
-    const stillPart = await Part.findById(part._id);
-    expect(stillPart.quantity).toBe(7);
+    const stillPart = await Product.findById(part._id);
+    expect(stillPart.stock).toBe(7);
   });
 
   it("restores Product stock (and variant stock) when a paid order is cancelled", async () => {
@@ -89,10 +87,9 @@ describe("Restock on cancellation (T2)", () => {
   });
 
   it("does not restock an order that was cancelled before payment (stock never deducted)", async () => {
-    const part = await Part.create({
-      name: "USB-C Cable", category: "Cable",
-      quantity: 5, costPrice: 500, sellingPrice: 1500,
-    });
+    const part = await Product.create({
+      name: "USB-C Cable", category: "Cable", partCategory: "Cable",
+      stock: 5, costPrice: 500, price: 1500, useInRepairs: true});
     const order = await Order.create({
       orderNumber: "EZW-T2-3",
       items: [{ part: part._id, name: "USB-C Cable", price: 1500, qty: 1 }],
@@ -110,16 +107,15 @@ describe("Restock on cancellation (T2)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.stockRestored).toBe(false);
-    const refreshedPart = await Part.findById(part._id);
-    expect(refreshedPart.quantity).toBe(5); // unchanged
+    const refreshedPart = await Product.findById(part._id);
+    expect(refreshedPart.stock).toBe(5); // unchanged
   });
 
   it("restores Part quantity when a repair job with deducted parts is cancelled", async () => {
     const customer = await PosCustomer.create({ name: "Kwame", phone: "0240000004" });
-    const part = await Part.create({
-      name: "iPhone 12 Battery", category: "Battery",
-      quantity: 3, costPrice: 8000, sellingPrice: 15000,
-    });
+    const part = await Product.create({
+      name: "iPhone 12 Battery", category: "Battery", partCategory: "Battery",
+      stock: 3, costPrice: 8000, price: 15000, useInRepairs: true});
     const job = await RepairJob.create({
       customer: customer._id,
       faultDescription: "Battery drains fast",
@@ -137,16 +133,15 @@ describe("Restock on cancellation (T2)", () => {
     expect(res.status).toBe(200);
     const refreshedJob = await RepairJob.findById(job._id);
     expect(refreshedJob.stockRestored).toBe(true);
-    const refreshedPart = await Part.findById(part._id);
-    expect(refreshedPart.quantity).toBe(4); // 3 + 1 restored
+    const refreshedPart = await Product.findById(part._id);
+    expect(refreshedPart.stock).toBe(4); // 3 + 1 restored
   });
 
   it("does not restock a repair job whose parts were never deducted (stockDeducted false)", async () => {
     const customer = await PosCustomer.create({ name: "Abena", phone: "0240000005" });
-    const part = await Part.create({
-      name: "Charging Port", category: "Charging Port",
-      quantity: 3, costPrice: 2000, sellingPrice: 4000,
-    });
+    const part = await Product.create({
+      name: "Charging Port", category: "Charging Port", partCategory: "Charging Port",
+      stock: 3, costPrice: 2000, price: 4000, useInRepairs: true});
     const job = await RepairJob.create({
       customer: customer._id,
       faultDescription: "Won't charge",
@@ -164,7 +159,7 @@ describe("Restock on cancellation (T2)", () => {
     expect(res.status).toBe(200);
     const refreshedJob = await RepairJob.findById(job._id);
     expect(refreshedJob.stockRestored).toBe(false);
-    const refreshedPart = await Part.findById(part._id);
-    expect(refreshedPart.quantity).toBe(3); // unchanged
+    const refreshedPart = await Product.findById(part._id);
+    expect(refreshedPart.stock).toBe(3); // unchanged
   });
 });

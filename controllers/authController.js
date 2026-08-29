@@ -954,75 +954,6 @@ const adminToggleBlock = async (req, res, next) => {
   }
 };
 
-// ── Saved shipping addresses ────────────────────────────────────────────────
-const getMyAddresses = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user._id).select('shippingAddresses');
-    res.json({ success: true, data: user?.shippingAddresses || [] });
-  } catch (error) { next(error); }
-};
-
-const saveAddress = async (req, res, next) => {
-  try {
-    const street = sanitizeText(req.body.street, 200);
-    const neighborhood = sanitizeText(req.body.neighborhood, 120);
-    const city = sanitizeText(req.body.city, 120);
-    const label = sanitizeText(req.body.label, 60);
-
-    if (!street && !neighborhood && !city) {
-      return res.status(400).json({ success: false, error: 'Enter at least a street address, neighborhood, or city.' });
-    }
-
-    const user = await User.findById(req.user._id);
-    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
-
-    const address = {
-      label: label || '',
-      street: street || '',
-      neighborhood: neighborhood || '',
-      city: city || '',
-      isDefault: user.shippingAddresses.length === 0, // first saved address becomes default
-    };
-    user.shippingAddresses.unshift(address);
-
-    // Keep a maximum of 3 saved addresses — drop the oldest (last) one.
-    if (user.shippingAddresses.length > 3) {
-      const removed = user.shippingAddresses.pop();
-      if (removed.isDefault) user.shippingAddresses[0].isDefault = true;
-    }
-
-    user.markModified('shippingAddresses');
-    await user.save();
-
-    res.status(201).json({ success: true, data: user.shippingAddresses[0] });
-  } catch (error) { next(error); }
-};
-
-const deleteAddress = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user._id);
-    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
-
-    const removed = user.shippingAddresses.id(req.params.addressId);
-    if (!removed) {
-      return res.status(404).json({ success: false, error: 'Address not found.' });
-    }
-    const wasDefault = removed.isDefault;
-    removed.deleteOne();
-    user.markModified('shippingAddresses');
-    await user.save();
-
-    // If the default was deleted, promote the newest remaining address.
-    if (wasDefault && user.shippingAddresses.length > 0) {
-      user.shippingAddresses[0].isDefault = true;
-      user.markModified('shippingAddresses');
-      await user.save();
-    }
-
-    res.json({ success: true, data: user.shippingAddresses || [] });
-  } catch (error) { next(error); }
-};
-
 module.exports = {
   register,
   login,
@@ -1043,9 +974,6 @@ module.exports = {
   confirmTwoFactor,
   disableTwoFactor,
   verifyTwoFactor,
-  getMyAddresses,
-  saveAddress,
-  deleteAddress,
   generatePin,
   hashPin,
   pinMatches,

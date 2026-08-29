@@ -29,9 +29,29 @@ const partSchema = new mongoose.Schema(
     description:       { type: String, trim: true, maxlength: 1000, default: '' },
     images:            [{ type: String, trim: true }],
     notes:             { type: String, trim: true, maxlength: 500 },
+    // T48 popularity counters, mirroring models/Product.js — a retail part is
+    // listed in the shop next to products, so it needs the same figures or its
+    // card reads blank beside theirs. Server-owned: bumped by the view endpoint
+    // and by the same update that deducts stock on a sale, never read off a
+    // client payload. `min` is documentation — $inc skips validators, so the
+    // decrement path clamps instead.
+    views:             { type: Number, default: 0, min: [0, 'Views cannot be negative'] },
+    sold:              { type: Number, default: 0, min: [0, 'Sold cannot be negative'] },
   },
   { timestamps: true }
 );
+
+// Give a unit back to `sold` when a sale is reversed (order cancelled, POS sale
+// voided). Pipeline update so the clamp is atomic: parts sold before these
+// counters existed have no `sold` field at all, and a plain $inc of -qty would
+// drive them negative.
+partSchema.statics.decrementSold = function (partId, qty, session) {
+  return this.updateOne(
+    { _id: partId },
+    [{ $set: { sold: { $max: [0, { $subtract: [{ $ifNull: ['$sold', 0] }, qty] }] } } }],
+    session ? { session } : {},
+  );
+};
 
 partSchema.index({ barcode: 1 }, { sparse: true }); // fast barcode lookup
 partSchema.index({ name: 'text', sku: 'text', barcode: 'text' });

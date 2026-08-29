@@ -1,0 +1,930 @@
+[
+  {
+    "name": "Adabraka",
+    "city": "Accra",
+    "municipality": "Okaikwei North",
+    "assignedZone": "A",
+    "lat": 5.563003,
+    "lng": -0.211571
+  },
+  {
+    "name": "Airport Residential",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "A",
+    "lat": 5.606105,
+    "lng": -0.186036
+  },
+  {
+    "name": "Alajo",
+    "city": "Accra",
+    "municipality": "Ayawaso Central",
+    "assignedZone": "A",
+    "lat": 5.598731,
+    "lng": -0.217044
+  },
+  {
+    "name": "Asylum Down",
+    "city": "Accra",
+    "municipality": "Okaikwei North",
+    "assignedZone": "A",
+    "lat": 5.568255,
+    "lng": -0.206883
+  },
+  {
+    "name": "Cantonments",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "A",
+    "lat": 5.576765,
+    "lng": -0.178484
+  },
+  {
+    "name": "Caprice",
+    "city": "Accra",
+    "municipality": "Ablekuma North",
+    "assignedZone": "A",
+    "lat": 5.58456,
+    "lng": -0.216897
+  },
+  {
+    "name": "Circle",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "A",
+    "lat": 5.570651,
+    "lng": -0.21782
+  },
+  {
+    "name": "Kanda",
+    "city": "Accra",
+    "municipality": "Ayawaso East",
+    "assignedZone": "A",
+    "lat": 5.57563,
+    "lng": -0.188539
+  },
+  {
+    "name": "Kawukudi",
+    "city": "Accra",
+    "municipality": "Ayawaso Central",
+    "assignedZone": "A",
+    "lat": 5.592364,
+    "lng": -0.188766
+  },
+  {
+    "name": "Kokomlemle",
+    "city": "Accra",
+    "municipality": "Okaikwei North",
+    "assignedZone": "A",
+    "lat": 5.57584,
+    "lng": -0.208645
+  },
+  {
+    "name": "Kotobabi",
+    "city": "Accra",
+    "municipality": "Ayawaso Central",
+    "assignedZone": "A",
+    "lat": 5.59977,
+    "lng": -0.204539
+  },
+  {
+    "name": "Maamobi",
+    "city": "Accra",
+    "municipality": "Ayawaso East",
+    "assignedZone": "A",
+    "lat": 5.594519,
+    "lng": -0.197508
+  },
+  {
+    "name": "New Town",
+    "city": "Accra",
+    "municipality": "Ayawaso East",
+    "assignedZone": "A",
+    "lat": 5.578178,
+    "lng": -0.215825
+  },
+  {
+    "name": "Nima",
+    "city": "Accra",
+    "municipality": "Ayawaso East",
+    "assignedZone": "A",
+    "lat": 5.582004,
+    "lng": -0.198417
+  },
+  {
+    "name": "Pig Farm",
+    "city": "Accra",
+    "municipality": "Ayawaso East",
+    "assignedZone": "A",
+    "lat": 5.603738,
+    "lng": -0.186958
+  },
+  {
+    "name": "Ridge",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "A",
+    "lat": 5.5679,
+    "lng": -0.192524
+  },
+  {
+    "name": "Roman Ridge",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "A",
+    "lat": 5.602401,
+    "lng": -0.195165
+  },
+  {
+    "name": "West Trassacco",
+    "city": "Accra",
+    "municipality": "La Nkwantanang Madina",
+    "assignedZone": "A",
+    "lat": 5.603717,
+    "lng": -0.186964
+  },
+  {
+    "name": "Abbosey Okai",
+    "city": "Accra",
+    "municipality": "Ablekuma Central",
+    "assignedZone": "B",
+    "lat": 5.560368,
+    "lng": -0.237366
+  },
+  {
+    "name": "Abeka",
+    "city": "Accra",
+    "municipality": "Ablekuma North",
+    "assignedZone": "B",
+    "lat": 5.595465,
+    "lng": -0.242603
+  },
+  {
+    "name": "Ablekuma North",
+    "city": "Accra",
+    "municipality": "Ablekuma North",
+    "assignedZone": "B",
+    "lat": 5.57743,
+    "lng": -0.247923
+  },
+  {
+    "name": "Accra Central",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.553355,
+    "lng": -0.208253
+  },
+  {
+    "name": "Achimota",
+    "city": "Accra",
+    "municipality": "Okaikwei North",
+    "assignedZone": "B",
+    "lat": 5.612781,
+    "lng": -0.234345
+  },
+  {
+    "name": "Agbogbloshie",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.545657,
+    "lng": -0.224137
+  },
+  {
+    "name": "Arena",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.545481,
+    "lng": -0.214224
+  },
+  {
+    "name": "Burma Camp",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "B",
+    "lat": 5.595846,
+    "lng": -0.151839
+  },
+  {
+    "name": "Chorkor",
+    "city": "Accra",
+    "municipality": "Ablekuma South",
+    "assignedZone": "B",
+    "lat": 5.532299,
+    "lng": -0.24754
+  },
+  {
+    "name": "Dzorwulu",
+    "city": "Accra",
+    "municipality": "Okaikwei North",
+    "assignedZone": "B",
+    "lat": 5.614123,
+    "lng": -0.195647
+  },
+  {
+    "name": "East Legon",
+    "city": "Accra",
+    "municipality": "La Nkwantanang Madina",
+    "assignedZone": "B",
+    "lat": 5.635828,
+    "lng": -0.161359
+  },
+  {
+    "name": "Fadama",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.557707,
+    "lng": -0.224921
+  },
+  {
+    "name": "Kaneshie",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.576118,
+    "lng": -0.244404
+  },
+  {
+    "name": "Kokrobite",
+    "city": "Accra",
+    "municipality": "Ga South",
+    "assignedZone": "B",
+    "lat": 5.536141,
+    "lng": -0.24664
+  },
+  {
+    "name": "Korle Gonno",
+    "city": "Accra",
+    "municipality": "Klottey Korle",
+    "assignedZone": "B",
+    "lat": 5.532814,
+    "lng": -0.226811
+  },
+  {
+    "name": "La",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "B",
+    "lat": 5.564659,
+    "lng": -0.156575
+  },
+  {
+    "name": "Labadi",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "B",
+    "lat": 5.564659,
+    "lng": -0.156575
+  },
+  {
+    "name": "Labone",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "B",
+    "lat": 5.568267,
+    "lng": -0.17174
+  },
+  {
+    "name": "Lapaz",
+    "city": "Accra",
+    "municipality": "Okaikwei North",
+    "assignedZone": "B",
+    "lat": 5.609507,
+    "lng": -0.250754
+  },
+  {
+    "name": "Laterbiokoshie",
+    "city": "Accra",
+    "municipality": "Ablekuma North",
+    "assignedZone": "B",
+    "lat": 5.553278,
+    "lng": -0.24014
+  },
+  {
+    "name": "Mamprobi",
+    "city": "Accra",
+    "municipality": "Ablekuma South",
+    "assignedZone": "B",
+    "lat": 5.536745,
+    "lng": -0.242058
+  },
+  {
+    "name": "North Kaneshie",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.586297,
+    "lng": -0.241961
+  },
+  {
+    "name": "Odorkor",
+    "city": "Accra",
+    "municipality": "Ablekuma West",
+    "assignedZone": "B",
+    "lat": 5.580456,
+    "lng": -0.263324
+  },
+  {
+    "name": "Okaishie",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.547975,
+    "lng": -0.209413
+  },
+  {
+    "name": "Osu",
+    "city": "Accra",
+    "municipality": "Klottey Korle",
+    "assignedZone": "B",
+    "lat": 5.55703,
+    "lng": -0.176272
+  },
+  {
+    "name": "Trade Fair",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "B",
+    "lat": 5.570243,
+    "lng": -0.147221
+  },
+  {
+    "name": "Trasacco Area",
+    "city": "Accra",
+    "municipality": "La Nkwantanang Madina",
+    "assignedZone": "B",
+    "lat": 5.646917,
+    "lng": -0.178831
+  },
+  {
+    "name": "Tudu",
+    "city": "Accra",
+    "municipality": "Okaikwei South",
+    "assignedZone": "B",
+    "lat": 5.552504,
+    "lng": -0.206883
+  },
+  {
+    "name": "Airport Hills",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "C",
+    "lat": 5.616357,
+    "lng": -0.143259
+  },
+  {
+    "name": "Dansoman",
+    "city": "Accra",
+    "municipality": "Ablekuma West",
+    "assignedZone": "C",
+    "lat": 5.542748,
+    "lng": -0.256543
+  },
+  {
+    "name": "Dome",
+    "city": "Accra",
+    "municipality": "Ga East",
+    "assignedZone": "C",
+    "lat": 5.656265,
+    "lng": -0.233847
+  },
+  {
+    "name": "Haatso",
+    "city": "Accra",
+    "municipality": "Ga East",
+    "assignedZone": "C",
+    "lat": 5.669425,
+    "lng": -0.203367
+  },
+  {
+    "name": "McCarthy Hill",
+    "city": "Accra",
+    "municipality": "Ga South",
+    "assignedZone": "C",
+    "lat": 5.564279,
+    "lng": -0.297229
+  },
+  {
+    "name": "Sowutuom",
+    "city": "Accra",
+    "municipality": "Ablekuma North",
+    "assignedZone": "C",
+    "lat": 5.625094,
+    "lng": -0.272425
+  },
+  {
+    "name": "Spintex",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "C",
+    "lat": 5.637614,
+    "lng": -0.126606
+  },
+  {
+    "name": "Spintex East",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "C",
+    "lat": 5.637614,
+    "lng": -0.126606
+  },
+  {
+    "name": "Taifa",
+    "city": "Accra",
+    "municipality": "Ga East",
+    "assignedZone": "C",
+    "lat": 5.652503,
+    "lng": -0.250683
+  },
+  {
+    "name": "Tse Addo",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "C",
+    "lat": 5.584298,
+    "lng": -0.144952
+  },
+  {
+    "name": "Westlands",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "C",
+    "lat": 5.653658,
+    "lng": -0.208753
+  },
+  {
+    "name": "Adenta",
+    "city": "Accra",
+    "municipality": "Adenta",
+    "assignedZone": "D",
+    "lat": 5.714167,
+    "lng": -0.15418
+  },
+  {
+    "name": "Adjiringanor",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "D",
+    "lat": 5.651038,
+    "lng": -0.135459
+  },
+  {
+    "name": "Ashaley Botwe",
+    "city": "Accra",
+    "municipality": "La Nkwantanang Madina",
+    "assignedZone": "D",
+    "lat": 5.656002,
+    "lng": -0.134845
+  },
+  {
+    "name": "Dodowa Road",
+    "city": "Accra",
+    "municipality": "Adenta",
+    "assignedZone": "D",
+    "lat": 5.737378,
+    "lng": -0.155917
+  },
+  {
+    "name": "Kwabenya",
+    "city": "Accra",
+    "municipality": "Ga East",
+    "assignedZone": "D",
+    "lat": 5.684417,
+    "lng": -0.253716
+  },
+  {
+    "name": "Tema Community 20",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "D",
+    "lat": 5.653678,
+    "lng": -0.072341
+  },
+  {
+    "name": "Teshie-Nungua Estates",
+    "city": "Accra",
+    "municipality": "Ledzokuku",
+    "assignedZone": "D",
+    "lat": 5.602061,
+    "lng": -0.095317
+  },
+  {
+    "name": "Weija",
+    "city": "Accra",
+    "municipality": "Ga South",
+    "assignedZone": "D",
+    "lat": 5.56664,
+    "lng": -0.333478
+  },
+  {
+    "name": "Amansaman Outskirts",
+    "city": "Accra",
+    "municipality": "Ga West",
+    "assignedZone": "E",
+    "lat": 5.706214,
+    "lng": -0.301928
+  },
+  {
+    "name": "Amasaman",
+    "city": "Accra",
+    "municipality": "Ga West",
+    "assignedZone": "E",
+    "lat": 5.706214,
+    "lng": -0.301928
+  },
+  {
+    "name": "Amrahia",
+    "city": "Accra",
+    "municipality": "Adenta",
+    "assignedZone": "E",
+    "lat": 5.764174,
+    "lng": -0.139333
+  },
+  {
+    "name": "Ashaiman",
+    "city": "Tema",
+    "municipality": "Ashaiman",
+    "assignedZone": "E",
+    "lat": 5.693001,
+    "lng": -0.033772
+  },
+  {
+    "name": "East Legon Hills",
+    "city": "Accra",
+    "municipality": "La Nkwantanang Madina",
+    "assignedZone": "E",
+    "lat": 5.698647,
+    "lng": -0.096883
+  },
+  {
+    "name": "Free Zone Enclave",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.699804,
+    "lng": 0.00427
+  },
+  {
+    "name": "Kasoa",
+    "city": "Accra",
+    "municipality": "Awutu Senya East",
+    "assignedZone": "E",
+    "lat": 5.534415,
+    "lng": -0.425274
+  },
+  {
+    "name": "Kasoa Central",
+    "city": "Accra",
+    "municipality": "Awutu Senya East",
+    "assignedZone": "E",
+    "lat": 5.534415,
+    "lng": -0.425274
+  },
+  {
+    "name": "Klagon",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.664198,
+    "lng": -0.053659
+  },
+  {
+    "name": "Lakeside Estate",
+    "city": "Accra",
+    "municipality": "La Dadekotopon",
+    "assignedZone": "E",
+    "lat": 5.709323,
+    "lng": -0.130688
+  },
+  {
+    "name": "Lashibi",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.684754,
+    "lng": -0.037915
+  },
+  {
+    "name": "Oyarifa",
+    "city": "Accra",
+    "municipality": "Adenta",
+    "assignedZone": "E",
+    "lat": 5.755538,
+    "lng": -0.174005
+  },
+  {
+    "name": "Oyibi",
+    "city": "Accra",
+    "municipality": "Adenta",
+    "assignedZone": "E",
+    "lat": 5.812958,
+    "lng": -0.117916
+  },
+  {
+    "name": "Pokuase",
+    "city": "Accra",
+    "municipality": "Ga North",
+    "assignedZone": "E",
+    "lat": 5.700273,
+    "lng": -0.302078
+  },
+  {
+    "name": "Sakumono",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.614911,
+    "lng": -0.048407
+  },
+  {
+    "name": "Tema Community 10",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.657626,
+    "lng": -0.024487
+  },
+  {
+    "name": "Tema Community 11",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.6642,
+    "lng": -0.025654
+  },
+  {
+    "name": "Tema Community 12",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.675839,
+    "lng": -0.021744
+  },
+  {
+    "name": "Tema Community 16",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.635442,
+    "lng": -0.076333
+  },
+  {
+    "name": "Tema Community 18",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.647105,
+    "lng": -0.071173
+  },
+  {
+    "name": "Tema Community 19",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.664198,
+    "lng": -0.053659
+  },
+  {
+    "name": "Tema Community 2",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.632651,
+    "lng": -0.011659
+  },
+  {
+    "name": "Tema Community 21",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.707637,
+    "lng": -0.020355
+  },
+  {
+    "name": "Tema Community 3",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.622139,
+    "lng": -0.025654
+  },
+  {
+    "name": "Tema Community 4",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.654997,
+    "lng": -0.008161
+  },
+  {
+    "name": "Tema Community 6",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.65205,
+    "lng": -0.016159
+  },
+  {
+    "name": "Tema Community 7",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.662886,
+    "lng": -0.010493
+  },
+  {
+    "name": "Tema Community 8",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.670776,
+    "lng": -0.012825
+  },
+  {
+    "name": "Tema Community 9",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "E",
+    "lat": 5.67604,
+    "lng": -0.017514
+  },
+  {
+    "name": "Afienya",
+    "city": "Tema",
+    "municipality": "Ningo Prampram",
+    "assignedZone": "F",
+    "lat": 5.795836,
+    "lng": 0.002331
+  },
+  {
+    "name": "Baatsona",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.734812,
+    "lng": 0.030235
+  },
+  {
+    "name": "Baatsona Estate East",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.734812,
+    "lng": 0.030235
+  },
+  {
+    "name": "Dawhenya",
+    "city": "Tema",
+    "municipality": "Ningo Prampram",
+    "assignedZone": "F",
+    "lat": 5.75544,
+    "lng": 0.03368
+  },
+  {
+    "name": "Dodowa Township",
+    "city": "Accra",
+    "municipality": "Shai Osudoku",
+    "assignedZone": "F",
+    "lat": 5.882867,
+    "lng": -0.098043
+  },
+  {
+    "name": "Greenwich Meridian",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.644025,
+    "lng": -0.00019
+  },
+  {
+    "name": "Heavy Industrial Area",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.67735,
+    "lng": 0.027987
+  },
+  {
+    "name": "Kpone",
+    "city": "Tema",
+    "municipality": "Kpone Katamanso",
+    "assignedZone": "F",
+    "lat": 5.693133,
+    "lng": 0.051325
+  },
+  {
+    "name": "Ningo",
+    "city": "Tema",
+    "municipality": "Ningo Prampram",
+    "assignedZone": "F",
+    "lat": 5.756283,
+    "lng": 0.19165
+  },
+  {
+    "name": "Prampram",
+    "city": "Tema",
+    "municipality": "Ningo Prampram",
+    "assignedZone": "F",
+    "lat": 5.734812,
+    "lng": 0.030235
+  },
+  {
+    "name": "Shai Hills",
+    "city": "Accra",
+    "municipality": "Shai Osudoku",
+    "assignedZone": "F",
+    "lat": 5.908333,
+    "lng": 0.061389
+  },
+  {
+    "name": "Tema Community 1",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.635236,
+    "lng": 0.002893
+  },
+  {
+    "name": "Tema Community 13",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.685266,
+    "lng": -0.058661
+  },
+  {
+    "name": "Tema Community 14",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.734812,
+    "lng": 0.030235
+  },
+  {
+    "name": "Tema Community 15",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.639629,
+    "lng": -0.001602
+  },
+  {
+    "name": "Tema Community 17",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.642313,
+    "lng": -0.010688
+  },
+  {
+    "name": "Tema Community 22",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.708159,
+    "lng": -0.028723
+  },
+  {
+    "name": "Tema Community 23",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.683416,
+    "lng": -0.065
+  },
+  {
+    "name": "Tema Community 24",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.734812,
+    "lng": 0.030235
+  },
+  {
+    "name": "Tema Community 25",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.727349,
+    "lng": 0.016323
+  },
+  {
+    "name": "Tema Community 5",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.643166,
+    "lng": -0.016323
+  },
+  {
+    "name": "Tema Newtown",
+    "city": "Tema",
+    "municipality": "Tema West",
+    "assignedZone": "F",
+    "lat": 5.657702,
+    "lng": 0.026069
+  }
+]

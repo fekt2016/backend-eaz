@@ -4,7 +4,12 @@ const errorHandler = (err, req, res, next) => { // eslint-disable-line no-unused
 
   // ── Zod validation errors ──────────────────────────────────────────────────
   if (err.name === 'ZodError') {
-    const fieldErrors = (err.errors || []).map((e) => ({
+    // Prefer `issues` (the canonical array of field problems) and fall back to
+    // `errors`. Some Zod versions only populate `issues` for issues raised via
+    // `ctx.addIssue` (superRefine), leaving the `errors` alias empty — relying
+    // on `errors` alone would swallow the message and return a blank array.
+    const issues = err.issues && err.issues.length ? err.issues : (err.errors || []);
+    const fieldErrors = issues.map((e) => ({
       field:   (e.path || []).join('.'),
       message: e.message,
     }));

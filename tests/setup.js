@@ -35,6 +35,12 @@ process.env.NAMECHEAP_API_KEY = "";
 // false, so an unmocked path can't reach the live registrar from a test run.
 process.env.SPACESHIP_API_KEY = "";
 process.env.SPACESHIP_API_SECRET = "";
+// Same hermeticity rule as the registrar above: a resolved distance costs real
+// money per element, and a test must never reach Google. Blanking this makes
+// googleDistance.hasConfig() false, so the admin resolve endpoint refuses
+// before any HTTP call. Tests that need distances write NeighborhoodDistance
+// rows directly.
+process.env.GOOGLE_MAPS_API_KEY = "";
 process.env.HUBTEL_CLIENT_ID = "";
 process.env.HUBTEL_CLIENT_SECRET = "";
 process.env.PAYSTACK_SECRET = "sk_test_eazworld_dummy_secret";

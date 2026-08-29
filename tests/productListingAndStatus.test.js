@@ -2,7 +2,6 @@ const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const Product = require("../models/Product");
-const Part = require("../models/Part");
 const Order = require("../models/Order");
 const User = require("../models/User");
 
@@ -22,34 +21,34 @@ describe("GET /api/v1/products (merged listing)", () => {
     await Product.create({
       name: "Cable", slug: "cable", price: 2000, category: "Accessory", stock: 5, isActive: true,
     });
-    const part = await Part.create({
-      name: "iPhone 12 Battery", category: "Battery", isRetail: true, quantity: 4,
-      costPrice: 8000, sellingPrice: 15000,
-    });
+    const part = await Product.create({
+      name: "iPhone 12 Battery", category: "Battery", partCategory: "Battery", sellOnline: true, sellInStore: true, stock: 4,
+      costPrice: 8000, price: 15000, useInRepairs: true});
 
     const res = await request(app).get("/api/v1/products?limit=50");
     expect(res.status).toBe(200);
 
     const partRow = res.body.data.find((d) => d.kind === "part");
     expect(partRow).toBeTruthy();
-    expect(partRow.slug).toBe(`part-${part._id}`);
+    // A part has a real slug of its own now — the synthetic `part-<id>` URL
+    // still resolves (see partDetail.test.js) but is no longer its identity.
+    expect(partRow.slug).toBe("iphone-12-battery");
     expect(partRow.price).toBe(15000); // sellingPrice pesewas, not ×100
     expect(partRow.stock).toBe(4);
     expect(res.body.total).toBe(2); // product + part
   });
 
   it("excludes retail parts with no stock", async () => {
-    await Part.create({
-      name: "Dead Stock Screen", category: "Screen", isRetail: true, quantity: 0,
-      costPrice: 100, sellingPrice: 200,
-    });
+    await Product.create({
+      name: "Dead Stock Screen", category: "Screen", partCategory: "Screen", sellOnline: true, sellInStore: true, stock: 0,
+      costPrice: 100, price: 200, useInRepairs: true});
     const res = await request(app).get("/api/v1/products");
     expect(res.body.data.find((d) => d.kind === "part")).toBeFalsy();
   });
 
   it("sorts by price ascending across products and parts", async () => {
     await Product.create({ name: "Pricey", slug: "pricey", price: 90000, category: "x", stock: 1 });
-    await Part.create({ name: "Cheap Part", category: "Other", isRetail: true, quantity: 2, costPrice: 100, sellingPrice: 500 });
+    await Product.create({ name: "Cheap Part", category: "Other", partCategory: "Other", sellOnline: true, sellInStore: true, stock: 2, costPrice: 100, price: 500, useInRepairs: true});
 
     const res = await request(app).get("/api/v1/products?sort=price-asc&limit=50");
     const prices = res.body.data.map((d) => d.price);
@@ -61,10 +60,9 @@ it("kind=product returns only real shop products, excluding retail parts", async
     await Product.create({
       name: "Cable", slug: "cable", price: 2000, category: "Accessory", stock: 5, isActive: true,
     });
-    await Part.create({
-      name: "iPhone 12 Battery", category: "Battery", isRetail: true, quantity: 4,
-      costPrice: 8000, sellingPrice: 15000,
-    });
+    await Product.create({
+      name: "iPhone 12 Battery", category: "Battery", partCategory: "Battery", sellOnline: true, sellInStore: true, stock: 4,
+      costPrice: 8000, price: 15000, useInRepairs: true});
 
     const res = await request(app).get("/api/v1/products?kind=product&limit=50");
     expect(res.status).toBe(200);
@@ -81,10 +79,9 @@ it("kind=product returns only real shop products, excluding retail parts", async
       name: "Screen Guard", slug: "screen-guard", price: 1000,
       category: "Screen Protectors", stock: 10, isActive: true,
     });
-    await Part.create({
-      name: "iPhone Screen Replacement", category: "Screen", isRetail: true,
-      quantity: 3, costPrice: 100, sellingPrice: 5000,
-    });
+    await Product.create({
+      name: "iPhone Screen Replacement", category: "Screen", partCategory: "Screen", sellOnline: true, sellInStore: true,
+      stock: 3, costPrice: 100, price: 5000, useInRepairs: true});
 
     const res = await request(app).get("/api/v1/products?category=Screen%20Protectors&limit=50");
     expect(res.body.total).toBe(1);
@@ -95,10 +92,9 @@ it("kind=product returns only real shop products, excluding retail parts", async
     await Product.create({
       name: "Widget", slug: "widget", price: 1000, category: "x", stock: 10, isActive: true,
     });
-    await Part.create({
-      name: "iPhone 12 Battery", category: "Battery", isRetail: true,
-      quantity: 3, costPrice: 100, sellingPrice: 5000,
-    });
+    await Product.create({
+      name: "iPhone 12 Battery", category: "Battery", partCategory: "Battery", sellOnline: true, sellInStore: true,
+      stock: 3, costPrice: 100, price: 5000, useInRepairs: true});
 
     const noMatch = await request(app).get("/api/v1/products?q=nonexistentxyz123");
     expect(noMatch.body.total).toBe(0);

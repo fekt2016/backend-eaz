@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Counter  = require('./Counter');
 
 const saleItemSchema = new mongoose.Schema({
-  part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Part' },
+  part:        { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
   product:     { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
   name:        { type: String, required: true },      // snapshot — never changes
   barcode:     { type: String },

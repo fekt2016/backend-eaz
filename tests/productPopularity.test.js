@@ -179,7 +179,7 @@ describe("Product sold count (T48)", () => {
     const product = await makeProduct({ stock: 5 });
     await makeOrder("REF_SOLD_1", [{ product: product._id, name: "Widget", price: 1000, qty: 2 }]);
 
-    await fulfilShopOrder("REF_SOLD_1");
+    await fulfilShopOrder("REF_SOLD_1", { amountPesewas: 1000, currency: "GHS" });
 
     const refreshed = await Product.findById(product._id);
     expect(refreshed.sold).toBe(2);
@@ -190,8 +190,8 @@ describe("Product sold count (T48)", () => {
     const product = await makeProduct({ stock: 5 });
     await makeOrder("REF_SOLD_2", [{ product: product._id, name: "Widget", price: 1000, qty: 2 }]);
 
-    await fulfilShopOrder("REF_SOLD_2");
-    const second = await fulfilShopOrder("REF_SOLD_2"); // Paystack retry
+    await fulfilShopOrder("REF_SOLD_2", { amountPesewas: 1000, currency: "GHS" });
+    const second = await fulfilShopOrder("REF_SOLD_2", { amountPesewas: 1000, currency: "GHS" }); // Paystack retry
 
     expect(second).toBeNull();
     const refreshed = await Product.findById(product._id);
@@ -208,7 +208,7 @@ describe("Product sold count (T48)", () => {
       { product: product._id, variant: { sku: "WID-BLK" }, name: "Widget (Black)", price: 1000, qty: 3 },
     ]);
 
-    await fulfilShopOrder("REF_SOLD_3");
+    await fulfilShopOrder("REF_SOLD_3", { amountPesewas: 1000, currency: "GHS" });
 
     const refreshed = await Product.findById(product._id);
     expect(refreshed.sold).toBe(4); // 1 plain + 3 variant
@@ -218,7 +218,7 @@ describe("Product sold count (T48)", () => {
     const product = await makeProduct({ stock: 1 });
     await makeOrder("REF_SOLD_4", [{ product: product._id, name: "Widget", price: 1000, qty: 5 }]);
 
-    await fulfilShopOrder("REF_SOLD_4");
+    await fulfilShopOrder("REF_SOLD_4", { amountPesewas: 1000, currency: "GHS" });
 
     const refreshed = await Product.findById(product._id);
     expect(refreshed.sold).toBe(0);
@@ -231,7 +231,7 @@ describe("Product sold count — reversals (T48)", () => {
     const product = await makeProduct({ stock: 5 });
     const order = await makeOrder("REF_REV_1", [{ product: product._id, name: "Widget", price: 1000, qty: 2 }]);
 
-    await fulfilShopOrder("REF_REV_1");
+    await fulfilShopOrder("REF_REV_1", { amountPesewas: 1000, currency: "GHS" });
     await restockOrderItems(await Order.findById(order._id));
 
     const refreshed = await Product.findById(product._id);
@@ -254,5 +254,113 @@ describe("Product sold count — reversals (T48)", () => {
     const refreshed = await Product.findById(product._id);
     expect(refreshed.sold).toBe(0);
     expect(refreshed.stock).toBe(5); // stock still restored — the clamp is on `sold` only
+  });
+});
+
+// ── T48 counters for retail parts (inventory products in the shop) ──────────
+describe("Popularity counters for retail parts", () => {
+
+  async function makeRetailPart(overrides = {}) {
+    return Product.create({
+      name: "Retail Screen", category: "Screen", partCategory: "Screen", sellOnline: true, sellInStore: true, stock: 10,
+      costPrice: 40000, price: 65000, ...overrides, useInRepairs: true});
+  }
+
+  it("records a view against the part behind its synthetic slug", async () => {
+    const part = await makeRetailPart();
+    const res = await request(app).post(`/api/v1/products/part-${part._id}/view`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.views).toBe(1);
+    expect((await Product.findById(part._id)).views).toBe(1);
+  });
+
+  it("does not count views for an item that is not listed in the shop", async () => {
+    const part = await makeRetailPart({ sellOnline: false, sellInStore: false });
+    const res = await request(app).post(`/api/v1/products/part-${part._id}/view`);
+    expect(res.status).toBe(404);
+  });
+
+  it("bumps `sold` when a part line is fulfilled, and gives it back on restock", async () => {
+    const part = await makeRetailPart();
+    await Order.create({
+      orderNumber: `EZW-PART-${Date.now()}`,
+      items: [{ part: part._id, name: part.name, price: 65000, qty: 3 }],
+      subtotal: 195000, total: 195000,
+      customer: { name: "Ama", phone: "0244000000" },
+      status: "pending", paystackReference: "REF_PART_SOLD",
+    });
+
+    await fulfilShopOrder("REF_PART_SOLD", { amountPesewas: 195000, currency: "GHS" });
+    let fresh = await Product.findById(part._id);
+    expect(fresh.sold).toBe(3);
+    expect(fresh.stock).toBe(7);
+
+    await restockOrderItems(await Order.findOne({ paystackReference: "REF_PART_SOLD" }));
+    fresh = await Product.findById(part._id);
+    expect(fresh.sold).toBe(0);
+    expect(fresh.stock).toBe(10);
+  });
+
+  it("never drives `sold` negative for a part sold before the counter existed", async () => {
+    const part = await makeRetailPart();
+    await Product.collection.updateOne({ _id: part._id }, { $unset: { sold: "" } });
+    await Product.decrementSold(part._id, 5);
+    expect((await Product.findById(part._id)).sold).toBe(0);
+  });
+
+  it("serves the counters on the shop listing so a part card matches a product card", async () => {
+    const part = await makeRetailPart({ name: "Listed Screen" });
+    await request(app).post(`/api/v1/products/part-${part._id}/view`);
+
+    const res = await request(app).get("/api/v1/products");
+    const listed = res.body.data.find((p) => String(p._id) === String(part._id));
+    expect(listed).toBeTruthy();
+    expect(listed.views).toBe(1);
+    expect(listed.sold).toBe(0);
+  });
+});
+
+// ── POS sales feed the same `sold` counter as the shop ─────────────────────
+describe("POS sales count toward a part's sold total", () => {
+  const { deductPartStock } = require("../utils/deductPartStock");
+
+  it("bumps `sold` when a part is deducted for a repair job or counter sale", async () => {
+    const part = await Product.create({
+      name: "POS Screen", category: "Screen", partCategory: "Screen", sellOnline: true, sellInStore: true, stock: 10,
+      costPrice: 40000, price: 65000, useInRepairs: true});
+
+    const res = await deductPartStock(part._id, 2);
+    expect(res.ok).toBe(true);
+
+    const fresh = await Product.findById(part._id);
+    expect(fresh.stock).toBe(8);
+    expect(fresh.sold).toBe(2);
+  });
+
+  it("does not count a deduction that failed the stock guard", async () => {
+    const part = await Product.create({
+      name: "Scarce POS Part", category: "Battery", partCategory: "Battery", sellOnline: true, sellInStore: true, stock: 1,
+      costPrice: 1000, price: 2000, useInRepairs: true});
+
+    const res = await deductPartStock(part._id, 5);
+    expect(res.ok).toBe(false);
+
+    const fresh = await Product.findById(part._id);
+    expect(fresh.stock).toBe(1); // untouched
+    expect(fresh.sold).toBe(0);     // and not counted
+  });
+
+  it("still counts the sale when the part opts into negative stock", async () => {
+    const part = await Product.create({
+      name: "Backorder Part", category: "Cable", partCategory: "Cable", sellOnline: true, sellInStore: true, stock: 1,
+      allowNegativeStock: true, costPrice: 1000, price: 2000, useInRepairs: true});
+
+    const res = await deductPartStock(part._id, 3);
+    expect(res.ok).toBe(true);
+    expect(res.wentNegative).toBe(true);
+
+    const fresh = await Product.findById(part._id);
+    expect(fresh.stock).toBe(-2);
+    expect(fresh.sold).toBe(3);
   });
 });

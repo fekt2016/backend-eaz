@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 const ProductReview = require("../models/ProductReview");
 const Product = require("../models/Product");
-const Part = require("../models/Part");
 const Order = require("../models/Order");
 const { normalizePhone } = require("./orderController");
 const { sanitizeText, sanitizeMessage } = require("../utils/sanitize");
@@ -47,20 +46,18 @@ async function hasVerifiedPurchase(user, catalogItemId) {
 // Resolve a shop catalogue item by _id or slug. The product detail page serves
 // both real Products and retail Parts under a synthetic `part-<id>` slug, and
 // reviews are keyed to whatever `_id` that page shows — so resolve across both
-// collections so part reviews still validate. Returns a plain object with
+// collection so part reviews still validate. Returns a plain object with
 // `_id`, `name`, `slug` or null when nothing matches.
 async function resolveCatalogItem(productIdOrSlug) {
   const raw = String(productIdOrSlug || "");
   if (!raw) return null;
 
   if (mongoose.Types.ObjectId.isValid(raw)) {
-    const [product, part] = await Promise.all([
-      Product.findById(raw).select("_id name slug"),
-      Part.findById(raw).select("_id name"),
-    ]);
-    if (product) return { _id: product._id, name: product.name, slug: product.slug };
-    if (part) return { _id: part._id, name: part.name, slug: null };
-    return null;
+    // One collection now — the second lookup this used to need against `parts`
+    // is gone, and a review left on a part still resolves because the id never
+    // changed in the merge.
+    const product = await Product.findById(raw).select("_id name slug");
+    return product ? { _id: product._id, name: product.name, slug: product.slug } : null;
   }
 
   const product = await Product.findOne({ slug: raw }).select("_id name slug");
@@ -287,14 +284,10 @@ const getAllProductReviews = async (req, res, next) => {
       .populate("user", "name");
 
     const ids = [...new Set(reviews.map((r) => r.product?.toString()).filter(Boolean))];
-    const [products, parts] = await Promise.all([
-      Product.find({ _id: { $in: ids } }).select("name slug"),
-      Part.find({ _id: { $in: ids } }).select("name"),
-    ]);
+    const products = await Product.find({ _id: { $in: ids } }).select("name slug");
 
     const nameMap = new Map();
     products.forEach((p) => nameMap.set(p._id.toString(), { name: p.name, slug: p.slug }));
-    parts.forEach((p) => nameMap.set(p._id.toString(), { name: p.name, slug: null }));
 
     const data = reviews.map((r) => {
           const meta = nameMap.get(r.product?.toString()) || { name: null, slug: null };

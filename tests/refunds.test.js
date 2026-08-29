@@ -20,7 +20,7 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const app = require('../app');
 const Order = require('../models/Order');
-const Part = require('../models/Part');
+const Product = require("../models/Product");
 const User = require('../models/User');
 const { runRefundReconcileJob } = require('../services/refundReconcileJob');
 
@@ -112,7 +112,7 @@ describe('POST /api/v1/orders/:id/refund — atomic double-submission guard', ()
 
 describe('POST /api/v1/orders/:id/refund — happy path', () => {
   it('cancels the order, restocks (T2), and records refund.processing with the Paystack reference', async () => {
-    const part = await Part.create({ name: 'Screen', category: 'Screen', quantity: 5, costPrice: 1000, sellingPrice: 2000 });
+    const part = await Product.create({ name: 'Screen', category: 'Screen', partCategory: 'Screen', stock: 5, costPrice: 1000, price: 2000, useInRepairs: true});
     const { token } = await makeUser();
     const order = await Order.create(orderData({
       items: [{ part: part._id, name: 'Screen', price: 2000, qty: 2 }],
@@ -133,8 +133,8 @@ describe('POST /api/v1/orders/:id/refund — happy path', () => {
       transaction: order.paystackReference, amount: 4000, currency: 'GHS',
     }));
 
-    const freshPart = await Part.findById(part._id);
-    expect(freshPart.quantity).toBe(7); // 5 + 2 restored
+    const freshPart = await Product.findById(part._id);
+    expect(freshPart.stock).toBe(7); // 5 + 2 restored
   });
 
   it('marks refund.failed (not processing) when Paystack rejects the request outright', async () => {

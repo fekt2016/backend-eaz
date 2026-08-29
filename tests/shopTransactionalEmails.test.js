@@ -212,7 +212,7 @@ describe("wiring: fulfilShopOrder sends the receipt exactly once", () => {
 
   it("emails the receipt with the product's expected-availability line", async () => {
     const order = await makePaidableOrder();
-    const paid = await fulfilShopOrder(order.paystackReference);
+    const paid = await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" });
     expect(paid).toBeTruthy();
 
     // The confirmation rides a Promise.all chain — give the microtasks a beat.
@@ -227,8 +227,8 @@ describe("wiring: fulfilShopOrder sends the receipt exactly once", () => {
 
   it("never emails twice — a webhook retry is idempotent", async () => {
     const order = await makePaidableOrder();
-    await fulfilShopOrder(order.paystackReference);
-    const again = await fulfilShopOrder(order.paystackReference);
+    await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" });
+    const again = await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" });
     expect(again).toBeNull(); // already paid
     await new Promise((r) => setTimeout(r, 30));
     expect(mockResendSend).toHaveBeenCalledTimes(1);

@@ -11,11 +11,10 @@ const PosPayment = require('../models/PosPayment');
 const RepairJob = require('../models/RepairJob');
 const { sendPaymentReceived } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
-const { fulfilShopOrder } = require('../utils/fulfilShopOrder');
+const { fulfilShopOrder, PAYMENT_GUARD_CODES } = require('../utils/fulfilShopOrder');
 const { sendDomainConfirmationEmail, sendServiceConfirmationEmail } = require('../utils/email');
 const { notifyCustomer } = require('../services/notify');
 const { deductPartStock } = require('../utils/deductPartStock');
-const Part = require('../models/Part');
 const spaceship = require('../services/spaceship');
 const whm = require('../services/whm');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
@@ -42,7 +41,7 @@ async function applyPaidPartToJob(job, item) {
 
   let costAtTime = 0;
   if (item.part) {
-    const partDoc = await Part.findById(item.part).select('costPrice');
+    const partDoc = await Product.findById(item.part).select('costPrice');
     if (partDoc) costAtTime = Math.round(Number(partDoc.costPrice) || 0);
   }
 
@@ -364,16 +363,31 @@ const handlePaystackWebhook = async (req, res) => {
     // ── E-commerce order ────────────────────────────────────────
     const shopOrder = await Order.findOne({ paystackReference: reference });
     if (shopOrder) {
-      const { amount, currency } = event.data;
-
-      if (amount !== shopOrder.total) {
-        return res.status(400).json({ error: 'Amount mismatch' });
+      // The amount/currency guard lives inside fulfilShopOrder now, so the
+      // charge is checked in the same atomic write that flips the order paid.
+      let paid;
+      try {
+        paid = await fulfilShopOrder(reference, {
+          amountPesewas: event.data.amount,
+          currency:      event.data.currency,
+        });
+      } catch (err) {
+        if (!PAYMENT_GUARD_CODES.includes(err.code)) throw err;
+        console.error(`[webhook] ${err.message}`);
+        await log({
+          action: ACTIONS.PAYMENT_FAILED,
+          resourceType: RESOURCES.PAYMENT,
+          resourceId: reference,
+          resourceName: shopOrder.orderNumber,
+          description: `Payment failed — ${err.message}`,
+          metadata: { reason: err.code.toLowerCase() },
+          status: 'failure',
+        });
+        return res.status(400).json({
+          error: err.code === 'CURRENCY_MISMATCH' ? 'Currency mismatch' : 'Amount mismatch',
+        });
       }
-      if (currency && currency !== 'GHS') {
-        return res.status(400).json({ error: 'Currency mismatch' });
-      }
 
-      const paid = await fulfilShopOrder(reference);
       if (!paid) {
         return res.status(200).json({ received: true, idempotent: true });
       }
