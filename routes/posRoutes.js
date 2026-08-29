@@ -118,8 +118,15 @@ router.delete('/suppliers/:id', restrictTo('superadmin'), deleteSupplier);
 // T5 — admin was omitted from both by oversight; the app's pattern everywhere
 // else is admin-inclusive, and staff could already read. Confirmed with the
 // product owner 2026-08-26: admin gets full access.
+// T113 (owner, 2026-08-29): staff record their own spending. Who may *see* whose
+// is scoped inside the controller — staff their own, admin theirs plus every
+// staff member's, superadmin everything — and the same scope gates edit/delete,
+// so an expense you cannot see is one you cannot touch.
 router.get('/expenses',     restrictTo('superadmin', 'staff', 'admin'), getExpenses);
-router.post('/expenses',    restrictTo('superadmin', 'admin'), createExpense);
+router.post('/expenses',    restrictTo('superadmin', 'admin', 'staff'), createExpense);
+// Editing and deleting stay with admin: staff record spending, they do not revise
+// it. The controller's scope still applies on top, so an admin cannot edit a
+// superadmin's expense by guessing its id.
 router.patch('/expenses/:id', restrictTo('superadmin', 'admin'), updateExpense);
 router.delete('/expenses/:id', restrictTo('superadmin', 'admin'), deleteExpense);
 
