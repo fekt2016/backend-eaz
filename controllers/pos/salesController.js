@@ -12,8 +12,21 @@ class SaleError extends Error {
   }
 }
 
+// T83: only the till rings up sales. Admin runs the shop but does not take money
+// at the counter (same separation as job payments and expenses), and a technician
+// repairs devices. Enforced here as well as on the route so the rule survives any
+// future re-wiring of the router — createSale had no role check of its own at all.
+const CAN_CREATE_SALE = ['superadmin', 'staff'];
+
 const createSale = async (req, res, next) => {
   try {
+    if (!CAN_CREATE_SALE.includes(req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to perform this action.',
+      });
+    }
+
     const {
       items,          // [{ partId?, productId?, quantity }]
       paymentMethod,  // cash | momo | card | split

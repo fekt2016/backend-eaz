@@ -95,7 +95,7 @@
   - **Location:** `services/*`, `controllers/*` charge/upload handlers
   - **Source:** AUDIT.md §13, §19, §28, §29 P1 (all 🟣 rows in §4)
 
-- [ ] **T83 · A technician can ring up a sale — POS roles are not enforced server-side** (audit ref EZ-003)
+- [~] **T83 · A technician can ring up a sale — POS roles are not enforced server-side** (audit ref EZ-003)
   - **Issue:** POS routes sit behind one blanket gate — `protect` then
     `restrictTo('superadmin','admin','staff','technician')` (`routes/posRoutes.js:34-35`) — and several
     add no further check: `/customers` (`:57`), `/sales` (`:76`), `/inventory` (`:83`).
@@ -114,10 +114,60 @@
     (`:175, :272, :522`) — this is an inconsistency, not a blanket absence.
   - **Location:** `routes/posRoutes.js:34-35,57,76,83`; `controllers/pos/salesController.js`
   - **Acceptance:**
-    - [ ] Each POS route's allowed roles match `roles.md`
-    - [ ] A technician gets 403 on sales, customer writes and inventory reads
-    - [ ] Staff/admin/superadmin keep their current access
-    - [ ] Negative tests per role (see T92)
+    - [ ] Each POS route's allowed roles match `roles.md`  ← technician column matches; ~11 admin/staff rows still diverge, see T105
+    - [x] A technician gets 403 on sales, customer writes and inventory reads
+    - [x] Staff/admin/superadmin keep their current access  ← unchanged, except admin loses POST /sales by explicit owner decision
+    - [x] Negative tests per role (see T92)
+
+  ### Implementation Notes (2026-08-29 — awaiting review)
+
+  - **`routes/posRoutes.js`** — `denyRoles('technician')` (the idiom already used in
+    `domainRoutes.js`/`hostingOrderRoutes.js`) on `/scan/:code`, `/customers*`, `/sales*` and
+    `GET /inventory`. `denyRoles` rather than a narrower `restrictTo` so no other role's access
+    changes. Mounted with `router.use('/sales', …)` and `router.use('/customers', …)` so the
+    sub-paths (`/sales/summary`, `/sales/:id`, `/customers/:id`) are covered too.
+  - **`controllers/pos/salesController.js`** — `createSale` had **no role check of its own**.
+    It now rejects anything outside `CAN_CREATE_SALE = ['superadmin', 'staff']` before touching
+    the cart, so the rule survives a future re-wiring of the router.
+  - **Product decision, 2026-08-29: admin cannot ring up a sale either.** `roles.md` had
+    "Ring up a sale" as ✅ for admin; the owner confirmed it is ❌ — admin runs the shop but does
+    not take money at the counter, the same separation already applied to job payments and
+    expenses. Admin **keeps sales reads** (`CAN_SEE_ALL_SALES` includes admin), losing only the
+    write. `roles.md` line 129 and its "menu hides more than the system enforces" caveat were
+    updated to match. The frontend already gated the Sell page to `["superadmin","staff"]`, so
+    no frontend change was needed.
+  - **`tests/posTechnicianRoleGuard.test.js`** (new, 11 cases): technician 403 on all 7 routes
+    it should not reach; no `Sale` document persisted on a rejected attempt; technician keeps
+    `/jobs`, `/my-overview`, `/technicians`; staff/admin/superadmin not 403'd on anything they
+    had before; admin **and** technician 403 on `POST /sales` with nothing persisted;
+    staff/superadmin pass the gate; admin still reads `/sales` and `/sales/summary`.
+  - Verified: 11/11 new, plus 64/64 across the six related suites (`posSale`, `reportsAnalytics`,
+    `expensesRoleModel`, `technicianHostingDomainAccess`, `updateJobMoneyGuard`, `activityLog`).
+    ESLint 0 errors and **0 new warnings** — `salesController.js` sits at the same 36 pre-existing
+    warnings as before the change (confirmed by stashing).
+  - **Further owner decisions, 2026-08-29 — staff are the counter, admin manages.** Three more
+    surfaces moved to superadmin + admin, enforced server-side and mirrored in the sidebar:
+    | Surface | Was | Now | Note |
+    |---|---|---|---|
+    | `GET /reports/analytics` | superadmin+admin+staff | superadmin+admin | shop-wide BI belongs with `/overview` |
+    | `GET /suppliers`, `/suppliers/:id` | superadmin+admin+staff | superadmin+admin | restores what `roles.md` always said — a T105 row, now closed |
+    | `GET /warranty` | superadmin+staff | superadmin+admin | was wrong **both** ways; admin had been excluded despite `roles.md` marking it ✅ |
+    Staff keep `/my-overview` (their own scoped dashboard), sales, jobs and payments.
+    `dashboardNav.js` updated to match, and `roles.md` rows 121/134/140 corrected.
+  - **Side effect, recorded in `roles.md`:** the supplier dropdown in the add/edit-stock modal
+    now returns empty for staff, so staff can still add stock but cannot attach a supplier to it.
+    Worth a product decision if staff are expected to do receiving.
+  - **Tests:** 16 in the role-guard file (5 new for the management surfaces), and three
+    `reportsAnalytics` cases rewritten — two asserted staff *could* read reports, and the
+    double-count regression was re-pointed to an admin caller scoped via `staffId` so the
+    aggregation coverage survives. 73/73 across the six role-related suites.
+
+  - **Scope limit — acceptance criterion 1 is only partly met, deliberately.** Criteria 1 ("match
+    `roles.md`") and 3 ("staff/admin/superadmin keep their current access") **contradict each
+    other**: `roles.md` grants staff and admin *less* than the code does on ~11 further rows.
+    Applying the matrix literally would have removed working access for staff and admin. The
+    technician column now matches `roles.md` exactly — that is the security hole, and it is
+    closed. The remaining divergences are a product question, logged as **T105**.
 
 - [ ] **T84 · An account can claim another customer's guest orders via an unverified phone** (audit ref EZ-004)
   - **Issue:** Shop orders are guest checkouts with no `user` ref, so they are matched to an account by
@@ -376,6 +426,97 @@ Not defects; product features that don't exist yet. Scope separately before buil
 ---
 
 ## Ad-hoc fixes (found during work, outside the original audit)
+
+- [ ] **T111 · Reports controller still carries unreachable staff-scoping logic** (found during T83, 2026-08-29)
+  - **Issue:** `getReportsAnalytics` implements T32's staff scoping — pin a staff caller to their
+    own activity, never trust a client-supplied `staffId` for the staff role, return an empty
+    `staffList` so staff get no picker. T83 removed staff from the route entirely, so none of
+    those branches can execute.
+  - **Impact:** dead code that reads as a live guarantee. A future reader may assume staff can
+    reach reports safely because the scoping exists, and re-open the route on that basis.
+  - **Fix:** either delete the staff branches and the `isOwnReport` / empty-`staffList` handling,
+    or keep them and add a comment saying they are a deliberate belt-and-braces for a policy that
+    may be reversed. Do **not** simply re-open the route to make the code reachable again.
+  - **Location:** `controllers/pos/reportsController.js` (the `scope` block); the rewritten
+    assertions in `tests/reportsAnalytics.test.js`
+
+- [ ] **T105 · `roles.md` and the POS routes disagree on ~11 rows for admin and staff** (found during T83, 2026-08-29)
+  - **Issue:** T83 closed the technician holes, and the technician column now matches `roles.md`
+    exactly. The **admin** and **staff** columns still diverge — in both directions:
+
+    | `roles.md` row | Matrix says | Code allows | Direction |
+    |---|---|---|---|
+    | See dashboard & reports | staff ✅ | `/overview` is superadmin+admin | staff has **less** |
+    | Add & edit customers | staff ❌ | staff allowed | staff has **more** |
+    | Take a payment on a job | admin ❌ | admin allowed | admin has **more** |
+    | Take a Mobile Money payment | admin ❌ | admin allowed | admin has **more** |
+    | Look up stock | staff ❌ | staff allowed | staff has **more** |
+    | Add / edit stock | staff ❌ | staff allowed | staff has **more** |
+    | See suppliers | staff ❌ | staff allowed | staff has **more** |
+    | See expenses | staff ❌ | staff allowed | roles.md **stale** — see T5 |
+    | Record / edit expenses | admin ❌ | admin allowed | roles.md **stale** — see T5 |
+    | See jobs waiting to be collected | technician ✅ | technician denied | technician has **less** |
+    | Send collection reminders | admin ❌, staff ✅ | superadmin+admin | wrong **both ways** |
+    | Track warranty claims | admin ✅ | superadmin+staff | admin has **less** |
+  - **Impact:** Lower severity than T83 — none of these is a technician escalation, and most are
+    staff/admin holding access the matrix does not grant rather than a privilege boundary being
+    crossed. But the two documents cannot both be right, so neither can be trusted as the
+    authority for the next role change.
+  - **Why not fixed under T83:** T83's acceptance criteria 1 ("match `roles.md`") and 3
+    ("staff/admin/superadmin keep their current access") contradict each other on exactly these
+    rows. Applying the matrix literally would have **removed working access** from staff and
+    admin — a product decision, not a security fix. `roles.md` is also demonstrably stale in
+    places: T5 (2026-08-26) and T83 (2026-08-29) both overrode it after asking the owner.
+  - **Repro:** compare the table in `roles.md` §"The repair shop, side by side" against the
+    `restrictTo(...)` calls in `routes/posRoutes.js`.
+  - **Fix:** walk the 12 rows with the product owner, decide each, then make `roles.md` the
+    single source of truth and align the routes to it. Add a role-matrix test per row so the two
+    cannot drift again (overlaps T92).
+  - **Location:** `roles.md` §"The repair shop, side by side"; `routes/posRoutes.js`
+  - **Acceptance:**
+    - [ ] Each of the 12 rows has an explicit owner decision
+    - [ ] `roles.md` matches the routes exactly
+    - [ ] A test asserts the matrix per role, so drift fails CI
+
+- [ ] **T107 · `GET /products/all` loads the entire catalogue unpaginated and un-`lean`** (found 2026-08-29, alongside T106)
+  - **Issue:** `getAdminProducts` is `Product.find({}).sort({ createdAt: -1 })`
+    (`controllers/productController.js:218-225`) — no `limit`, no `skip`, no `lean()`, and it
+    hydrates full Mongoose documents. It is called on every Marketplace open
+    (`frontend-eaz/src/app/dashboard/commerce/page.jsx:510`).
+  - **Impact:** Same class as **T87**, but worse in one respect: T87 is about an unclamped
+    client-supplied `limit`, whereas this route offers no bound at all. Since the parts/products
+    merge this collection holds bench stock *and* shop stock, so it only grows. On a 512 MB heap
+    a few thousand hydrated documents with `images`/`variants`/`gallery` arrays is a real
+    exhaustion risk, and the payload ships to the browser in full.
+  - **Repro:** `GET /api/v1/products/all` as admin and compare the response size and RSS against
+    the paginated `GET /api/v1/products`.
+  - **Fix:** clamp `page`/`limit` using the default/min/max pattern already in
+    `productController.getProducts`, add `.lean()`, and project only the fields the Marketplace
+    grid renders. Fold into T87's sweep if that is done first.
+  - **Location:** `controllers/productController.js:218-225`; `routes/productRoutes.js:23`
+  - **Acceptance:**
+    - [ ] `limit` clamped with a sane default and maximum
+    - [ ] `.lean()` plus a field projection
+    - [ ] Marketplace still renders correctly against the paginated response
+
+- [ ] **T108 · `refunds.test.js` fails only inside the full serial run, with an unexplained 426** (found during T83 verification, 2026-08-29)
+  - **Issue:** in `npx jest --runInBand`, "Paystack webhook — refund.processed / refund.failed ›
+    completes a processing refund on refund.processed" (`tests/refunds.test.js:175`) gets
+    **426 Upgrade Required** where it expects 200. Run on its own the file is **19/19 green**, on
+    both `main` and the T83 branch. So it is ordering/pollution, not a code regression.
+  - **Impact:** the full suite is not a trustworthy gate — it went 74/74 green earlier the same
+    day, then 12 failed on a stalled run, now 1. Until this is understood, a red full run cannot
+    be told apart from a real break.
+  - **Notable:** `426` appears **nowhere in the source** — not in `app.js`, the middleware, the
+    webhook route or any controller — so it originates in a dependency under some state the
+    preceding tests leave behind. Worth finding: a 426 from the Paystack webhook in production
+    would silently drop refund callbacks.
+  - **Repro:** `npx jest --runInBand` (fails) vs `npx jest tests/refunds.test.js --runInBand`
+    (passes). Adding an unrelated test file changed the ordering enough to surface it.
+  - **Fix:** bisect by running `refunds.test.js` after progressively larger prefixes of the suite
+    to find the polluting file; check for shared state left in `app`-level middleware or a module
+    -scope cache. `tests/setup.js` wipes collections per test but nothing resets module state.
+  - **Location:** `tests/refunds.test.js:175`; `tests/setup.js`
 
 - [ ] **T109 · Product edit page pulls the whole catalogue to render one product** (found during T107, 2026-08-29)
   - **Issue:** `frontend-eaz/src/app/dashboard/commerce/products/[id]/edit/page.jsx` uses
