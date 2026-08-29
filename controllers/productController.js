@@ -215,10 +215,41 @@ const recordProductView = async (req, res, next) => {
   }
 };
 
+// T107: this was `Product.find({})` — no bound, no `lean()`, full hydrated
+// documents — on a route the Marketplace calls on every open. Since the
+// parts/products merge one collection holds bench stock and shop stock, so it
+// only grows, and a 512MB heap will not carry it. Clamped with the same
+// default/min/max pattern as `getProducts` above.
 const getAdminProducts = async (req, res, next) => {
   try {
-    const data = await Product.find({}).sort({ createdAt: -1 });
-    res.status(200).json({ success: true, count: data.length, data });
+    const page  = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit, 10) || 50, 1),
+      200,
+    );
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      Product.find({})
+        // `_id` breaks ties: `createdAt` is not unique (a bulk import shares a
+        // timestamp), and without a total order skip/limit can serve the same
+        // document on two pages and drop another entirely.
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Product.countDocuments({}),
+    ]);
+
+    // `count` stays the length of this page — existing callers read it that way.
+    res.status(200).json({
+      success: true,
+      count: data.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit) || 1,
+      data,
+    });
   } catch (error) {
     next(error);
   }

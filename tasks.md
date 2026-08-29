@@ -518,6 +518,27 @@ Not defects; product features that don't exist yet. Scope separately before buil
     -scope cache. `tests/setup.js` wipes collections per test but nothing resets module state.
   - **Location:** `tests/refunds.test.js:175`; `tests/setup.js`
 
+- [ ] **T109 · Product edit page pulls the whole catalogue to render one product** (found during T107, 2026-08-29)
+  - **Issue:** `frontend-eaz/src/app/dashboard/commerce/products/[id]/edit/page.jsx` uses
+    `useAdminProducts()` and finds its record inside the returned array. There is no admin
+    get-by-id route — `routes/productRoutes.js` exposes only `GET /:slug` (public, by slug) and
+    `GET /all`. T107 paginated `/all` (50 default, 200 max), so the hook now pins `limit=200`.
+  - **Impact:** editing any product beyond the 200th silently fails to find its record. The
+    merged collection holds bench *and* shop stock, so 200 is reachable. It also fetches up to
+    200 documents to render one form.
+  - **Repro:** seed 250 products, open the edit page for the newest — the form cannot find it.
+  - **Fix:** add `GET /products/id/:id` behind `protect` + `restrictTo('admin','staff')`
+    returning one product regardless of `isActive`/`sellOnline` (the public `/:slug` route must
+    stay unable to serve archived items), then have the edit page fetch that instead. Registering
+    it under `/id/` avoids colliding with the existing `/:slug`.
+  - **Location:** `controllers/productController.js`; `routes/productRoutes.js:38`;
+    `frontend-eaz/src/hooks/queries/useProducts.js:57`; the edit page
+  - **Acceptance:**
+    - [ ] Admin get-by-id route exists and is role-gated
+    - [ ] Edit page fetches one product, not a list
+    - [ ] `useAdminProducts` no longer needs `limit=200`
+    - [ ] Archived products remain unreachable from the public `/:slug` route
+
 ---
 
 ## Notes / Reconciliation with `AUDIT_REPORT.md` (stale)
