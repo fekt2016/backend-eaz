@@ -427,6 +427,12 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Ad-hoc fixes (found during work, outside the original audit)
 
+_Shipped on request during the 2026-08-29 session, tracked here after the fact so the log is
+complete:_ **T110** marketplace parts/accessories/other filter (backend `kind` param) ·
+**T112** Part Orders tab removed, order updates moved to the detail page · **T113** staff record
+expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 PM ·
+**T116** `/shipping/methods` legacy branch reads the zone's `speedTiers`. All merged to `main`.
+
 - [ ] **T115 · Two shipping suites pass or fail on the wall clock** (found during T114, 2026-08-29)
   - **Issue:** `tests/distanceZones.test.js` and `tests/shippingEndpoints.test.js` assert that
     Express is among the offered methods, but never pin the clock. Express is gated by
@@ -498,7 +504,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     - [ ] `roles.md` matches the routes exactly
     - [ ] A test asserts the matrix per role, so drift fails CI
 
-- [ ] **T107 · `GET /products/all` loads the entire catalogue unpaginated and un-`lean`** (found 2026-08-29, alongside T106)
+- [x] **T107 · `GET /products/all` loads the entire catalogue unpaginated and un-`lean`** (found 2026-08-29, alongside T106)
   - **Issue:** `getAdminProducts` is `Product.find({}).sort({ createdAt: -1 })`
     (`controllers/productController.js:218-225`) — no `limit`, no `skip`, no `lean()`, and it
     hydrates full Mongoose documents. It is called on every Marketplace open
