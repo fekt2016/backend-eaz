@@ -516,6 +516,49 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Final production re-audit (2026-08-29) — new findings
 
+- [ ] **T125 · Guest-checkout customer fields have no length cap and no email-format validation** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
+  - **Issue:** `Order.customer` (`models/Order.js:197-203`) declares `name`, `phone`, `phoneDigits`,
+    `email` and `address` as `String` with `trim` and, for two of them, `required` — but **no
+    `maxlength` on any field and no email format validator**. `createOrder` applies `.trim()`,
+    `normalizePhone()` and a lowercase on email (`controllers/orderController.js:453-457`) and
+    nothing else — no `sanitizeName`/`sanitizeText`, though both exist in `utils/sanitize.js`.
+  - **Impact:** two concrete consequences, neither of them XSS (see below).
+    1. **Unbounded storage.** A guest can submit a `customer.address` limited only by
+       `express.json({ limit: '5mb' })` and it is stored verbatim. On a 512 MB heap, a handful of
+       such orders in one list query is a memory problem, and `getOrders` renders them to admins.
+    2. **Malformed email accepted.** `"not-an-email"` passes. Order confirmations and invoices are
+       sent through Resend, so a bad address becomes a silent delivery failure on a paid order.
+  - **Explicitly NOT an XSS hole.** `app.js:90` runs `xss-clean` globally and it traverses nested
+    objects — verified directly: `{ customer: { name: '<script>alert(1)</script>Ama' } }` comes out
+    as `&lt;script>alert(1)&lt;/script>Ama`. Stored XSS is mitigated at the edge.
+  - **Repro:** `POST /api/v1/orders` with a 100 000-character `customer.address` and
+    `customer.email: "nope"`; both persist.
+  - **Fix:** add `maxlength` to the `Order.customer` subdocument and a format check on `email`
+    (`validation/` already has Zod schemas — `orderSchema` would be the consistent home), or call the
+    existing `sanitizeName`/`sanitizeText`/`sanitizeEmail` helpers in `createOrder`.
+  - **Location:** `models/Order.js:197-203`; `controllers/orderController.js:453-457`
+
+- [ ] **T126 · Input validation is inconsistent: 5 Zod `validate()` uses across ~119 write endpoints** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
+  - **Issue:** counted every `router.post|patch|put|delete` against every `validate(` in `routes/`:
+    **~119 write endpoints, 5 uses of the Zod middleware** — 2 in `addressRoutes.js`, 2 in
+    `shippingRoutes.js`, 1 in `authRoutes.js`. Ten controllers read `req.body` with **zero** calls to
+    any sanitiser or parser: `adminLocationController`, `adminNeighborhoodController`,
+    `adminPickupController`, `adminShippingController`, `cartController`, `deliveryZoneController`,
+    `orderController`, `productController`, `shippingController`, `webhookController`.
+  - **Impact:** varies sharply by endpoint, so this is a consistency finding rather than one hole.
+    Most of the ten are admin/staff-gated behind strict Mongoose schemas, which drop unknown keys —
+    low risk. The customer-reachable ones are `orderController` (see T125), `cartController` and
+    `shippingController`. `webhookController` is signature-verified, so its body is trusted by design.
+    The real cost is that **`xss-clean` is doing nearly all the work alone**, and it is an
+    unmaintained package — if it ever stops behaving, there is no second layer on most endpoints.
+  - **Repro:** `for f in routes/*.js; do echo "$f $(grep -cE 'router\.(post|patch|put|delete)' $f) $(grep -c 'validate(' $f)"; done`
+  - **Fix:** apply the existing `validation/` Zod schemas to the customer-reachable write endpoints
+    first (orders, cart, shipping quote, reviews, contact), then admin ones as they are touched.
+    `middleware`-level `validate()` already exists and is wired — this is coverage, not new machinery.
+  - **Note:** 20 of 40 models declare no `maxlength` on any string field, which is the same gap at
+    the schema layer.
+  - **Location:** `routes/*.js`; the ten controllers listed above; `validation/`
+
 - [ ] **T118 · `webhook.test.js` is red — T90 changed `amountMismatch`'s contract and left its unit test behind** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** T90 changed `amountMismatch()` from returning a boolean to returning a reason string
     (`amount_unverifiable` / `amount_mismatch` / `currency_mismatch`) or `null`.
