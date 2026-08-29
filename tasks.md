@@ -341,7 +341,7 @@
     - [ ] Fulfilment still succeeds and stays idempotent
     - [ ] A test covers the insufficient-stock path
 
-- [ ] **T90 · Webhook accepts any amount when no expected amount is known** (audit ref EZ-011)
+- [x] **T90 · Webhook accepts any amount when no expected amount is known** (audit ref EZ-011)
   - **Issue:** `amountMismatch()` returns `false` — "no mismatch" — whenever `expectedPesewas` is not a
     finite number > 0 (`controllers/webhookController.js:86-90`). A deliberate escape hatch for legacy
     orders written before the `*Pesewas` fields existed.
@@ -355,7 +355,26 @@
     - [ ] A charge with no verifiable expected amount does not auto-fulfil
     - [ ] Legacy orders are backfilled or explicitly handled
     - [ ] Operators can see charges held for review
-    - [ ] `tests/webhookE2E.test.js` still passes; a case covers the missing-amount path
+    - [x] `tests/webhookE2E.test.js` still passes; a case covers the missing-amount path
+
+  ### Implementation Notes (2026-08-29)
+
+  - **Counted first, as the task asked.** Against the live database: `hostingorders`,
+    `domainorders`, `serviceorders`, `partorders` and `repairorders` are **all empty (0 documents)**.
+    The escape hatch protected nothing, so no backfill was needed and the default is simply inverted.
+  - `amountMismatch()` now returns a **reason string or null** instead of a boolean:
+    `amount_unverifiable`, `amount_mismatch`, `currency_mismatch`. An unverifiable expected amount
+    refuses the charge where it previously fulfilled it — for any amount, including 1 pesewa.
+  - **The operator surface is the existing activity log**, not a new queue: the six call sites
+    already wrote a `PAYMENT_FAILED` entry with `status: 'failure'`, visible at
+    `/dashboard/activity-logs`. They now log the real reason, and the console line and description
+    say it too — they previously read "amount mismatch" whatever the cause, which would have made a
+    held charge look like a wrong one. The 400 body carries `reason` as well.
+  - **Money is still taken.** Refusing to fulfil does not refund; that is what the log entry is
+    for. Paystack retries on a 400, so a held charge stays visible rather than disappearing.
+  - Tests: 5 — unverifiable refused with the order left `pending`, the activity-log entry recorded
+    with its reason, a genuine mismatch still distinguished, a non-GHS charge for the right amount
+    rejected, and a correctly priced charge passing the gate.
 
 - [ ] **T91 · No session invalidation on logout or password change** (audit ref EZ-012)
   - **Issue:** Logout clears the cookie (`controllers/authController.js:333`) and nothing else. No token
@@ -404,7 +423,7 @@
     - [ ] Literal regex characters return literal matches
     - [ ] Existing email-log search still works
 
-- [ ] **T94 · Webhook signature compared with `!==` rather than a constant-time check** (audit ref EZ-017)
+- [x] **T94 · Webhook signature compared with `!==` rather than a constant-time check** (audit ref EZ-017)
   - **Issue:** `controllers/webhookController.js:104-113` compares the computed HMAC with `!==`, which
     short-circuits on the first differing byte.
   - **Impact:** Theoretical timing side channel. Exploiting it remotely against SHA-512 HMAC over the
@@ -415,7 +434,17 @@
   - **Acceptance:**
     - [ ] Comparison is constant-time
     - [ ] Missing/malformed signatures still rejected with 400
-    - [ ] `tests/webhookE2E.test.js` passes unchanged
+    - [x] `tests/webhookE2E.test.js` passes unchanged
+
+  ### Implementation Notes (2026-08-29)
+
+  - `signatureMatches()` uses `crypto.timingSafeEqual` on UTF-8 buffers. It guards length first —
+    `timingSafeEqual` throws on unequal lengths, so a short header would have produced a 500
+    instead of a 400. The length of a hex SHA-512 digest is public, so that guard leaks nothing.
+  - A missing or non-string header returns false rather than reaching the comparison.
+  - Tests: 5 — missing header, wrong signature of the correct length (so it reaches
+    `timingSafeEqual` rather than the length guard), wrong length, a signature differing only in
+    the final byte, and a correctly signed body passing the gate.
 
 - [ ] **T95 · No TLS hardening or HSTS at the proxy** (audit ref EZ-019)
   - **Issue:** The TLS server block sets only certificate paths — no `ssl_protocols`, no cipher config,
