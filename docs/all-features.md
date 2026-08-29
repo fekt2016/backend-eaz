@@ -102,7 +102,8 @@ A complete map of what the platform does, grouped by area, follows below.
 - Server-mediated image upload via **Cloudinary** (`uploadController`, `uploadRoutes`)
 
 ## 16. Transactional Email
-- **Resend + @react-email** for order/hosting/domain/auth emails; logged via `EmailLog`
+- **Resend** for order/hosting/domain/auth emails — hand-written HTML templates in
+  `utils/email.js`, not a React renderer; logged via `EmailLog`
 
 ## 17. Site Infrastructure Features
 - Maintenance mode gate + JWT verification in `middleware.js`

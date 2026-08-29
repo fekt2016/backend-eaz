@@ -48,7 +48,7 @@ Conventions:
 - **Pagination:** clamp `page`/`limit` in the controller (see `productController.getProducts` — default/min/max pattern).
 - **Validation:** Zod schemas live in `validation/`. Apply them for new endpoints; some legacy controllers parse manually.
 - **Security is already wired in `app.js`:** helmet + CSP, `xss-clean`, `express-mongo-sanitize`, `hpp`, `express-rate-limit`, `cors`, `cookie-parser`. `trust proxy` is 1 (Nginx/cPanel).
-- **External domains:** **Spaceship** (domain search/registration — `services/spaceship.js`), WHM on a Spaceship Starlight VPS (hosting provisioning), Cloudinary (uploads), Resend + `@react-email` (transactional email), Paystack (payments).
+- **External domains:** **Spaceship** (domain search/registration — `services/spaceship.js`), WHM on a Spaceship Starlight VPS (hosting provisioning), Cloudinary (uploads), Resend (transactional email — hand-written HTML, no React renderer), Paystack (payments).
 - **Domain pricing lives in code.** Spaceship has no pricing endpoint, so per-TLD costs sit in
   `config/domainPricing.js` (USD) and are converted by `usdToGhs()` using `USD_TO_GHS_RATE` +
   `DOMAIN_MARKUP`. Update that file when Spaceship's prices move. Spaceship cannot sell

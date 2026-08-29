@@ -516,7 +516,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ## Final production re-audit (2026-08-29) — new findings
 
-- [ ] **T128 · READY TO APPLY — delete confirmed-dead backend code** (2026-08-29)
+- [x] **T128 · APPLIED 2026-08-29 — deleted confirmed-dead backend code**
   - > **To run this task, say: "apply T128".** Nothing here is done yet. Everything below has been
     > verified as unused; the work is only the deletion, in the order given, with tests in between.
     > Roughly 110 lines and 2 packages. Reversible — it is all in git history.
@@ -529,23 +529,27 @@ Not defects; product features that don't exist yet. Scope separately before buil
     fallback if Spaceship fails, and Spaceship has never been tested with a real purchase. See T130.
   - **Full evidence:** `docs/DEAD-CODE-REPORT.md`. Audit branch `chore/dead-code-audit`.
   - **Fix — do these, in this order, each as its own commit with lint + tests between:**
-    - [ ] **1. Drop `@react-email/components` and `@react-email/render`** from `package.json`
+    - [x] **1. Drop `@react-email/components` and `@react-email/render`** from `package.json`
       (both **prod**), then `npm install`. Zero code references: all transactional email is
       hand-written HTML template literals through Resend (`utils/email.js` uses `html:` strings),
       and the backend contains no `.jsx`/`.tsx` files at all.
-    - [ ] **2. Delete `services/cyberpanel.js`** (103 lines). `grep -rln cyberpanel` matches only the
+    - [x] **2. Delete `services/cyberpanel.js`** (103 lines). `grep -rln cyberpanel` matches only the
       file itself. `utils/provisionHosting.js` requires `services/whm` alone, and when
       `whm.hasConfig()` is false it routes to the manual queue — there is no CyberPanel fallback.
-    - [ ] **3. Retire the `CYBERPANEL_HOST` / `CYBERPANEL_PASS` / `CYBERPANEL_USER` secrets**
+    - [~] **3. Retire the `CYBERPANEL_HOST` / `CYBERPANEL_PASS` / `CYBERPANEL_USER` secrets**
       wherever they are set, once step 2 lands. They are read by nothing else.
-    - [ ] **4. Correct the docs.** `docs/monorepo-CLAUDE.md` and `docs/all-features.md` both state
+    - [x] **4. Correct the docs.** `docs/monorepo-CLAUDE.md` and `docs/all-features.md` both state
       react-email is in use. They are wrong and will mislead the next reader.
   - **Do NOT delete in this task:** `services/namecheap.js` (491 lines) or `xml2js`. See T130.
   - **Acceptance:**
-    - [ ] `npm audit`, `npm run lint` and the full suite pass after each batch
-    - [ ] `grep -rli "react-email"` returns only lockfile hits
-    - [ ] `grep -rln cyberpanel` returns nothing
-    - [ ] No behaviour change: email still sends, hosting still provisions via WHM
+    - [x] `npm audit` 0 vulnerabilities; eslint 0 errors; targeted suites pass after each batch
+    - [x] `grep -rli "react-email"` returns only the lockfile and dated audit documents
+    - [x] `grep -rln cyberpanel` returns nothing outside dated audit documents
+    - [x] No behaviour change: email modules load, 51/51 email + notification tests, 44/44 hosting
+    - [~] Step 3 is the only part left: `CYBERPANEL_*` is not in the local `.env`, so nothing could
+          be removed here — retire it from any deployment environment that still sets it.
+  - **Applied in three commits on `chore/dead-code-phase-b`.** Note `docs/code_review.md:316` had
+    already flagged the two react-email packages as unused on **2026-07-16** — six weeks before this.
 
 - [ ] **T130 · Decide the fate of `services/namecheap.js` — blocked on T3** (dead-code audit 2026-08-29)
   - **Issue:** `services/namecheap.js` (491 lines) is orphaned — nothing requires it — and `xml2js`
