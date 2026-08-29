@@ -57,6 +57,32 @@ const userSchema = new mongoose.Schema(
       type: Date,
       select: false,
     },
+    // ── Phone ownership (T84) ────────────────────────────────────────────────
+    // A phone number binds to an account only once the account has proven it
+    // controls the number. Guest shop orders are matched to an account by
+    // phone, so an unproven number is a claim on someone else's order history.
+    // Registration only ever sends its PIN to ONE identifier, so `isVerified`
+    // says nothing about the phone — hence a field of its own.
+    phoneVerifiedAt: {
+      type: Date,
+      default: null,
+    },
+    // The number awaiting confirmation. The live `phone` is left untouched until
+    // the PIN lands, so a failed or abandoned change cannot orphan the account.
+    pendingPhone: {
+      type: String,
+      trim: true,
+      default: '',
+      select: false,
+    },
+    pendingPhonePin: {
+      type: String,
+      select: false,
+    },
+    pendingPhonePinExpires: {
+      type: Date,
+      select: false,
+    },
     twoFactorEnabled: {
       type: Boolean,
       default: false,

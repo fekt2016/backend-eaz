@@ -169,7 +169,7 @@
     technician column now matches `roles.md` exactly — that is the security hole, and it is
     closed. The remaining divergences are a product question, logged as **T105**.
 
-- [ ] **T84 · An account can claim another customer's guest orders via an unverified phone** (audit ref EZ-004)
+- [~] **T84 · An account can claim another customer's guest orders via an unverified phone** (audit ref EZ-004)
   - **Issue:** Shop orders are guest checkouts with no `user` ref, so they are matched to an account by
     `customer.email` / `customer.phoneDigits` (`controllers/orderController.js:882-899`, `getMyOrders`).
     `updateProfile` (`controllers/authController.js:571-593`) lets any logged-in user set `phone` to any
@@ -189,6 +189,32 @@
     - [ ] Order linkage matches only verified email/phone
     - [ ] Existing customers keep access to their own orders after a change
     - [ ] A test covers the claim attempt and expects no orders returned
+
+  ### Implementation Notes (2026-08-29 — part 1 shipped, part 2 deferred by decision)
+
+  - **Part 1 (done):** `PATCH /auth/me` no longer writes a phone number. It parks it on
+    `pendingPhone` with a hashed PIN and a 15-minute expiry, texts the PIN to the **new** number,
+    and returns `phoneVerificationRequired`. `POST /auth/me/phone/confirm` binds it and stamps
+    `phoneVerifiedAt`. The live `phone` is untouched throughout, so an abandoned change cannot
+    orphan an account. Clearing a phone needs no PIN. Uniqueness is re-checked at bind time —
+    another account can take the number while a PIN is outstanding.
+  - **Why `phoneVerifiedAt` and not `isVerified`:** registration sends its PIN to email **or**
+    phone, never both (`authController.js:126-131`). An account registered by email therefore has
+    a completely unproven phone, so `isVerified` cannot stand in for phone ownership.
+  - **Part 2 (deferred, owner decision 2026-08-29):** restricting guest-order matching to verified
+    contact points is **not** being done. Acceptance criteria 2 and 3 contradict each other for
+    existing accounts: the data cannot distinguish a legitimately owned number from one already
+    claimed under the old behaviour, so enforcing #2 would cut real customers off from their own
+    order history. Decision: **leave matching as it is** — the vector is closed for every future
+    change, and nothing changes for existing customers.
+  - **Residual risk, accepted:** any number claimed *before* today stays claimed. Closing that
+    needs the re-verification campaign in the deferred options, not a code change.
+  - Tests: 10 new in `tests/phoneChangeOtp.test.js` — the claimed number never reaches the
+    database, the PIN goes to the new number rather than the account's current one, expiry, wrong
+    PIN, no-pending-change, and the bind-time uniqueness race. The T47 uniqueness test was updated:
+    it asserted the phone applied immediately, which is the behaviour this replaces.
+  - Acceptance: #1 ✅ · #2 deferred by decision · #3 ✅ (unchanged for existing customers) · #4
+    ✅ for the claim attempt at the profile layer; the order-linkage half goes with #2.
 
 - [ ] **T85 · `NODE_ENV` is not guaranteed in production — two security controls switch off together** (audit ref EZ-005)
   - **Issue:** `ecosystem.config.js:11-14` defines `NODE_ENV` only under `env_production`, which PM2
