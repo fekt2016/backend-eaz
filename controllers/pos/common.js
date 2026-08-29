@@ -47,6 +47,22 @@ const EXPENSE_CATEGORIES = ['rent','utilities','tools','parts','salaries','marke
 const MOMO_PROVIDERS = { mtn: 'mtn', vod: 'vod', atl: 'atl', tgo: 'tgo' };
 const PART_REPAIR_ORDER_STATUSES = ['pending', 'paid', 'cancelled'];
 
+// T110 — the marketplace's coarse filter. One collection holds bench stock and
+// shop stock, so "what kind of thing is this" is a property, not a table:
+//   parts       — carries a `partCategory`, i.e. it is on the repair taxonomy
+//   accessories — shop stock in one of the add-on categories below
+//   other       — everything else, which today means phones and anything new
+// A shop category not listed here falls into `other` until it is added, which is
+// deliberate: a new category should not silently become an accessory.
+const ACCESSORY_CATEGORIES = [
+  'Phone Cases & Covers',
+  'Chargers & Cables',
+  'Power Banks',
+  'Earphones & Headphones',
+  'Screen Protectors',
+];
+const INVENTORY_KINDS = ['parts', 'accessories', 'other'];
+
 // Shared by PartOrder/RepairOrder status updates (inventoryController.updatePartOrder,
 // jobController.updateRepairOrder). Only `pending` may move — to `paid` (normally set by
 // the Paystack webhook, but staff can also confirm manually) or `cancelled` (abandon an
@@ -236,6 +252,7 @@ module.exports = {
   paystack, FRONTEND_URL,
   // constants
   ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS,
+  ACCESSORY_CATEGORIES, INVENTORY_KINDS,
   PART_REPAIR_ORDER_STATUSES,
   // helpers
   computeJobBalancePesewas, deductJobPartsOnce, generatePassword,
