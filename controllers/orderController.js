@@ -790,7 +790,7 @@ const getOrders = async (req, res, next) => {
     if (status && ORDER_STATUSES.includes(status)) {
       query.status = status;
     }
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const orders = await Order.find(query)
       .populate('deliveryZone')
       .sort({ createdAt: -1 })
@@ -812,7 +812,7 @@ const getOrders = async (req, res, next) => {
  */
 const getPreorders = async (req, res, next) => {
   try {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const orders = await Order.find({
       status: { $in: ['paid', 'processing'] },
       items: { $elemMatch: { isPreorder: true, preorderReleasedAt: null } },

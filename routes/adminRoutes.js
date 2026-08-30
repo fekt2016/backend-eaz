@@ -19,7 +19,7 @@ router.get('/email-logs', async (req, res, next) => {
   try {
     const { type, status, q } = req.query;
     // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
-    const { page, limit, skip } = paginate(req.query, { defaultLimit: 50 });
+    const { page, limit, skip } = paginate(req.query);
 
     const filter = {};
     if (type && type !== 'all') filter.type = type;
@@ -88,7 +88,7 @@ router.get('/users/:id/orders', async (req, res, next) => {
       return res.status(200).json({ success: true, data: { orders: [], total: 0, page: 1 } });
     }
 
-    const { page, limit, skip } = paginate(req.query, { defaultLimit: 10 });
+    const { page, limit, skip } = paginate(req.query);
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .select('orderNumber status total createdAt items paystackReference')

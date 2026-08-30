@@ -238,7 +238,7 @@ const getJobs = async (req, res, next) => {
   try {
     const { status, q, priority, assignedTo } = req.query;
     // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
-    const { page, limit, skip } = paginate(req.query, { defaultLimit: 20 });
+    const { page, limit, skip } = paginate(req.query);
     const query = {};
     if (status && status !== 'all') query.status = status;
     if (priority) query.priority = priority;

@@ -83,7 +83,7 @@ const getCustomers = async (req, res, next) => {
   try {
     const { q } = req.query;
     // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
-    const { limit, skip } = paginate(req.query, { defaultLimit: 30 });
+    const { limit, skip } = paginate(req.query);
     const query = q
       ? { $or: [
           { name:  { $regex: escapeRegex(q), $options: 'i' } },

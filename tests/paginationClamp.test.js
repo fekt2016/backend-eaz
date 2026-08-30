@@ -21,6 +21,14 @@ async function token(role = "admin") {
 }
 
 describe("paginate() (T87)", () => {
+  // Owner decision (2026-08-30): 10 per page everywhere. Nothing asserted the
+  // BARE default before, so changing it broke an endpoint test instead of this
+  // one — the util is where the number lives, so this is where it is pinned.
+  it("defaults to 10 items per page when nothing is specified", () => {
+    expect(paginate({})).toEqual({ page: 1, limit: 10, skip: 0 });
+    expect(paginate({ page: "3" })).toEqual({ page: 3, limit: 10, skip: 20 });
+  });
+
   it("defaults when nothing is asked for", () => {
     expect(paginate({}, { defaultLimit: 30 })).toEqual({ page: 1, limit: 30, skip: 0 });
   });
@@ -93,7 +101,11 @@ describe("GET /pos/inventory — the clamp end to end (T87)", () => {
     expect(res.body.data).toHaveLength(25);
   });
 
-  it("defaults to 50 when no limit is given", async () => {
+  // Owner decision (2026-08-30): every paginated list is 10 per page. This
+  // endpoint used to default to 50; the override was removed so it inherits the
+  // one default in utils/pagination, rather than each endpoint carrying its own
+  // number and drifting.
+  it("defaults to 10 when no limit is given", async () => {
     const t = await token();
     await seed(120);
 
@@ -101,6 +113,6 @@ describe("GET /pos/inventory — the clamp end to end (T87)", () => {
       .get("/api/v1/pos/inventory")
       .set("Authorization", `Bearer ${t}`);
 
-    expect(res.body.data).toHaveLength(50);
+    expect(res.body.data).toHaveLength(10);
   });
 });

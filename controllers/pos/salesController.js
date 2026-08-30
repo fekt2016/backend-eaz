@@ -184,7 +184,7 @@ const getSales = async (req, res, next) => {
     // Clamp pagination — an unbounded `limit` would let one request pull the whole
     // sales history on a 512MB heap.
     const pageNum  = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 30));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
 
     const query = { voided: { $ne: true } };
 

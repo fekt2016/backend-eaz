@@ -1032,7 +1032,7 @@ const staffCreateHostingAccount = async (req, res, next) => {
  */
 const getAwaitingProvisioning = async (req, res, next) => {
   try {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const orders = await HostingOrder.find({
       status: 'paid',
       provisioningStatus: 'skipped',
