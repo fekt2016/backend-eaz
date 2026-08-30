@@ -129,8 +129,13 @@ async function fulfilShopOrder(reference, payment) {
     })
     .catch(() => {});
 
-  // Decrement stock atomically per item. Never oversell: if the guard
-  // fails for an item, log it and continue. T48's `sold` counter rides on the
+  // Decrement stock atomically per item. Never oversell: if the guard fails for
+  // an item we still continue — the payment has landed and must not be undone —
+  // but T89 means the failure is now RECORDED rather than only logged. Every
+  // failed line is collected here and persisted on the order below, so a
+  // shortfall is visible in the dashboard instead of surfacing as a complaint.
+  const fulfilmentIssues = [];
+  // Original note, still true: if the guard fails for an item, log it and continue. T48's `sold` counter rides on the
   // same update, so it inherits this function's idempotence (the pending→paid
   // guard above means a webhook retry never gets here twice) and a line that
   // fails the stock guard is not counted as sold either.
@@ -147,9 +152,23 @@ async function fulfilShopOrder(reference, payment) {
         console.error(
           `[fulfil] Part stock decrement failed for order ${paid.orderNumber} item ${item.part} (qty ${item.qty})`
         );
+        fulfilmentIssues.push({
+          itemName: item.name || 'Part',
+          productId: item.part,
+          qtyRequested: item.qty,
+          reason: 'insufficient_stock',
+        });
       }
       continue;
     }
+
+    // A line with neither `product` nor `part` has nothing to decrement — both
+    // refs are optional on the Order item schema, so this is legal data (a
+    // manually-entered line, say). The decrement below would query
+    // `{ _id: undefined }`, match nothing, and — before this guard — get
+    // recorded as `insufficient_stock`, which is a lie: there is no stock
+    // record to be short of. Skip it rather than invent a shortfall.
+    if (!item.product) continue;
 
     // T45: a pre-order line has no stock behind it yet — that is the whole point.
     // Skip it here (a decrement would fail its guard and log a false alarm); the
@@ -171,13 +190,60 @@ async function fulfilShopOrder(reference, payment) {
       );
     }
     if (!result) {
+      fulfilmentIssues.push({
+        itemName: item.name || 'Item',
+        productId: item.product,
+        variantSku: (item.variant && item.variant.sku) || '',
+        qtyRequested: item.qty,
+        reason: 'insufficient_stock',
+      });
       console.error(
         `[fulfil] Stock decrement failed for order ${paid.orderNumber} item ${item.name} (qty ${item.qty})`
       );
     }
   }
 
-  await Order.updateOne({ _id: paid._id }, { $set: { stockDeducted: true } });
+  // T89 — persist any shortfall alongside stockDeducted, in the SAME write. Two
+  // writes would leave a window where the order reads as fully deducted with no
+  // issues recorded, which is exactly the misleading state this exists to end.
+  //
+  // `$set`, not `$push`: the pending→paid guard above means a retried webhook
+  // never reaches this loop twice, so there is nothing to append to — and if a
+  // future path ever did re-run it, replacing keeps the record accurate instead
+  // of duplicating every line.
+  await Order.updateOne(
+    { _id: paid._id },
+    { $set: { stockDeducted: true, ...(fulfilmentIssues.length ? { fulfilmentIssues } : {}) } }
+  );
+
+  if (fulfilmentIssues.length) {
+    paid.fulfilmentIssues = fulfilmentIssues;
+
+    // Staff have to know NOW: the customer has paid for something that cannot
+    // ship, and every hour it goes unnoticed is an hour of silence on their end.
+    // Best-effort like every other notify here — a notification failure must not
+    // break a fulfilment that has already taken the money.
+    const lines = fulfilmentIssues
+      .map((i) => `${i.itemName} x${i.qtyRequested}`)
+      .join(', ');
+    notifyRoles(['superadmin', 'admin', 'staff'], {
+      type:  NOTIFICATION_TYPES.NEW_ORDER,
+      title: `Order ${paid.orderNumber} is short on stock`,
+      body:  `Paid, but could not fulfil: ${lines}. Contact the customer or restock.`,
+      link:  `/dashboard/orders/${paid._id}`,
+      resourceType: 'Order',
+      resourceId:   paid.orderNumber,
+    }).catch(() => {});
+
+    log({
+      action: ACTIONS.ORDER_UPDATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: paid._id,
+      resourceName: paid.orderNumber,
+      description: `Order ${paid.orderNumber} paid but ${fulfilmentIssues.length} line(s) could not be fulfilled: ${lines}`,
+      metadata: { fulfilmentIssues },
+    }).catch(() => {});
+  }
 
   return paid;
 }
