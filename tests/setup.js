@@ -47,29 +47,59 @@ process.env.PAYSTACK_SECRET = "sk_test_eazworld_dummy_secret";
 process.env.PAYSTACK_KEY = process.env.PAYSTACK_SECRET;
 
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
 
-// Pin the mongod binary to a version that supports this host's macOS.
-// MongoDB 8.x requires macOS 14+; 7.0.x supports macOS 12+. Override via
-// MONGOMS_VERSION if you're on a newer OS and want a different build.
-const MONGOD_VERSION = process.env.MONGOMS_VERSION || "7.0.14";
-
-let mongo;
+// T120 — connect to the ONE mongod started in tests/globalSetup.js rather than
+// booting a new one per file. This block used to call
+// `MongoMemoryServer.create()`, which ran once per test FILE (82 of them);
+// late in a full run the instances stopped starting and the suite produced 21
+// failures that never reproduce in isolation. The binary version now lives in
+// globalSetup.js, which is the only place that launches mongod.
+//
+// The database is named per JEST WORKER, not per test file. An earlier version
+// of this used one database per file; across 82 files that left 82 databases
+// accumulating inside the single mongod, and a full run took 127 minutes —
+// WORSE than the 73-minute baseline it was meant to fix, because WiredTiger
+// carried every one of those databases' files and indexes for the whole run.
+// Per-worker keeps the count bounded (exactly one under --runInBand), and the
+// afterEach wipe below is what isolates suites from each other.
 
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create({ binary: { version: MONGOD_VERSION } });
-  await mongoose.connect(mongo.getUri());
+  const uri = process.env.MONGO_TEST_URI;
+  if (!uri) {
+    throw new Error(
+      "MONGO_TEST_URI is not set — tests/globalSetup.js did not run. " +
+      "Run the suite through the jest config (npm test), not by requiring setup.js directly."
+    );
+  }
+
+  const dbName = "test_w" + (process.env.JEST_WORKER_ID || "1");
+  await mongoose.connect(uri, { dbName });
 });
 
 afterEach(async () => {
   // Wipe every collection so each test starts from a clean slate.
-  const { collections } = mongoose.connection;
-  for (const key of Object.keys(collections)) {
-    await collections[key].deleteMany({});
-  }
+  //
+  // This enumerates collections from the DRIVER, not from
+  // `mongoose.connection.collections`. The Mongoose registry only lists models
+  // loaded in THIS file, so suites that reach past Mongoose to the raw driver
+  // (`mongoose.connection.db.collection(...)`, as the migration suites do) left
+  // collections behind that were never wiped. That was invisible when every file
+  // had its own mongod; with the instance shared it leaked into the next file
+  // and made posMoneyMigration's idempotency test fail.
+  //
+  // deleteMany, not dropDatabase: dropping the database per file was measured at
+  // >20 minutes PER SUITE (a full run had not cleared 10 of 82 suites in 3.5
+  // hours) because every index has to be rebuilt afterwards. Emptying is cheap
+  // and gives the same isolation.
+  const collections = await mongoose.connection.db.listCollections().toArray();
+  await Promise.all(
+    collections.map((c) => mongoose.connection.db.collection(c.name).deleteMany({}))
+  );
 });
 
 afterAll(async () => {
+  // Only disconnect — the shared instance is stopped once in globalTeardown.js.
+  // No dropDatabase here: the afterEach above already leaves the database empty,
+  // and dropping it per file was catastrophically slow (see the note above).
   await mongoose.disconnect();
-  if (mongo) await mongo.stop();
 });
