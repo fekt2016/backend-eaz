@@ -39,6 +39,27 @@ const validateEnv = () => {
     }
   }
 
+  // FRONTEND_URL is interpolated into the Paystack `callback_url` and into the
+  // customer tracking links in services/notify.js. utils/frontendUrl.js returns
+  // "" when it is unset in production — no throw, no warning — so Paystack gets
+  // a RELATIVE callback_url and customers are texted a link with no host. T97
+  // added this same fail-fast to the frontend's seo.js; this is the backend half
+  // (T119), and it matters more because this one reaches payments.
+  const siteUrl = (process.env.FRONTEND_URL || process.env.CLIENT_URL || '').trim();
+  if (!siteUrl) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ Missing required environment variable: FRONTEND_URL (or CLIENT_URL)');
+      console.error('   Paystack callback_url and customer tracking links would be built from an empty string.');
+      process.exit(1);
+    } else {
+      console.warn('⚠️  FRONTEND_URL not set — development falls back to http://localhost:3000');
+    }
+  } else if (!/^https?:\/\//i.test(siteUrl)) {
+    // A host-relative value fails exactly the same way an empty one does.
+    console.error(`❌ FRONTEND_URL must be an absolute http(s) URL — got "${siteUrl}"`);
+    process.exit(1);
+  }
+
   // Optional: Warn about recommended variables
   const recommendedVars = [
     'RESEND_API_KEY',
