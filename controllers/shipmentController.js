@@ -50,7 +50,7 @@ const createShipment = async (req, res, next) => {
 /** GET /api/v1/shipments — batches in flight, plus how many lines ride on each. */
 const getShipments = async (req, res, next) => {
   try {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const query = {};
     if (req.query.stage && SHIPMENT_STAGES.includes(req.query.stage)) {
       query.stage = req.query.stage;

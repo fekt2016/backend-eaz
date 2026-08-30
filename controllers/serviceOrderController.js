@@ -150,7 +150,7 @@ const getServiceOrders = async (req, res, next) => {
     const { status } = req.query;
     const query = status && SERVICE_ORDER_STATUSES.includes(status) ? { status } : {};
     const page  = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const orders = await ServiceOrder.find(query)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)

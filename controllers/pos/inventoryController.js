@@ -11,7 +11,7 @@ const getParts = async (req, res, next) => {
     // matching a full page of parts returned no products at all.
     const { q, category, kind, lowStock, retail } = req.query;
     // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
-    const { page, limit, skip } = paginate(req.query, { defaultLimit: 50 });
+    const { page, limit, skip } = paginate(req.query);
     const query = {};
 
     // T110 — coarse "what kind of thing is this" filter. Bench stock and shop

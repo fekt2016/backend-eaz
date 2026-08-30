@@ -32,7 +32,7 @@ const getExpenses = async (req, res, next) => {
   try {
     const { from, to, category } = req.query;
     // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
-    const { page, limit, skip } = paginate(req.query, { defaultLimit: 30 });
+    const { page, limit, skip } = paginate(req.query);
     const query = {};
     if (category && EXPENSE_CATEGORIES.includes(category)) query.category = category;
     if (from || to) {

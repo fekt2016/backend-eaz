@@ -6,6 +6,8 @@ const { sendWelcomeEmail, sendPasswordResetEmail, sendVerificationPin, sendTwoFa
 const { sendVerificationPinSms } = require('../services/notify');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, validatePassword } = require('../utils/sanitize');
 const { log, logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
+const { paginate }    = require('../utils/pagination');
+const { escapeRegex } = require('../utils/regex');
 
 const ALLOWED_ROLES = ['user', 'admin', 'staff', 'technician', 'superadmin'];
 
@@ -555,12 +557,61 @@ const getMe = async (req, res) => {
   });
 };
 
+// ── Admin: list users ─────────────────────────────────────────────────────
+// This was `User.find()` — every user, every field, no pagination, no lean —
+// rendered into one response on a 512MB heap. Same class as T87.
+//
+// Search moved to the SERVER at the same time, and that pairing is the point:
+// the list page filtered client-side over the full array, so paginating alone
+// would have left search finding matches only on the page you happen to be on.
+// That is not a visible error, it is a wrong answer, which is worse.
+//
+// Two shapes, because two callers want genuinely different things:
+//   default      paginated page of full user documents, for the list table
+//   ?compact=1   every user projected to { _id, name, email, role }, for the
+//                Activity Log's actor dropdown, which needs a COMPLETE list —
+//                a truncated dropdown silently hides actors. The projection is
+//                what keeps that affordable: four fields instead of the whole
+//                document.
 const getAllUsers = async (req, res, next) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 });
+    const filter = {};
+
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (q) {
+      const safe = escapeRegex(q);
+      filter.$or = [
+        { name:  { $regex: safe, $options: 'i' } },
+        { email: { $regex: safe, $options: 'i' } },
+        { phone: { $regex: safe, $options: 'i' } },
+      ];
+    }
+    if (req.query.role && req.query.role !== 'all') filter.role = req.query.role;
+    if (req.query.blocked === 'true')  filter.isBlocked = true;
+    if (req.query.blocked === 'false') filter.isBlocked = { $ne: true };
+
+    if (req.query.compact === '1') {
+      const users = await User.find(filter)
+        .select('name email role')
+        .sort({ name: 1 })
+        .lean();
+      return res.status(200).json({ success: true, data: { users, total: users.length, compact: true } });
+    }
+
+    const { page, limit, skip } = paginate(req.query);
+
+    // blockedTotal is counted across the WHOLE filtered set, not the page — the
+    // header shows "N registered · M blocked", and computing M from one page
+    // would quietly report a different number on every page.
+    const [users, total, blockedTotal] = await Promise.all([
+      User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      User.countDocuments(filter),
+      User.countDocuments({ ...filter, isBlocked: true }),
+    ]);
+
     res.status(200).json({
       success: true,
-      data: users
+      data: { users, total, blockedTotal, page, limit },
     });
   } catch (error) {
     next(error);
