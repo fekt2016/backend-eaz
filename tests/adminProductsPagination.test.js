@@ -32,7 +32,11 @@ async function seed(n) {
 }
 
 describe("GET /products/all — pagination (T107)", () => {
-  it("defaults to 50 per page and reports the full total", async () => {
+  // Owner decision (2026-08-30): every paginated list is 10 per page. This
+  // endpoint defaulted to 50. What T107 protects is unchanged and is the point
+  // of the test — the route is BOUNDED and reports the full total rather than
+  // hydrating the collection; only the size of the bound moved.
+  it("defaults to 10 per page and reports the full total", async () => {
     const token = await adminToken();
     await seed(60);
 
@@ -41,10 +45,10 @@ describe("GET /products/all — pagination (T107)", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toHaveLength(50);
+    expect(res.body.data).toHaveLength(10);
     expect(res.body.total).toBe(60);
-    expect(res.body.pages).toBe(2);
-    expect(res.body.count).toBe(50); // count stays this page's length
+    expect(res.body.pages).toBe(6);
+    expect(res.body.count).toBe(10); // count stays this page's length
   });
 
   it("serves the remainder on page 2 without overlap", async () => {
