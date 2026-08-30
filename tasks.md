@@ -1132,6 +1132,34 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   this flake from a real break.
 
   - **Repro:** `npx jest --runInBand` repeatedly; it does not reproduce every run.
+  ### A FOURTH face, 2026-08-30 (during the address-restriction verification)
+
+  A clean full run — nothing else on the machine — failed one test with **401 instead of 200**:
+  `hosting.test.js` › "uses the Spaceship price for a known TLD". It passes in isolation (24/24).
+
+  That makes four symptoms of what is almost certainly one bug:
+
+  | Symptom | Meaning |
+  |---|---|
+  | `426 Upgrade Required` | Node's HTTP parser reading a non-response as a status line |
+  | `socket hang up` | connection closed mid-exchange |
+  | `Parse Error: Expected HTTP/, RTSP/ or ICE/` | the client received bytes that are not an HTTP response |
+  | **`401` on an authenticated request** | the auth cookie did not arrive or did not parse |
+
+  All four are **connection-level, never assertion-level**; all appear ONLY in the full serial
+  run; all pass in isolation. The 401 is the most informative yet: it means a request that
+  carried a valid cookie reached the server without one, which is what a **desynchronised
+  keep-alive socket** looks like — request and response boundaries drifting out of step, so one
+  exchange reads another's bytes.
+
+  Note the earlier grep signature (`Instance failed to start|buffering timed out|socket hang
+  up|Parse Error`) returns **0** for this run — a 401 is invisible to it. Any future check for
+  "is T108 happening" must look at the failure list, not just that grep.
+
+  - **Revised next step:** disable HTTP keep-alive in the supertest agent (or force
+    `Connection: close`) for one full run. If the four symptoms vanish, socket reuse is the
+    cause and the fix is agent configuration, not application code.
+
   - **Next step:** capture whether the Express server or the supertest agent closes first —
     an unhandled rejection or an exhausted ephemeral-port range are both consistent with the
     symptom.
