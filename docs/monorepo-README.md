@@ -131,7 +131,7 @@ a `render.yaml` is also present for the backend).
 2. Set production env vars (`backend-eaz/.env`, `frontend-eaz/.env.local` or env in PM2/Amplify).
 3. Build the frontend: `cd frontend-eaz && npm run build`.
 4. Start the backend with PM2: `pm2 start ecosystem.config.js --env production`.
-5. Configure Nginx using `nginx.conf` (update `server_name` and SSL paths).
+5. Configure Nginx using `deploy/nginx.conf` (update `server_name` and SSL paths).
 6. For updates: pull, `npm install`, rebuild the frontend, and `pm2 restart` the backend.
 
 ## License

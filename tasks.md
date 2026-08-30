@@ -27,7 +27,7 @@
 > Both P0s are **production deployment** defects — they bite only once the app is
 > served through `nginx.conf`. Added from `REVIEWFULL.md` (audit 2026-08-29).
 
-- [ ] **T81 · Nginx rejects every upload over 1 MB** (audit ref EZ-001)
+- [x] **T81 · APPLIED 2026-08-30 — `client_max_body_size 6m` added** (audit ref EZ-001)
   - **Issue:** `nginx.conf` sets no `client_max_body_size`, so Nginx's 1 MB default applies. The app
     accepts far more: multer `limits.fileSize = 5MB` (`controllers/uploadController.js:15`) and
     `express.json({ limit: '5mb' })` (`app.js:104`).
@@ -46,7 +46,7 @@
     - [ ] Existing upload functionality still works
     - [ ] The proxy limit is documented next to the app limit so the two stay in step
 
-- [ ] **T82 · `nginx.conf` is still an unedited template** (audit ref EZ-002)
+- [x] **T82 · APPLIED 2026-08-30 — real domain, dead webhook block removed** (audit ref EZ-002)
   - **Issue:** `server_name yourdomain.com www.yourdomain.com;` (line 2, 8) and
     `ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;` (line 11-12). It also proxies
     `location /api/v1/domain/webhook` (line 33-37) — **a route that does not exist**; the only webhook
@@ -458,7 +458,7 @@
     `timingSafeEqual` rather than the length guard), wrong length, a signature differing only in
     the final byte, and a correctly signed body passing the gate.
 
-- [ ] **T95 · No TLS hardening or HSTS at the proxy** (audit ref EZ-019)
+- [x] **T95 · APPLIED 2026-08-30 — TLS 1.2/1.3, modern ciphers, HSTS** (audit ref EZ-019)
   - **Issue:** The TLS server block sets only certificate paths — no `ssl_protocols`, no cipher config,
     no `Strict-Transport-Security`, no OCSP stapling. Helmet sets application headers, but HSTS belongs
     at the edge that terminates TLS.
@@ -833,7 +833,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     `findOneAndUpdate({ _id, status: { $ne: 'paid' } }, …)` and act only if a document comes back.
   - **Location:** `controllers/webhookController.js:186-196`; compare `utils/fulfilShopOrder.js:57`
 
-- [ ] **T122 · Deployment configuration is not in version control** (final re-audit 2026-08-29) — **CONFIRMED**
+- [x] **T122 · APPLIED 2026-08-30 — deployment config moved into `backend-eaz/deploy/`** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** `nginx.conf` and `ecosystem.config.js` live at the workspace root
     (`/Users/mac/Desktop/eazworld/`), which is **not a git repository** — only `backend-eaz/` and
     `frontend-eaz/` are. Neither file is tracked by either repo. There is also no `Dockerfile` or
@@ -854,6 +854,56 @@ complete:_ **T110** marketplace parts/accessories/other filter (backend `kind` p
 **T112** Part Orders tab removed, order updates moved to the detail page · **T113** staff record
 expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 PM ·
 **T116** `/shipping/methods` legacy branch reads the zone's `speedTiers`. All merged to `main`.
+
+  ### Implementation Notes (2026-08-30 — commit pending, covers T81/T82/T95/T122)
+
+  **Owner decision:** deployment config lives in **`backend-eaz/deploy/`**. `nginx.conf` and
+  `ecosystem.config.js` were moved there from the monorepo root and are now tracked, reviewable
+  and pushable for the first time. The root copies are gone — there is one authoritative copy,
+  not two that drift.
+
+  **The deploy command changes:**
+  `pm2 start backend-eaz/deploy/ecosystem.config.js --env production`
+
+  **A latent deployment bug was found while moving it.** PM2 paths are now resolved from
+  `__dirname` rather than the caller's working directory, and in doing that the old `cwd: "./"`
+  turned out to be wrong: `server.js:7` and `app.js:14` both call
+  `dotenv.config({ path: "./.env" })`, which resolves against **`process.cwd()`**, and the only
+  `.env` is `backend-eaz/.env`. Measured:
+
+  | cwd | dotenv result |
+  |---|---|
+  | monorepo root (the old `cwd: "./"`) | **ENOENT — 0 variables** |
+  | `backend-eaz` (the new cwd) | loaded 45 variables |
+
+  So as written the config started the API in a directory where its own `.env` is invisible,
+  leaving `MONGO_URL`/`JWT_SECRET`/`PAYSTACK_SECRET` unset and `validateEnv` exiting 1. Whatever
+  production is doing today, it is not what this file said.
+
+  **In `deploy/nginx.conf`:** `client_max_body_size 6m` (T81 — above multer's 5MB and
+  `express.json`'s 5mb so the APP owns the error); real `server_name eazworld.co
+  www.eazworld.co` and the dead `location /api/v1/domain/webhook` deleted (T82 — that route does
+  not exist; the live one is `/api/webhooks/paystack`, and `/api/` already proxies to the same
+  upstream); TLS 1.2/1.3 with modern ciphers, OCSP stapling and HSTS (T95). Two additions beyond
+  the tasks: an ACME challenge location, so certbot's webroot renewal still works behind the
+  HTTPS redirect, and `X-Forwarded-Proto`, which was missing although `app.js:58` sets
+  `trust proxy 1`.
+
+  **HSTS is deliberately WITHOUT `preload`** — preloading is baked into browsers and painful to
+  reverse; make it a separate deliberate step once renewals have proven themselves.
+
+  ### ⚠️ Two things still need a human before this deploys
+
+  - [ ] **Confirm the TLS certificate paths.** They follow Let's Encrypt's usual layout for
+        `eazworld.co`, but the real lineage name is whatever certbot chose at first issue. Run
+        `sudo certbot certificates` and make `ssl_certificate`/`ssl_certificate_key` match. A
+        wrong path means the site does not serve at all. A warning to this effect is at the top
+        of the file.
+  - [ ] **Run `nginx -t` on the server.** Nginx is not installed on this machine and Docker was
+        unavailable, so the config was only verified structurally (braces balanced, 2 server
+        blocks, 5 locations, every directive terminated, no `yourdomain.com` remaining). That is
+        not a substitute for `nginx -t`.
+
 
 - [x] **T136 · APPLIED 2026-08-30 — `deliveryClosedDays: []` now means no closed days** (found during T120, 2026-08-30) — **CONFIRMED**
   - **Issue:** `services/shipping/shippingCalculator.js:125-128`
