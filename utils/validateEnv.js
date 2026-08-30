@@ -2,6 +2,19 @@
  * Validate required environment variables
  */
 const validateEnv = () => {
+  // T85 — NODE_ENV unset is not a neutral state here: `PROD` being false turns
+  // OFF the auth cookie's Secure flag and its sameSite=strict, AND turns ON
+  // err.stack in error responses. Both silently, together. ecosystem.config.js
+  // now sets it in the default `env` block as well as env_production, but say
+  // so loudly if it is somehow still missing — this is the last chance to
+  // notice before the app serves traffic with those controls off.
+  if (!process.env.NODE_ENV) {
+    console.warn('⚠️  NODE_ENV is not set — running in NON-production mode.');
+    console.warn('   The auth cookie will NOT be Secure/sameSite=strict, and error');
+    console.warn('   responses WILL include stack traces. If this is a deployed');
+    console.warn('   host, stop and start with: pm2 start ecosystem.config.js --env production');
+  }
+
   // Check for MONGO_URL (or mongo_url / MONGO_URI)
   const mongoUrl = process.env.MONGO_URL || process.env.mongo_url || process.env.MONGO_URI;
   if (!mongoUrl) {
