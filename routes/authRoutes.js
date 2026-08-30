@@ -7,6 +7,7 @@ const {
   resetPassword,
   getMe,
   getAllUsers,
+  adminGetUser,
   adminCreateUser,
   adminUpdateUser,
   adminToggleBlock,
@@ -72,6 +73,16 @@ router.post('/users',
   },
   adminCreateUser,
 );
+// Admin user-detail page reads one user by id, so a bookmarked or refreshed
+// /dashboard/users/:id works without having come through the list.
+//
+// restrictTo('admin') here matches its siblings below — and note it also admits
+// superadmin, because restrictTo treats superadmin as satisfying every role
+// check (middleware/auth.js:46). That is intended for these routes: superadmin
+// manages users. It is called out because the same implicit behaviour is a trap
+// elsewhere — see routes/addressRoutes.js, where denyRoles is used precisely
+// because restrictTo would have let superadmin through.
+router.get('/users/:id', protect, restrictTo('admin'), adminGetUser);
 router.patch('/users/:id', protect, restrictTo('admin'), adminUpdateUser);
 router.patch('/users/:id/block', protect, restrictTo('admin'), adminToggleBlock);
 router.patch('/users/:id/password', protect, restrictTo('admin'), adminChangePassword);

@@ -12,6 +12,7 @@ const { generateTrackingNumber } = require("../utils/trackingNumber");
 const { formatGhs } = require("../utils/money");
 const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 const { normalizePhone } = require("../utils/phone");
+const { buildCustomerOrderFilter } = require("../utils/customerOrderMatch");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
 const { sendPreorderReadyEmail, sendShopStatusEmail } = require("../utils/email");
 const { CUSTOMER_STAGES } = require("../models/Shipment");
@@ -750,30 +751,15 @@ const getOrderByReference = async (req, res, next) => {
  */
 const getMyOrders = async (req, res, next) => {
   try {
-    const or = [];
-    if (req.user?.email) {
-      or.push({ 'customer.email': String(req.user.email).toLowerCase() });
-    }
-    if (req.user?.phone) {
-      const digits = normalizePhone(req.user.phone);
-      if (digits) {
-        // New orders carry a normalized phoneDigits — the authoritative key.
-        or.push({ 'customer.phoneDigits': digits });
-        // Legacy orders only have the raw phone string; try common formats.
-        const variants = new Set([req.user.phone, digits]);
-        if (digits.startsWith('0')) {
-          variants.add(`233${digits.slice(1)}`);
-          variants.add(`+233${digits.slice(1)}`);
-        }
-        if (!/^0/.test(digits) && digits.startsWith('233')) {
-          variants.add(`0${digits.slice(3)}`);
-        }
-        or.push({ 'customer.phone': { $in: [...variants] } });
-      }
-    }
-    if (!or.length) return res.status(200).json({ success: true, count: 0, data: [] });
+    // Shop orders are guest checkouts with no `user` ref, so they are linked to
+    // an account by the contact details captured at checkout. That matcher now
+    // lives in utils/customerOrderMatch so the admin user-detail page uses the
+    // SAME rule — two copies would drift, and an admin would silently see a
+    // different set of orders than the customer sees for themselves.
+    const filter = buildCustomerOrderFilter({ email: req.user?.email, phone: req.user?.phone });
+    if (!filter) return res.status(200).json({ success: true, count: 0, data: [] });
 
-    const orders = await Order.find({ $or: or })
+    const orders = await Order.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();
