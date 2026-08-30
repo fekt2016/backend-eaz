@@ -567,6 +567,31 @@ const getAllUsers = async (req, res, next) => {
   }
 };
 
+// ── Admin: one user by id ─────────────────────────────────────────────────
+// Added for the admin user-detail page. The list endpoint returns every user,
+// so the page could have filtered client-side — but that means the detail view
+// only works if you arrived from the list, and a bookmarked or refreshed URL
+// shows nothing. Fetching one user by id makes the page independent of how you
+// got there.
+//
+// `.lean()` because this is a read-only projection, and the password field is
+// already `select: false` on the schema so it cannot leak here.
+const adminGetUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).lean();
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+    res.status(200).json({ success: true, data: user });
+  } catch (error) {
+    // A malformed id is a client error, not a 500.
+    if (error.name === 'CastError') {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+    next(error);
+  }
+};
+
 // ── Settings: Update profile ───────────────────────────────────────────────
 const updateProfile = async (req, res, next) => {
   try {
@@ -1043,6 +1068,7 @@ module.exports = {
   resetPassword,
   getMe,
   getAllUsers,
+  adminGetUser,
   adminCreateUser,
   adminUpdateUser,
   adminToggleBlock,

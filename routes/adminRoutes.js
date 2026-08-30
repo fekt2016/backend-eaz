@@ -1,6 +1,10 @@
 const express = require('express');
 const { protect, restrictTo } = require('../middleware/auth');
 const EmailLog = require('../models/EmailLog');
+const Order = require('../models/Order');
+const Address = require('../models/Address');
+const User = require('../models/User');
+const { buildCustomerOrderFilter } = require('../utils/customerOrderMatch');
 const { paginate } = require('../utils/pagination');
 const { escapeRegex } = require('../utils/regex');
 
@@ -60,6 +64,75 @@ router.get('/email-logs', async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+});
+
+// ── Admin user-detail: a customer's orders ────────────────────────────────
+// GET /api/v1/admin/users/:id/orders
+//
+// Shop orders are guest checkouts with no `user` ref, so they are matched by the
+// contact details captured at checkout — the SAME rule getMyOrders uses, shared
+// via utils/customerOrderMatch so an admin can never see a different set than
+// the customer sees for themselves.
+//
+// Paginated and lean: this runs on a 512MB heap, and a customer with a long
+// history should not be able to pull their whole order list into one response.
+router.get('/users/:id/orders', async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('email phone').lean();
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const filter = buildCustomerOrderFilter({ email: user.email, phone: user.phone });
+    // No contact details to match on means no orders — never an unfiltered find.
+    if (!filter) {
+      return res.status(200).json({ success: true, data: { orders: [], total: 0, page: 1 } });
+    }
+
+    const { page, limit, skip } = paginate(req.query, { defaultLimit: 10 });
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .select('orderNumber status total createdAt items paystackReference')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Order.countDocuments(filter),
+    ]);
+
+    res.status(200).json({ success: true, data: { orders, total, page, limit } });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+    next(error);
+  }
+});
+
+// ── Admin user-detail: a customer's saved addresses ───────────────────────
+// GET /api/v1/admin/users/:id/addresses
+//
+// Deliberately NOT on /api/v1/addresses. That router is the customer's OWN
+// address book and now denies every staff-side role, because a personal
+// delivery address book has no meaning on a staff account. Reading a CUSTOMER's
+// addresses is a different question with a different answer, so it lives here,
+// behind this router's protect + restrictTo('admin').
+//
+// No pagination: addressController caps a customer at MAX_ADDRESSES (3).
+router.get('/users/:id/addresses', async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('_id').lean();
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const addresses = await Address.find({ user: user._id })
+      .sort({ isDefault: -1, updatedAt: -1 })
+      .lean();
+
+    res.status(200).json({ success: true, data: addresses });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+    next(error);
   }
 });
 
