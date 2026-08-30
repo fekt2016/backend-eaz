@@ -826,6 +826,44 @@ complete:_ **T110** marketplace parts/accessories/other filter (backend `kind` p
 expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 PM ·
 **T116** `/shipping/methods` legacy branch reads the zone's `speedTiers`. All merged to `main`.
 
+- [ ] **T136 · `deliveryClosedDays: []` means "Sunday is closed", not "nothing is closed"** (found during T120, 2026-08-30) — **CONFIRMED**
+  - **Issue:** `services/shipping/shippingCalculator.js:125-128`
+
+    ```js
+    const closedDays =
+      Array.isArray(settings.deliveryClosedDays) && settings.deliveryClosedDays.length
+        ? new Set(settings.deliveryClosedDays)
+        : new Set([0]); // 0 = Sunday
+    ```
+
+    An empty array is truthy as an object but **falsy on `.length`**, so an explicit "no closed
+    days" is indistinguishable from "field not configured" and silently becomes Sunday-closed.
+  - **Impact, product:** an admin who clears every closed day in settings does not get
+    seven-day delivery — Sunday stays shut, with no indication why. Whether `[]` should mean
+    "none" or "use the default" is a real decision; right now the code cannot express "none".
+  - **Impact, tests:** **10 failures across 5 suites, every Sunday** — `shippingCalculator`,
+    `shippingEndpoints`, `distanceZones`, `shippingCheckout`, `shippingSettlement`. Every
+    assertion that same-day/express is offered fails, because the test helpers pass
+    `{ deliveryClosedDays: [] }` meaning "nothing is closed".
+  - **This is broader than T115,** which records only the *cutoff hour* and two suites. T115's
+    fix (pin the clock) will NOT fix these — the day of week is the trigger, not the hour.
+  - **Evidence (2026-08-30, a Sunday):** on stashed *original* code, with no database involved:
+
+    ```
+    sameDayWindowOpen({deliveryClosedDays: []}, 'express', 16:30)
+      => {"open":false,"reason":"Express delivery is not available today…"}   // test expects open:true
+    ```
+
+    Running the 5 suites on original code at the same hour reproduced the identical 10 test
+    names, so this is pre-existing and unrelated to T120.
+  - **Fix:** decide what `[]` means. Most likely `Array.isArray(x) ? new Set(x) : new Set([0])`,
+    so an explicit empty array means no closed days and only a missing field defaults to Sunday.
+    Then fix the suites that rely on the current behaviour, if any.
+  - **Location:** `services/shipping/shippingCalculator.js:125-128`
+  - **Acceptance:**
+    - [ ] `deliveryClosedDays: []` yields no closed days; a missing field still defaults to Sunday
+    - [ ] The 5 shipping suites pass on a Sunday, verified by forcing the clock to one
+
 - [ ] **T115 · Two shipping suites pass or fail on the wall clock** (found during T114, 2026-08-29)
   - **Issue:** `tests/distanceZones.test.js` and `tests/shippingEndpoints.test.js` assert that
     Express is among the offered methods, but never pin the clock. Express is gated by
