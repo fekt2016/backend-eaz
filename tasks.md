@@ -216,7 +216,7 @@
   - Acceptance: #1 ✅ · #2 deferred by decision · #3 ✅ (unchanged for existing customers) · #4
     ✅ for the claim attempt at the profile layer; the order-linkage half goes with #2.
 
-- [ ] **T85 · `NODE_ENV` is not guaranteed in production — two security controls switch off together** (audit ref EZ-005)
+- [~] **T85 · PARTLY APPLIED 2026-08-30 — backend warning committed; ecosystem.config.js fix is UNVERSIONED (T122)** (audit ref EZ-005)
   - **Issue:** `ecosystem.config.js:11-14` defines `NODE_ENV` only under `env_production`, which PM2
     applies **only** with `--env production`. Started any other way it is unset and `PROD` is false.
   - **Impact:** The auth cookie loses `Secure` and drops `sameSite` from `strict` to `lax`
@@ -229,7 +229,19 @@
   - **Location:** `ecosystem.config.js:11-14` (repo root); `controllers/authController.js:44`;
     `middleware/errorHandler.js:1,70`
   - **Acceptance:**
-    - [ ] Starting with or without `--env production` yields `NODE_ENV=production`
+    - [x] Starting with or without `--env production` yields `NODE_ENV=production`  ← done in the repo-root file, which is NOT in git (T122)
+
+  ### Implementation Notes (2026-08-30 — backend commit `a5f6a20`)
+
+  - **`utils/validateEnv.js` (committed):** warns loudly at boot when `NODE_ENV` is unset,
+    naming both controls that silently switch off — the auth cookie's `Secure`/`sameSite=strict`
+    and `err.stack` in responses. Verified: 1 warning when unset, 0 when production.
+  - **`ecosystem.config.js` (edited, NOT committable):** `NODE_ENV: "production"` now sits in the
+    default `env` block as well as `env_production`, for both apps, so a plain
+    `pm2 start ecosystem.config.js` no longer silently drops to non-production. Verified by
+    reading the parsed config. **This file lives at the monorepo root, which is not a git repo,
+    so the change cannot be committed or pushed — see T122.** A backup of the original is in the
+    session scratchpad.
     - [ ] No stack traces in production API responses
     - [ ] Auth cookies carry `Secure` and `SameSite=Strict`
     - [ ] Startup fails loudly if the environment is ambiguous
@@ -753,7 +765,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   run has completed" — an open-handle warning that predates this change and belongs to **T120**,
   not here.
 
-- [ ] **T119 · `FRONTEND_URL` fails silently on the BACKEND — T97 only fixed the frontend** (final re-audit 2026-08-29) — **CONFIRMED**
+- [x] **T119 · APPLIED 2026-08-30 — backend now fails fast on a missing `FRONTEND_URL`** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** `utils/frontendUrl.js` returns `process.env.FRONTEND_URL || process.env.CLIENT_URL || ""`
     in production. Unset, it yields an **empty string** — no throw, no warning. T97 added a
     production fail-fast to `frontend-eaz/src/lib/seo.js`; the backend has the same class of bug and
@@ -770,6 +782,23 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** mirror T97 — throw at startup (best placed in `utils/validateEnv.js`, which already
     `process.exit(1)`s for `MONGO_URL`, `JWT_SECRET` and `PAYSTACK_SECRET`) rather than returning "".
   - **Location:** `utils/frontendUrl.js`; `utils/validateEnv.js`
+
+  ### Implementation Notes (2026-08-30 — commit `be4188d`)
+
+  Two layers. `validateEnv.js` refuses to boot in production when the value is missing, beside
+  the `MONGO_URL`/`JWT_SECRET`/`PAYSTACK_SECRET` checks it already makes — and **also rejects a
+  value that is not an absolute `http(s)` URL**, since a host-relative one fails identically to
+  an empty string. `frontendUrl.js` throws rather than returning `""`, as the backstop for a
+  worker or script that skipped validateEnv.
+
+  Verified by **exit code**, not log output: prod+missing → 1, prod+`"/order"` → 1, prod+valid
+  → 0, dev+missing → 0 (development still localhost:3000, unchanged).
+
+  6 tests in `tests/frontendUrl.test.js`. Verified by mutation: restoring `return ""` fails the
+  two cases that exist to catch it. Note the module reads `NODE_ENV` at load but the URLs at
+  **call** time — my first test version restored the env before calling and failed for that
+  reason rather than the code's.
+
 
 - [ ] **T120 · The full backend suite is unreliable: mongod instances fail to start late in the run** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** a full `--runInBand` run took **4407 s (73 minutes)** and produced **21 failures across
