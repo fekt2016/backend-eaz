@@ -163,7 +163,7 @@ const handlePaystackWebhook = async (req, res) => {
     const { reference } = event.data;
 
     // ── Hosting order (new or renewal) ───────────────────────────────
-    const hostingOrder = await HostingOrder.findOne({ paystackReference: reference });
+    let hostingOrder = await HostingOrder.findOne({ paystackReference: reference });
     if (hostingOrder) {
       // amount is major GHS (T44, intentional); amountPesewas is the
       // precomputed pesewas value — fall back to deriving it for orders
@@ -183,18 +183,45 @@ const handlePaystackWebhook = async (req, res) => {
         return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
+      // Read BEFORE the claim below — it decides whether to send the
+      // payment-received email, which must not fire on a retry.
       const wasPaidOrActive =
         hostingOrder.status === 'paid' || hostingOrder.status === 'active';
 
-      if (wasPaidOrActive && hostingOrder.provisioningStatus !== 'not_started') {
+      // T121 — claim the order ATOMICALLY rather than read-then-check-then-write.
+      //
+      // This used to read the document, test `paid/active && provisioningStatus
+      // !== 'not_started'`, and only then write. Two webhooks arriving together
+      // could both pass that test before either wrote, and both would go on to
+      // provision. Paystack does retry, and retries can overlap. The shop path
+      // has always been safe (utils/fulfilShopOrder.js does a single guarded
+      // findOneAndUpdate); this branch was the exception.
+      //
+      // The filter is the negation of the duplicate test, so exactly one
+      // concurrent caller gets a document back and every other gets null.
+      const claimed = await HostingOrder.findOneAndUpdate(
+        {
+          _id: hostingOrder._id,
+          $nor: [{
+            status: { $in: ['paid', 'active'] },
+            provisioningStatus: { $ne: 'not_started' },
+          }],
+        },
+        { $set: { status: 'paid', paidAt: hostingOrder.paidAt || new Date() } },
+        { new: true },
+      );
+
+      if (!claimed) {
         console.log(
           `[webhook] Duplicate webhook for already-processed order ${hostingOrder._id} — skipping`
         );
         return res.status(200).json({ received: true });
       }
 
-      hostingOrder.status = 'paid';
-      if (!hostingOrder.paidAt) hostingOrder.paidAt = new Date();
+      // Everything below mutates and saves this document, so it must be the one
+      // the claim returned — saving the pre-claim copy would write stale state
+      // straight over the claim we just won.
+      hostingOrder = claimed;
 
       if (hostingOrder.parentOrderId) {
         const parent = await HostingOrder.findById(hostingOrder.parentOrderId);
@@ -273,7 +300,7 @@ const handlePaystackWebhook = async (req, res) => {
     }
 
     // ── Domain order ─────────────────────────────────────────────────
-    const domainOrder = await DomainOrder.findOne({ paystackReference: reference });
+    let domainOrder = await DomainOrder.findOne({ paystackReference: reference });
     if (domainOrder) {
       // price is major GHS (T44, intentional); amountPesewas is the
       // precomputed pesewas value — fall back to deriving it for orders
@@ -293,16 +320,26 @@ const handlePaystackWebhook = async (req, res) => {
         return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
-      if (domainOrder.status === 'completed') {
+      // T121 — the same atomic claim as the hosting branch above. This had the
+      // identical read-then-check-then-write shape: two overlapping Paystack
+      // retries could both see status !== 'completed' before either wrote, and
+      // both would go on to register the domain. Registering twice spends real
+      // money at the registrar, so this one is worth more than the hosting case.
+      const claimedDomain = await DomainOrder.findOneAndUpdate(
+        { _id: domainOrder._id, status: { $ne: 'completed' } },
+        { $set: { status: 'completed', paidAt: new Date() } },
+        { new: true },
+      );
+
+      if (!claimedDomain) {
         console.log(
           `[webhook] Duplicate webhook for already-completed domain order ${domainOrder._id} — skipping`
         );
         return res.status(200).json({ received: true });
       }
 
-      domainOrder.status = 'completed';
-      domainOrder.paidAt = new Date();
-      await domainOrder.save();
+      // Continue on the claimed document — the pre-claim copy is stale.
+      domainOrder = claimedDomain;
       await log({
         action: ACTIONS.PAYMENT_VERIFIED,
         resourceType: RESOURCES.PAYMENT,

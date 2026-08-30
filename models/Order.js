@@ -242,6 +242,30 @@ const orderSchema = new mongoose.Schema({
       maxlength: [500, 'Delivery address cannot exceed 500 characters'],
     }
   },
+  // T89 — lines that could not be fulfilled after the payment landed.
+  //
+  // The stock decrement in utils/fulfilShopOrder.js is guarded (`stock: { $gte:
+  // qty }`) so it can never oversell. When that guard fails the code logs and
+  // continues, deliberately: the customer has already been charged and the
+  // payment must not be undone. But nothing recorded the shortfall, so the
+  // order looked completely normal in the dashboard and it surfaced only as a
+  // customer complaint.
+  //
+  // This is the record. It never blocks fulfilment; it makes the gap visible.
+  fulfilmentIssues: [{
+    itemName: { type: String, default: '' },
+    productId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    variantSku: { type: String, default: '' },
+    qtyRequested: { type: Number, default: 0 },
+    reason: {
+      type: String,
+      enum: ['insufficient_stock'],
+      default: 'insufficient_stock',
+    },
+    detectedAt: { type: Date, default: Date.now },
+    resolvedAt: { type: Date, default: null },
+  }],
+
   status: {
     type: String,
     enum: ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'],

@@ -27,6 +27,28 @@ async function makeCustomer() {
   return PosCustomer.create({ phone, name: "Cust" });
 }
 
+
+// notifyRoles() is deliberately fire-and-forget — utils/notifications.js
+// documents it as best-effort, because failing to persist a notification must
+// never break the business action that triggered it. So it is NOT awaited by
+// fulfilShopOrder, and a test that queries immediately after fulfilment is
+// racing it.
+//
+// These assertions used to pass only because the stock-decrement loop did enough
+// database work to let the notification land first. T89 added an early `continue`
+// for lines with no product reference — the fixture below is exactly that shape —
+// which removed the incidental delay and exposed the race. Poll instead of
+// assuming.
+async function notificationsFor(userId, expected, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  let found = await Notification.find({ recipient: userId });
+  while (found.length < expected && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 25));
+    found = await Notification.find({ recipient: userId });
+  }
+  return found;
+}
+
 function pendingOrder(over = {}) {
   return {
     orderNumber: `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`.toUpperCase(),
@@ -157,8 +179,13 @@ describe("T12 trigger — new order paid", () => {
     const paid = await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" });
     expect(paid).toBeTruthy();
 
-    const [adminNotes, staffNotes, superNotes, techNotes, custNotes] = await Promise.all(
-      [admin, staff, superadmin, tech, customer].map(u => Notification.find({ recipient: u._id }))
+    const [adminNotes, staffNotes, superNotes] = await Promise.all(
+      [admin, staff, superadmin].map(u => notificationsFor(u._id, 1))
+    );
+    // These two must receive NOTHING, so there is nothing to wait for — read
+    // them after the three above have landed, which bounds the wait.
+    const [techNotes, custNotes] = await Promise.all(
+      [tech, customer].map(u => Notification.find({ recipient: u._id }))
     );
     expect(adminNotes).toHaveLength(1);
     expect(staffNotes).toHaveLength(1);
@@ -176,7 +203,7 @@ describe("T12 trigger — new order paid", () => {
     const second = await fulfilShopOrder(order.paystackReference, { amountPesewas: order.total, currency: "GHS" }); // already paid — no-op
 
     expect(second).toBeNull();
-    const notes = await Notification.find({ recipient: admin._id });
+    const notes = await notificationsFor(admin._id, 1);
     expect(notes).toHaveLength(1);
   });
 });
