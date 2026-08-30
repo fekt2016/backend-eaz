@@ -122,10 +122,14 @@ function sameDayWindowOpen(settings, deliverySpeed = "same_day", now = new Date(
     };
   }
 
-  const closedDays =
-    Array.isArray(settings.deliveryClosedDays) && settings.deliveryClosedDays.length
-      ? new Set(settings.deliveryClosedDays)
-      : new Set([0]); // 0 = Sunday
+  // An empty array means "no closed days", NOT "unset" — that is the contract
+  // ShippingSettings documents ("Empty array = no closed days", default [0]).
+  // This used to test `.length`, which is falsy for [], so an admin who cleared
+  // every closed day silently got Sundays closed anyway and had no way to
+  // express seven-day delivery. Only a missing/non-array value falls back.
+  const closedDays = Array.isArray(settings.deliveryClosedDays)
+    ? new Set(settings.deliveryClosedDays)
+    : new Set([0]); // 0 = Sunday
   if (closedDays.has(now.getDay())) {
     return {
       open: false,

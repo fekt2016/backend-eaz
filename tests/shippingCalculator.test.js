@@ -658,6 +658,43 @@ describe("T80 E2 — fulfilment-method gating", () => {
 // through the working day — and it made two suites pass or fail on wall-clock
 // time. These pin the default and the customer-facing wording; they inject
 // `now`, so they do not care what time the suite runs at.
+// T136 (found during T120, 2026-08-30): `deliveryClosedDays: []` meant "Sunday
+// is closed", not "nothing is closed". The check was
+// `Array.isArray(x) && x.length`, and [] is falsy on .length, so an explicit
+// empty array was indistinguishable from an unset field and fell through to the
+// [0] default. Two consequences: an admin who cleared every closed day could not
+// actually get seven-day delivery, and 10 tests across 5 shipping suites failed
+// every Sunday. These pin the three cases apart so a future refactor cannot
+// collapse them again. `now` is injected, so the day is chosen, not ambient.
+describe("deliveryClosedDays — empty means none, missing means Sunday (T136)", () => {
+  // A concrete Sunday and Monday, so this does not depend on when it runs.
+  const SUNDAY = new Date("2026-08-30T16:30:00");
+  const MONDAY = new Date("2026-08-31T16:30:00");
+
+  it("treats an explicit empty array as no closed days", () => {
+    expect(calculator.sameDayWindowOpen({ deliveryClosedDays: [] }, "express", SUNDAY).open).toBe(true);
+    expect(calculator.sameDayWindowOpen({ deliveryClosedDays: [] }, "express", MONDAY).open).toBe(true);
+  });
+
+  it("falls back to Sunday-closed only when the field is missing", () => {
+    expect(calculator.sameDayWindowOpen({}, "express", SUNDAY).open).toBe(false);
+    expect(calculator.sameDayWindowOpen({}, "express", MONDAY).open).toBe(true);
+  });
+
+  it("honours an explicit list, including one that does not contain Sunday", () => {
+    const wedOnly = { deliveryClosedDays: [3] };
+    expect(calculator.sameDayWindowOpen(wedOnly, "express", SUNDAY).open).toBe(true);
+    const sunAndMon = { deliveryClosedDays: [0, 1] };
+    expect(calculator.sameDayWindowOpen(sunAndMon, "express", SUNDAY).open).toBe(false);
+    expect(calculator.sameDayWindowOpen(sunAndMon, "express", MONDAY).open).toBe(false);
+  });
+
+  it("still applies the time cutoff on an open day", () => {
+    const lateSunday = new Date("2026-08-30T18:30:00");
+    expect(calculator.sameDayWindowOpen({ deliveryClosedDays: [] }, "express", lateSunday).open).toBe(false);
+  });
+});
+
 describe("same-day window — 5 PM cutoff (T114)", () => {
   const at = (hour) => {
     const d = new Date();

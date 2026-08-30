@@ -61,6 +61,12 @@ async function seedShippingData() {
   settings.courierDispatchAvailable = true;
   settings.expressAvailable = true;
   settings.inHouseRadiusKm = null;
+  // T136/T115 — pin the same-day window so the suite does not depend on when it
+  // runs. `express` is the same-day service, so without these two lines the
+  // assertions below hold only before the cutoff hour and only on a day that is
+  // not in deliveryClosedDays (which defaults to Sunday).
+  settings.sameDayCutoffHour = 23; // past any wall-clock time the suite runs at
+  settings.deliveryClosedDays = []; // no closed days, so any weekday works
   await settings.save();
 }
 
