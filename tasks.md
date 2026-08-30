@@ -1252,8 +1252,18 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   Judge T108 from the FAILURE LIST, never from that grep.
 
   **Frequency, measured so far:** roughly 1 failing test per full run, in maybe a third of runs,
-  and never the same test twice — refunds, cart, phone-change, supplier logs, hosting price, and
-  now technician domain access have each done it once.
+  and **never the same test twice** — refunds, cart, phone-change, supplier logs, hosting price,
+  technician domain access, and now `usersPagination` ("walks pages without repeating or dropping
+  anyone", *socket hang up*, 2026-08-30 17:46) have each done it exactly once. Seven distinct
+  tests, seven different suites, no repeat.
+
+  That non-repetition is itself evidence: a real defect would cluster. This picks a different
+  victim each run, which is what a shared-resource fault looks like rather than a code fault.
+
+  **Cost, concretely:** on 2026-08-30 a T126 change was pushed and the following full run came
+  back red on this flake. Ten minutes went into proving the failure was unrelated to the change —
+  re-running the suite in isolation (11/11) and reading the error text — before the push could be
+  called safe. That is the tax on every change until this is fixed.
 
   - **Next hypotheses, in order:** (a) supertest leaks the ephemeral server between files — each
     `request(app)` binds a new port and nothing closes it, so late in a run the process holds
