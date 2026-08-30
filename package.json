@@ -38,8 +38,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
     "@paystack/paystack-sdk": "^1.0.1",
-    "@react-email/components": "^1.0.9",
-    "@react-email/render": "^2.0.4",
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.9.0",

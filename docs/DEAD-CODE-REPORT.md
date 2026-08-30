@@ -161,3 +161,34 @@ checkout is planned, this is scaffolding; if not, it is documentation for a vari
 Awaiting sign-off on specific rows before any deletion. My own recommendation, if useful: approve
 §1 and §2 (the four dependencies and two files, ~600 LoC), and **hold `services/namecheap.js` until
 T3 proves the Spaceship round-trip** — the rollback path is worth more than the 491 lines it costs.
+
+---
+
+## Phase B — executed 2026-08-29
+
+All four Confirmed Dead rows were approved and applied. `services/namecheap.js` was held back, as
+recommended, until T3 verifies the Spaceship live round-trip.
+
+| Row | Status | Commit |
+|---|---|---|
+| `services/cyberpanel.js` (103 lines) | **Done** | `T128 (1/3)` |
+| `@react-email/components` + `@react-email/render` (prod) | **Done** | `T128 (2/3)` |
+| Docs claiming react-email is in use | **Done** | `T128 (3/3)` |
+| `src/hooks/queries/useContacts.js` + `qk.consultations` | **Done** | `T129 (1/2)` |
+| `@playwright/test` + `playwright` (dev) | **Done** | `T129 (2/2)` |
+| `services/namecheap.js` + `xml2js` | **Held** — blocked on T3 (see backend T130) | — |
+| `CYBERPANEL_*` secrets | **Partial** — absent from local `.env`; retire wherever deployment sets them | — |
+
+**Verification after each batch:** backend eslint 0 errors, `app.js` loads, 44/44 hosting +
+spaceship, 51/51 email + notification, `npm audit` 0 vulnerabilities. Frontend eslint clean,
+357/357 tests, `next build` compiles and generates all 78 static pages.
+
+**Actual scope removed:** 2 files, ~117 lines, 4 packages — smaller than the ~600 estimated, because
+the 491-line `namecheap.js` was deliberately kept.
+
+**Not verified:** the admin consultations page was not opened in a browser. It fetches via
+`api.get("/contacts?…")` and never referenced the deleted hook, so nothing it uses changed — but that
+is reasoning, not observation.
+
+**Worth noting:** `docs/code_review.md:316` flagged the two react-email packages as unused on
+**2026-07-16**. They shipped in production dependencies for six more weeks.

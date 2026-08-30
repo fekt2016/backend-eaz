@@ -19,7 +19,7 @@ This top-level folder holds two independent git repositories:
 - **Domain API**: Namecheap
 - **Hosting provisioning**: WHM / CyberPanel (cPanel)
 - **Payments**: Paystack (card + Mobile Money, GH₵)
-- **Media**: Cloudinary · **Email**: Resend + react-email
+- **Media**: Cloudinary · **Email**: Resend (hand-written HTML templates)
 - **Auth**: JWT in an httpOnly cookie
 
 > Money is stored and transported as **integer pesewas** (GH₵1.00 = 100); format `GH₵` only at the UI edge.
