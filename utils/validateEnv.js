@@ -2,6 +2,19 @@
  * Validate required environment variables
  */
 const validateEnv = () => {
+  // T85 — NODE_ENV unset is not a neutral state here: `PROD` being false turns
+  // OFF the auth cookie's Secure flag and its sameSite=strict, AND turns ON
+  // err.stack in error responses. Both silently, together. ecosystem.config.js
+  // now sets it in the default `env` block as well as env_production, but say
+  // so loudly if it is somehow still missing — this is the last chance to
+  // notice before the app serves traffic with those controls off.
+  if (!process.env.NODE_ENV) {
+    console.warn('⚠️  NODE_ENV is not set — running in NON-production mode.');
+    console.warn('   The auth cookie will NOT be Secure/sameSite=strict, and error');
+    console.warn('   responses WILL include stack traces. If this is a deployed');
+    console.warn('   host, stop and start with: pm2 start ecosystem.config.js --env production');
+  }
+
   // Check for MONGO_URL (or mongo_url / MONGO_URI)
   const mongoUrl = process.env.MONGO_URL || process.env.mongo_url || process.env.MONGO_URI;
   if (!mongoUrl) {
@@ -37,6 +50,27 @@ const validateEnv = () => {
     } else {
       console.warn('⚠️  PAYSTACK_SECRET not set — payment webhooks will be rejected');
     }
+  }
+
+  // FRONTEND_URL is interpolated into the Paystack `callback_url` and into the
+  // customer tracking links in services/notify.js. utils/frontendUrl.js returns
+  // "" when it is unset in production — no throw, no warning — so Paystack gets
+  // a RELATIVE callback_url and customers are texted a link with no host. T97
+  // added this same fail-fast to the frontend's seo.js; this is the backend half
+  // (T119), and it matters more because this one reaches payments.
+  const siteUrl = (process.env.FRONTEND_URL || process.env.CLIENT_URL || '').trim();
+  if (!siteUrl) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ Missing required environment variable: FRONTEND_URL (or CLIENT_URL)');
+      console.error('   Paystack callback_url and customer tracking links would be built from an empty string.');
+      process.exit(1);
+    } else {
+      console.warn('⚠️  FRONTEND_URL not set — development falls back to http://localhost:3000');
+    }
+  } else if (!/^https?:\/\//i.test(siteUrl)) {
+    // A host-relative value fails exactly the same way an empty one does.
+    console.error(`❌ FRONTEND_URL must be an absolute http(s) URL — got "${siteUrl}"`);
+    process.exit(1);
   }
 
   // Optional: Warn about recommended variables
