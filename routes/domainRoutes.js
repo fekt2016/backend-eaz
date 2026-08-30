@@ -14,6 +14,8 @@ const {
 } = require('../controllers/domainController');
 const { protect, restrictTo, denyRoles } = require('../middleware/auth');
 const spaceship = require('../services/spaceship');
+const { validate } = require('../middleware/validate');
+const { paymentSchema } = require('../validation/domainSchema');
 
 const router = express.Router();
 
@@ -33,7 +35,14 @@ router.get('/suggest', suggestDomain);
 router.post('/check/batch', checkDomainBatch);
 router.post('/check-bulk', checkDomainBulk);
 
-router.post('/payment', protect, denyRoles('technician'), createDomainPayment);
+// T126 — also written and never wired. Checked against the real caller before
+// connecting it (components/CheckoutForm.jsx): it sends domain, email, amount,
+// currency, firstName, lastName, phone, years and registrantInfo, so the
+// schema's required `email` and `amount` are satisfied and nothing it declares
+// is missing. This is a money path — a domain registration spends real money at
+// the registrar — so `amount` being a positive number rather than whatever the
+// client sent is worth asserting before the controller reads it.
+router.post('/payment', protect, denyRoles('technician'), validate(paymentSchema), createDomainPayment);
 
 router.get('/my', protect, denyRoles('technician'), getMyRegisteredDomains);
 router.get('/orders', protect, denyRoles('technician'), getDomainOrders);
