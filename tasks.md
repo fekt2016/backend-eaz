@@ -831,7 +831,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   reason rather than the code's.
 
 
-- [ ] **T120 · The full backend suite is unreliable: mongod instances fail to start late in the run** (final re-audit 2026-08-29) — **CONFIRMED**
+- [x] **T120 · APPLIED 2026-08-30 — one mongod per run; 73 min → ~9 min, zero startup failures** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** a full `--runInBand` run took **4407 s (73 minutes)** and produced **21 failures across
     3 suites** — `productReviews` (2058 s), `salesScoping` (900 s), `technicianHostingDomainAccess`
     (605 s). The errors are not assertions: `Instance failed to start within 10000ms`
@@ -849,7 +849,36 @@ Not defects; product features that don't exist yet. Scope separately before buil
     per suite, or `MongoMemoryReplSet` reused across files. Raising the 10 s timeout treats the
     symptom.
   - **Location:** `tests/setup.js:59-70`; `jest.config.js`
-  - **Supersedes:** T108, which described the symptom; this records the measured cause.
+  - **Supersedes:** ~~T108~~ — **this was wrong, see T108, which is re-opened.** T120's fix removed
+    the mongod churn entirely, yet the 426 / socket-hang-up / Parse Error / 401 family still appears
+    intermittently. Those have a different cause.
+
+  ### Implementation Notes (2026-08-30 — merged as `c968dc5`)
+
+  `tests/setup.js` called `MongoMemoryServer.create()` inside `beforeAll`, and `setupFilesAfterEnv`
+  runs per test **file** — so 82 mongod processes were started and stopped every run. Now
+  `tests/globalSetup.js` starts ONE standalone before any worker, `setup.js` connects to it, and
+  `globalTeardown.js` stops it. Two starts per run (`posSale.test.js` keeps its own replica set for
+  transactions) instead of 83.
+
+  **Three variants were measured and discarded first, each caught by a full run rather than by
+  reasoning:**
+
+  | Variant | Result |
+  |---|---|
+  | Shared **replica set** (so posSale could drop its own) | 145s vs a 110s baseline — journal + oplog cost exceeds the startup saving |
+  | One database **per file** | full run **127 min**, worse than the 73-min baseline — WiredTiger carried all 82 databases |
+  | `dropDatabase()` per file | catastrophic — 10 of 82 suites in 3.5 hours, every index rebuilt |
+
+  What shipped: one database per **worker**, emptied between tests by enumerating collections from
+  the **driver** rather than `mongoose.connection.collections`. That distinction is the subtle part:
+  the Mongoose registry lists only models loaded in the current file, so suites reaching past it to
+  the raw driver left collections nothing ever wiped — harmless with a mongod per file, a cross-file
+  leak once shared. It surfaced as `posMoneyMigration`'s idempotency test passing on the old setup
+  and failing on the new one.
+
+  Verified: full run **473s**, zero `Instance failed to start` / `buffering timed out` across all 82
+  suites. The three suites this task names went from ~3,563s combined to 56s.
 
 - [ ] **T121 · Hosting/domain webhook fulfilment guards duplicates with read-then-check, not atomically** (final re-audit 2026-08-29) — **POTENTIAL RISK**
   - **Issue:** the shop path is airtight — `utils/fulfilShopOrder.js:57` does a single
@@ -998,7 +1027,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   run.** Supersedes the Sunday half of **T115**; T115's cutoff-hour concern is now also covered
   by the pinning added here.
 
-- [ ] **T115 · Two shipping suites pass or fail on the wall clock** (found during T114, 2026-08-29)
+- [~] **T115 · PARTLY SUPERSEDED by T136 — the day-of-week half is fixed; re-read before working this** (found during T114, 2026-08-29)
   - **Issue:** `tests/distanceZones.test.js` and `tests/shippingEndpoints.test.js` assert that
     Express is among the offered methods, but never pin the clock. Express is gated by
     `sameDayWindowOpen`, so the assertions hold only before the cutoff hour. Measured the same
