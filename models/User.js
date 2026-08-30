@@ -95,6 +95,42 @@ const userSchema = new mongoose.Schema(
       type: Date,
       select: false,
     },
+    // ── Account deactivation (owner request, 2026-08-30) ──────────────────
+    // Reversible by decision: a customer who deactivates keeps their orders and
+    // history, and an admin can switch them back on. Distinct from `isBlocked`,
+    // which is a staff action against a user — this one is the user's own
+    // choice, and the two need different messages and different audit trails.
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    deactivatedAt: { type: Date, default: null },
+    deactivationReason: { type: String, maxlength: 500, default: '' },
+
+    // ── Ghana Card identity verification (manual admin review) ────────────
+    // Government ID, so it is handled differently from every other upload here:
+    //  - `number` is `select: false`. It is never returned by a normal read;
+    //    responses carry a masked form instead.
+    //  - the images are stored as Cloudinary public_ids with
+    //    `type: 'authenticated'`, NOT as public URLs. Every other upload in this
+    //    app is world-readable to anyone holding the link, which is fine for a
+    //    product photo and not for someone's national ID. Admins fetch a
+    //    short-lived signed URL through a dedicated endpoint.
+    ghanaCard: {
+      number: { type: String, select: false, default: '' },
+      frontImageId: { type: String, default: '' },
+      backImageId: { type: String, default: '' },
+      status: {
+        type: String,
+        enum: ['none', 'pending', 'approved', 'rejected'],
+        default: 'none',
+      },
+      submittedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      rejectionReason: { type: String, maxlength: 500, default: '' },
+    },
+
     // T91 — bumped whenever every existing session for this account must stop
     // working: logout, a self-service password change, an admin password reset,
     // and the forgot-password flow. The value is stamped into the JWT and
@@ -273,6 +309,18 @@ userSchema.pre('save', function bumpTokenVersionOnPasswordChange(next) {
   }
   next();
 });
+
+/**
+ * A Ghana Card number is PII. Responses show only the last four characters, in
+ * the card's own shape, so a user can recognise which card they submitted
+ * without the full number travelling to the browser or into a log.
+ */
+userSchema.methods.maskedGhanaCardNumber = function () {
+  const n = this.ghanaCard && this.ghanaCard.number;
+  if (!n) return '';
+  const tail = String(n).slice(-4);
+  return `GHA-•••••••-${tail.slice(-1) || '•'}`.replace('•••••••', '•'.repeat(7));
+};
 
 userSchema.methods.needsVerification = function () {
   return this.isVerified === false && Boolean(this.verifyPin);

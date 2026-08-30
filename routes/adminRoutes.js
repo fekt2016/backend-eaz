@@ -5,6 +5,7 @@ const Order = require('../models/Order');
 const Address = require('../models/Address');
 const User = require('../models/User');
 const { buildCustomerOrderFilter } = require('../utils/customerOrderMatch');
+const { getGhanaCardForReview, reviewGhanaCard, getGhanaCardImageUrl } = require('../controllers/accountController');
 const { paginate } = require('../utils/pagination');
 const { escapeRegex } = require('../utils/regex');
 
@@ -135,5 +136,16 @@ router.get('/users/:id/addresses', async (req, res, next) => {
     next(error);
   }
 });
+
+// ── Ghana Card review (manual identity verification) ──────────────────────
+// Approve or reject a pending submission.
+router.get('/users/:id/ghana-card', getGhanaCardForReview);
+router.patch('/users/:id/ghana-card', reviewGhanaCard);
+
+// Mint a SHORT-LIVED signed URL for one side of the card. The images are stored
+// with Cloudinary `type: 'authenticated'`, so the stored public_id cannot be
+// fetched on its own — unlike every other upload in this app, which is
+// world-readable to anyone holding the link. Each view is logged.
+router.get('/users/:id/ghana-card/image/:side', getGhanaCardImageUrl);
 
 module.exports = router;

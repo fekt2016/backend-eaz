@@ -54,6 +54,18 @@ const protect = async (req, res, next) => {
       });
     }
 
+    // A self-deactivated account reaches nothing. Kept separate from isBlocked
+    // above: that is a staff action against a user, this is the user's own
+    // choice, and they deserve different wording — telling someone who
+    // deactivated their own account that they have been "suspended" is wrong.
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'This account has been deactivated. Please contact support to reactivate it.',
+        deactivated: true,
+      });
+    }
+
     // T88 — an account still waiting on its verification PIN reaches nothing.
     // Uses the SAME predicate as login rather than `!isVerified`: accounts
     // predating the PIN system have isVerified=false and no verifyPin, and login
