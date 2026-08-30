@@ -320,7 +320,7 @@
 
 ## P2 — Improvements
 
-- [ ] **T88 · `protect` never checks `isVerified`** (audit ref EZ-009)
+- [x] **T88 · APPLIED 2026-08-30 — `protect` refuses unverified accounts, using login's own predicate** (audit ref EZ-009)
   - **Issue:** `middleware/auth.js:21-30` checks the token, that the user exists, and `isBlocked` — but
     not `isVerified`. An account that registered and never confirmed its emailed PIN reaches every
     customer endpoint.
@@ -330,10 +330,25 @@
     staff-created accounts depend on the current behaviour before enabling.
   - **Location:** `middleware/auth.js:21-30`
   - **Acceptance:**
-    - [ ] Unverified users are refused with a distinguishable error
-    - [ ] Verification/resend endpoints stay reachable
-    - [ ] Internally created staff/admin accounts are unaffected
-    - [ ] Tests cover verified and unverified access
+    - [x] Unverified users are refused with a distinguishable error (403 + `requiresVerification`)
+    - [x] Verification/resend endpoints stay reachable — they are PUBLIC, so no allow-list was needed
+    - [x] Internally created staff/admin accounts are unaffected — `adminCreateUser` sets `isVerified: true`
+    - [x] Tests cover verified and unverified access
+
+  ### Implementation Notes (2026-08-30 — merged as `d9836ec`)
+
+  **The naive `!user.isVerified` would have been a REGRESSION, not a fix.** Accounts predating the
+  PIN system have `isVerified: false` and no `verifyPin`, and `login` has always let them through
+  (`user.isVerified === false && user.verifyPin`). Refusing on `!isVerified` alone would have locked
+  every one of them out of every endpoint **while still letting them log in**. `protect` now uses the
+  same predicate, extracted to `User.needsVerification()` so the two cannot drift.
+
+  **A bug this change introduced, caught by its own tests:** the first version wrote
+  `.select('-a -b').select('+verifyPin')`. Chained selects do not merge — the second call loses the
+  inclusion, `verifyPin` came back `undefined`, and the gate silently never fired. Exactly what the
+  comment above it warned about. Measured, then combined into one select string.
+
+  Mutation-verified: reverting to `!isVerified` fails precisely the legacy-account test.
 
 - [ ] **T89 · Paid orders can silently under-fulfil** (audit ref EZ-010)
   - **Issue:** `utils/fulfilShopOrder.js` decrements stock per line under an atomic guard; when the
@@ -388,7 +403,7 @@
     with its reason, a genuine mismatch still distinguished, a non-GHS charge for the right amount
     rejected, and a correctly priced charge passing the gate.
 
-- [ ] **T91 · No session invalidation on logout or password change** (audit ref EZ-012)
+- [x] **T91 · APPLIED 2026-08-30 — tokenVersion ends sessions on logout and password change** (audit ref EZ-012)
   - **Issue:** Logout clears the cookie (`controllers/authController.js:333`) and nothing else. No token
     version, deny-list, or `passwordChangedAt` comparison in `protect`, so a JWT stays valid until it
     expires regardless of what the user does.
@@ -400,10 +415,34 @@
     single-session logout.
   - **Location:** `controllers/authController.js:333`, `changePassword` (~:598); `middleware/auth.js:21-30`
   - **Acceptance:**
-    - [ ] Tokens issued before a password change are rejected
-    - [ ] Logout invalidates the token server-side
-    - [ ] Normal sessions are unaffected
-    - [ ] Tests cover reuse after logout and after a password change
+    - [x] Tokens issued before a password change are rejected
+    - [x] Logout invalidates the token server-side
+    - [x] Normal sessions are unaffected
+    - [x] Tests cover reuse after logout and after a password change
+
+  ### Implementation Notes (2026-08-30 — merged as `d9836ec`)
+
+  A `tokenVersion` int on the user, stamped into the JWT as `tv` and compared in `protect`. An int
+  rather than a deny-list: single PM2 instance, no Redis, and the compare is free on a lookup
+  `protect` already does. Trade-off: logout ends **every** session for the account, not just the
+  calling device — which is what someone hitting "log out" because they think they are compromised
+  actually wants.
+
+  The bump is a **model pre-save hook** on password change, not three increments in controllers, so
+  self-service change, admin reset and forgot-password all inherit it and a fourth path added later
+  cannot forget.
+
+  **This closed a hole in the admin user-detail page shipped the same day** — resetting a compromised
+  user's password looked like locking the account down and did not touch the intruder's token.
+
+  Two deliberate choices, both tested:
+  - **Logout bumps only on a VERIFIED token.** Logout decodes without verifying by design (it must
+    never fail), but bumping on that would let anyone forge `{ id }` and log any user out of every
+    device — a trivial DoS. An unverified token still clears the caller's own cookie.
+  - **A token with no `tv` counts as version 0**, so tokens minted before this shipped keep working
+    rather than logging out every customer on deploy. They die the moment that account next logs out
+    or changes password. Residual risk: a token stolen before the deploy on an account that then does
+    neither.
 
 - [ ] **T92 · Missing authorization + pagination tests** (audit ref EZ-015)
   - **Issue:** 927 tests pass, but none assert the controls behind T83, T84, T86, T87 or T88.
