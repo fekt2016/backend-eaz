@@ -91,7 +91,7 @@ Conventions (see root `STYLE_GUIDE.md`):
 
 ## Deployment
 
-Backend on cPanel/EC2 via PM2 (`ecosystem.config.js`) behind Nginx (`nginx.conf`); `render.yaml` also present.
+Backend on cPanel/EC2 via PM2 (`deploy/ecosystem.config.js`) behind Nginx (`deploy/nginx.conf`); `render.yaml` also present.
 Frontend `next build` (`amplify.yml` for AWS Amplify). Backend tuned for a 512MB heap — keep queries lean.
 
 ## Working in this repo
