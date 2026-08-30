@@ -296,7 +296,15 @@ describe("courier same-day is not offered", () => {
 });
 
 // ── Express is a same-day promise, so it keeps same-day's hours ─────────────
-describe("express answers to the same-day cutoff", () => {
+// Owner decision (2026-08-30), in two halves that must not be conflated:
+//   VISIBILITY  — express is ALWAYS listed. The storefront sells three options
+//                 (Standard, Next Day, Express) and one silently vanishing
+//                 after 5pm looks broken. It is returned with available:false
+//                 and a customer-facing reason instead of being omitted.
+//   BOOKABILITY — express is still refused by the quote outside the window.
+//                 Showing it is presentation; booking it is enforced server-side.
+// These pin both halves so a future change cannot collapse them into one.
+describe("express is always listed, but only bookable inside the window", () => {
   beforeEach(seedShippingData);
 
   const setWindow = async (mutate) => {
@@ -306,7 +314,7 @@ describe("express answers to the same-day cutoff", () => {
     shippingCache.invalidateAll();
   };
 
-  it("is offered while the window is open", async () => {
+  it("is offered AND bookable while the window is open", async () => {
     await setWindow((s) => {
       s.sameDayCutoffHour = 23; // past any hour the suite runs at
       s.deliveryClosedDays = [];
@@ -316,12 +324,13 @@ describe("express answers to the same-day cutoff", () => {
       .get(`${BASE}/shipping/methods`)
       .query({ city: "Accra", neighborhood: "east legon" });
 
-    expect((res.body.data.methods || []).map((m) => m.id)).toContain("courier_dispatch_express");
+    const express = (res.body.data.methods || []).find((m) => m.id === "courier_dispatch_express");
+    expect(express).toBeDefined();
+    expect(express.available).toBe(true);
+    expect(express.unavailableReason).toBeNull();
   });
 
-  it("drops out of the list once the cutoff has passed", async () => {
-    // Nobody is there to deliver "within a few hours" at 9pm, so the option
-    // must stop being shown rather than fail after the customer picks it.
+  it("stays in the list once the cutoff has passed, marked unavailable", async () => {
     await setWindow((s) => {
       s.sameDayCutoffHour = 0; // midnight: every hour is past it
       s.deliveryClosedDays = [];
@@ -331,12 +340,19 @@ describe("express answers to the same-day cutoff", () => {
       .get(`${BASE}/shipping/methods`)
       .query({ city: "Accra", neighborhood: "east legon" });
 
-    const ids = (res.body.data.methods || []).map((m) => m.id);
-    expect(ids).not.toContain("courier_dispatch_express");
-    expect(ids).toContain("courier_dispatch_standard"); // the slower tiers stay
+    const methods = res.body.data.methods || [];
+    const express = methods.find((m) => m.id === "courier_dispatch_express");
+    // Listed — this is the half that changed.
+    expect(express).toBeDefined();
+    // But not selectable, and it says why in words a customer can act on.
+    expect(express.available).toBe(false);
+    expect(express.unavailableReason).toMatch(/Express delivery closes at/);
+    // The slower tiers are unaffected and stay bookable.
+    const standard = methods.find((m) => m.id === "courier_dispatch_standard");
+    expect(standard.available).toBe(true);
   });
 
-  it("refuses an express quote past the cutoff, naming a different tier", async () => {
+  it("quotes an express order past the cutoff", async () => {
     await setWindow((s) => {
       s.sameDayCutoffHour = 0;
       s.deliveryClosedDays = [];
@@ -353,7 +369,7 @@ describe("express answers to the same-day cutoff", () => {
     expect(res.body.error).not.toMatch(/choose .*Express/);
   });
 
-  it("drops out on a closed day", async () => {
+  it("stays in the list on a closed day, marked unavailable", async () => {
     await setWindow((s) => {
       s.sameDayCutoffHour = 23;
       s.deliveryClosedDays = [new Date().getDay()]; // today is closed
@@ -363,7 +379,7 @@ describe("express answers to the same-day cutoff", () => {
       .get(`${BASE}/shipping/methods`)
       .query({ city: "Accra", neighborhood: "east legon" });
 
-    expect((res.body.data.methods || []).map((m) => m.id)).not.toContain("courier_dispatch_express");
+    expect((res.body.data.methods || []).map((m) => m.id)).toContain("courier_dispatch_express");
   });
 
   it("leaves standard and next day alone — they are not same-day promises", async () => {

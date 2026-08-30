@@ -77,10 +77,17 @@ function splitCourierMethodId(method, deliverySpeed) {
 const LEGACY_CORE_CITIES = ["Accra", "Tema"];
 
 // Speeds that promise delivery TODAY, and so answer to the cutoff hour and the
-// closed-day set. `express` joined this list when it became the same-day
-// service ("same day — within a few hours"); before that an express order at
-// 9pm on a Sunday promised delivery within hours and nobody was there to make
-// it happen.
+// closed-day set. `express` is one: it is the "same day — within a few hours"
+// service, and an express order at 9pm on a Sunday promises something nobody is
+// there to deliver.
+//
+// Owner decision (2026-08-30): express must stay VISIBLE in the methods list at
+// all times — the storefront sells three options (Standard, Next Day, Express)
+// and one silently disappearing after 5pm looks broken. But it must not be
+// BOOKABLE outside the window. Those are two different questions, so the list
+// endpoint now returns express with `available: false` and a reason instead of
+// omitting it, while this predicate keeps the quote refusing it. Visibility is
+// presentation; bookability is enforced here, server-side.
 const SAME_DAY_SPEEDS = ["same_day", "express"];
 
 /**
@@ -444,7 +451,8 @@ module.exports = {
     // {Sunday}). Bus-station pickup is unaffected by either rule — the
     // pickup happens at a future bus departure, not a same-day window.
     // The `same_day` tier additionally needs its master switch on; express is
-    // sold, so it answers to the window alone.
+    // sold, so it answers to the window alone. Express is still listed after the
+    // cutoff (shown disabled) but must not be bookable — that is enforced here.
     if (deliverySpeed === "same_day" && isDelivery && !settings.sameDayAvailable) {
       throw new DisabledDeliveryMethodError(
         "Same-day delivery is not available. Please choose Standard or Express.",

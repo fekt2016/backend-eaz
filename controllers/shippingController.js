@@ -173,14 +173,23 @@ const getQuote = async (req, res, next) => {
  * same-day promise — so offering one after the cutoff would show the customer
  * an option that fails the moment they pick it.
  */
-function speedBookableNow(settings, code) {
-  // The `same_day` tier needs its master switch on; it is not a service we
-  // sell. Express is sold, so it answers to the delivery window alone.
-  if (code === "same_day" && !settings.sameDayAvailable) return false;
-  if (!SAME_DAY_SPEEDS.includes(code)) return true;
-  // The same predicate quoteShipping refuses with, so the list cannot offer a
-  // speed the quote then rejects.
-  return sameDayWindowOpen(settings, code).open;
+function speedAvailability(settings, code) {
+  // `same_day` is not a service EazWorld sells; without its master switch it is
+  // omitted from the list entirely rather than shown disabled.
+  if (code === "same_day" && !settings.sameDayAvailable) {
+    return { offered: false, available: false, reason: null };
+  }
+  // Speeds that are not same-day promises are always bookable.
+  if (!SAME_DAY_SPEEDS.includes(code)) {
+    return { offered: true, available: true, reason: null };
+  }
+  // Same-day promises answer to the cutoff hour and the closed-day set. They
+  // stay LISTED so the storefront always shows the full set of options, but are
+  // marked unavailable with the customer-facing reason, and the quote refuses
+  // them through the very same predicate — so the list can never offer
+  // something the quote then rejects.
+  const window = sameDayWindowOpen(settings, code);
+  return { offered: true, available: window.open, reason: window.open ? null : window.reason };
 }
 
 const getMethods = async (req, res, next) => {
@@ -293,10 +302,11 @@ const getMethods = async (req, res, next) => {
           // hardcoded here. A hardcoded list drifts: the seeded zones carry a
           // next_day tier that this endpoint never offered, while offering a
           // same_day one the quote could then reject.
-          const tiers = (resolved.zone.speedTiers || []).filter((t) =>
-            speedBookableNow(settings, t.code));
+          const tiers = (resolved.zone.speedTiers || [])
+            .map((t) => ({ tier: t, avail: speedAvailability(settings, t.code) }))
+            .filter(({ avail }) => avail.offered);
 
-          for (const tier of tiers) {
+          for (const { tier, avail } of tiers) {
             let fee = null;
             try {
               fee = calcShipping(resolved.zone, weightKg, tier.code, false);
@@ -312,7 +322,8 @@ const getMethods = async (req, res, next) => {
               id: `courier_dispatch_${tier.code}`,
               name: `Courier — ${tier.label}`,
               speed: tier.code,
-              available: true,
+              available: avail.available,
+              unavailableReason: avail.reason,
               estimatedDays: tier.estimatedDays || resolved.zone.estimatedDaysLabel || String(resolved.zone.estimatedDays),
               indicativeFee: free ? 0 : fee,
               freeDeliveryApplied: free,
@@ -365,9 +376,11 @@ const getMethods = async (req, res, next) => {
       const speeds = (zoneTiers.length
         ? zoneTiers.map((t) => ({ speed: t.code, label: `Courier — ${t.label}`, tier: t }))
         : FALLBACK_SPEEDS
-      ).filter(({ speed }) => speedBookableNow(settings, speed));
+      )
+        .map((entry) => ({ ...entry, avail: speedAvailability(settings, entry.speed) }))
+        .filter(({ avail }) => avail.offered);
 
-      for (const { speed, label, tier } of speeds) {
+      for (const { speed, label, tier, avail } of speeds) {
         let indicativeFee = null;
         let estimatedDays = null;
         if (zone) {
@@ -404,7 +417,8 @@ const getMethods = async (req, res, next) => {
           id: `courier_dispatch_${speed}`,
           name: label,
           speed,
-          available: true,
+          available: avail.available,
+          unavailableReason: avail.reason,
           estimatedDays,
           indicativeFee,
         });
