@@ -1224,9 +1224,43 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   up|Parse Error`) returns **0** for this run — a 401 is invisible to it. Any future check for
   "is T108 happening" must look at the failure list, not just that grep.
 
-  - **Revised next step:** disable HTTP keep-alive in the supertest agent (or force
-    `Connection: close`) for one full run. If the four symptoms vanish, socket reuse is the
-    cause and the fix is agent configuration, not application code.
+  ### Keep-alive / socket reuse: TESTED AND RULED OUT (2026-08-30)
+
+  The leading hypothesis was socket reuse. Node 19 changed `http.globalAgent` to
+  `keepAlive: true` (confirmed here — Node v20.20.2, keepAlive true, keepAliveMsecs 1000,
+  maxFreeSockets 256), supertest starts an ephemeral server per request, and the OS recycles
+  ephemeral ports over a long run. A pooled socket from a closed server handed to a later request
+  on the same host:port would explain all four faces at once.
+
+  **It is not the cause.** Two independent pieces of evidence:
+
+  1. `tests/setup.js` was given `http.globalAgent = new http.Agent({ keepAlive: false })` and a
+     full run still failed with **426** — `technicianHostingDomainAccess` › "403s POST
+     /domain/payment", expecting 403. Same symptom, keep-alive off.
+  2. That override could never have mattered: `superagent/lib/node/index.js:162` sets
+     `this._agent = false` and line 736 passes `options.agent = this._agent`. In Node,
+     `agent: false` means "build a one-off agent for this request" — `globalAgent` is never
+     consulted. And a fresh `new http.Agent()` defaults to `keepAlive: **false**` (only
+     `globalAgent` is special-cased to true). So supertest was ALREADY not pooling sockets.
+
+  The change was reverted rather than left in place: a no-op behind a confident comment claiming
+  to fix T108 is worse than nothing, because the next person reads it as solved.
+
+  **Also worth recording:** the signature grep used earlier
+  (`socket hang up|Parse Error|Instance failed to start|buffering timed out`) reported **0 hits**
+  on this failing run, because the failure logs the numeric `426` rather than "Upgrade Required".
+  Judge T108 from the FAILURE LIST, never from that grep.
+
+  **Frequency, measured so far:** roughly 1 failing test per full run, in maybe a third of runs,
+  and never the same test twice — refunds, cart, phone-change, supplier logs, hosting price, and
+  now technician domain access have each done it once.
+
+  - **Next hypotheses, in order:** (a) supertest leaks the ephemeral server between files — each
+    `request(app)` binds a new port and nothing closes it, so late in a run the process holds
+    hundreds of listening sockets; check the fd count as the run progresses. (b) an unhandled
+    rejection from one suite lands during another's request. (c) Express `trust proxy` plus a
+    recycled port confusing keep-alive on the SERVER side (`server.keepAliveTimeout`), which is a
+    different setting from the client agent ruled out above.
 
   - **Next step:** capture whether the Express server or the supertest agent closes first —
     an unhandled rejection or an exhausted ephemeral-port range are both consistent with the
