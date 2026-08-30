@@ -704,7 +704,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     the schema layer.
   - **Location:** `routes/*.js`; the ten controllers listed above; `validation/`
 
-- [ ] **T118 · `webhook.test.js` is red — T90 changed `amountMismatch`'s contract and left its unit test behind** (final re-audit 2026-08-29) — **CONFIRMED**
+- [x] **T118 · APPLIED 2026-08-30 — `webhook.test.js` brought onto T90's reason-string contract** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** T90 changed `amountMismatch()` from returning a boolean to returning a reason string
     (`amount_unverifiable` / `amount_mismatch` / `currency_mismatch`) or `null`.
     `tests/webhook.test.js` still asserts `.toBe(false)` and `.toBe(true)`, so 4 cases fail on type.
@@ -720,6 +720,38 @@ Not defects; product features that don't exist yet. Scope separately before buil
     `toBe('amount_mismatch')` / `toBe('currency_mismatch')`), and invert the fourth to assert
     `amount_unverifiable`. Do not revert the controller.
   - **Location:** `tests/webhook.test.js:10-27`; `controllers/webhookController.js` `amountMismatch`
+
+  ### Implementation Notes (2026-08-30 — commit `588638b`)
+
+  Reproduced first: 4/4 red, failing on type as described. **The controller was not touched** —
+  T90's behaviour is correct and is separately covered at the HTTP level by
+  `webhookHardening.test.js`; this was the unit test catching up.
+
+  Three assertions were merely stale. **The fourth was wrong, not stale.** "does not block when
+  no reliable expected amount is available" asserted the pre-T90 escape hatch — a missing or zero
+  expected amount let an order fulfil for *any* charged amount, including 1 pesewa. It encoded
+  the vulnerability as the expected outcome, so it would have failed against correct code
+  forever. Inverted to `amount_unverifiable`, with a comment recording why it flipped.
+
+  Widened slightly while in there, since the reason string is what an operator triages on:
+  `undefined` and negative expected amounts; the precedence rule (amount is checked **before**
+  currency, so a charge wrong on both reports `amount_mismatch`); and a missing `currency` field
+  being acceptable when the amount is right.
+
+  **Verified by mutation, not by the tests merely passing** — a test written against an
+  implementation proves nothing until it fails against a broken one:
+
+  | Mutation applied to `amountMismatch` | Result |
+  |---|---|
+  | Restore the pre-T90 hatch (`return null` when unverifiable) | fails exactly the `amount_unverifiable` case |
+  | Swap the amount and currency checks | fails exactly the precedence case |
+
+  Controller restored byte-identical to `HEAD` afterwards; `git status` showed only the test file
+  modified. 26/26 across all three webhook suites, 4/4 `paidPartFulfilment`, lint clean.
+
+  **Note:** `npx jest tests/webhook` still prints "Jest did not exit one second after the test
+  run has completed" — an open-handle warning that predates this change and belongs to **T120**,
+  not here.
 
 - [ ] **T119 · `FRONTEND_URL` fails silently on the BACKEND — T97 only fixed the frontend** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** `utils/frontendUrl.js` returns `process.env.FRONTEND_URL || process.env.CLIENT_URL || ""`
