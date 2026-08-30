@@ -826,7 +826,7 @@ complete:_ **T110** marketplace parts/accessories/other filter (backend `kind` p
 expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 PM ·
 **T116** `/shipping/methods` legacy branch reads the zone's `speedTiers`. All merged to `main`.
 
-- [ ] **T136 · `deliveryClosedDays: []` means "Sunday is closed", not "nothing is closed"** (found during T120, 2026-08-30) — **CONFIRMED**
+- [x] **T136 · APPLIED 2026-08-30 — `deliveryClosedDays: []` now means no closed days** (found during T120, 2026-08-30) — **CONFIRMED**
   - **Issue:** `services/shipping/shippingCalculator.js:125-128`
 
     ```js
@@ -861,8 +861,32 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     Then fix the suites that rely on the current behaviour, if any.
   - **Location:** `services/shipping/shippingCalculator.js:125-128`
   - **Acceptance:**
-    - [ ] `deliveryClosedDays: []` yields no closed days; a missing field still defaults to Sunday
-    - [ ] The 5 shipping suites pass on a Sunday, verified by forcing the clock to one
+    - [x] `deliveryClosedDays: []` yields no closed days; a missing field still defaults to Sunday
+    - [x] The 5 shipping suites pass on a Sunday, verified by forcing the clock to one
+
+  ### Implementation Notes (2026-08-30 — commit `931be88`)
+
+  One-line fix, `.length` check dropped: only a missing or non-array value now falls back to
+  `[0]`. Verified on a Sunday — `[]` → open, `[0]` → closed, missing → closed, `[3]` → open, and
+  the time cutoff still closes the window after the hour.
+
+  **It also made an existing override start working.** `shippingCheckout.test.js` already set
+  `deliveryClosedDays = []` to pin the window; that line had been a **no-op**, which is why the
+  suite failed on Sundays anyway. `shippingEndpoints` and `distanceZones` never pinned it and now
+  do — that is T115's prescribed fix, and it only works because of the change above.
+
+  Regression tests pin the three cases apart (empty / missing / explicit list) against a fixed
+  Sunday and Monday rather than the ambient date. **Verified by mutation:** reintroducing the
+  `.length` check fails the new "explicit empty array as no closed days" case.
+
+  Customer-facing tier set confirmed unchanged and matching the owner's requirement —
+  **standard, next_day, express**, with `same_day` gated off by `sameDayAvailable`
+  (`DELIVERY_SPEEDS` lists four internally; only three are sold). Express is the
+  same-day-*window* service, which is why it was the tier vanishing on Sundays.
+
+  **Full backend suite: 82/82 suites, 1015/1015 tests, exit 0, 449s — the first fully green
+  run.** Supersedes the Sunday half of **T115**; T115's cutoff-hour concern is now also covered
+  by the pinning added here.
 
 - [ ] **T115 · Two shipping suites pass or fail on the wall clock** (found during T114, 2026-08-29)
   - **Issue:** `tests/distanceZones.test.js` and `tests/shippingEndpoints.test.js` assert that
