@@ -2,6 +2,7 @@ const express = require('express');
 const { protect, restrictTo } = require('../middleware/auth');
 const EmailLog = require('../models/EmailLog');
 const { paginate } = require('../utils/pagination');
+const { escapeRegex } = require('../utils/regex');
 
 const router = express.Router();
 
@@ -19,7 +20,11 @@ router.get('/email-logs', async (req, res, next) => {
     const filter = {};
     if (type && type !== 'all') filter.type = type;
     if (status && status !== 'all') filter.status = status;
-    if (q && q.trim()) filter.to = { $regex: q.trim(), $options: 'i' };
+    // T93 — escape before it reaches the regex engine. Unescaped, an admin could
+    // stall the event loop with a catastrophic-backtracking pattern such as
+    // `(a+)+$`. Every other $regex site in the codebase already does this; this
+    // one was the only exception.
+    if (q && q.trim()) filter.to = { $regex: escapeRegex(q.trim()), $options: 'i' };
 
     const [logs, total] = await Promise.all([
       EmailLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),

@@ -27,6 +27,7 @@ if (paystackSecret && paystackSecret.startsWith("sk_")) {
 }
 
 const FRONTEND_URL = require("../utils/frontendUrl")();
+const { sanitizeName, sanitizeText, sanitizeEmail } = require("../utils/sanitize");
 
 function generateOrderNumber() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -449,12 +450,18 @@ const createOrder = async (req, res, next) => {
       ...(pickupLocationId && { pickupLocationId }),
       ...(pickupLocationName && { pickupLocationName }),
       total,
+      // T125 — normalise and cap before persisting. These are guest-supplied and
+      // previously only had .trim() applied, so length was bounded by
+      // express.json's 5mb limit. The model enforces the same caps (it is not the
+      // only writer); doing it here too means the value is clean rather than
+      // rejected at save time. sanitize* return undefined when empty, which lets
+      // the schema defaults apply.
       customer: {
-        name: customer.name.trim(),
-        phone: customer.phone.trim(),
+        name: sanitizeName(customer.name),
+        phone: String(customer.phone || "").trim().slice(0, 20),
         phoneDigits: normalizePhone(customer.phone),
-        email: (customer.email || "").trim().toLowerCase(),
-        address: (customer.address || "").trim(),
+        email: sanitizeEmail(customer.email) || "",
+        address: sanitizeText(customer.address, 500) || "",
       },
       status: "pending",
       paystackReference: reference,

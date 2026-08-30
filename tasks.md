@@ -421,7 +421,7 @@
     - [ ] Full suite still passes
     - [ ] Tests name the role/actor explicitly so intent is readable
 
-- [ ] **T93 · Unescaped user input into `$regex` (admin email-log search)** (audit ref EZ-016)
+- [x] **T93 · APPLIED 2026-08-30 — escapeRegex applied; swept every other `$regex` site** (audit ref EZ-016)
   - **Issue:** `filter.to = { $regex: q.trim(), $options: 'i' }` (`routes/adminRoutes.js:17`) passes the
     query string straight into a regular expression. `escapeRegex` already exists (`utils/regex.js`) and
     is used correctly at `controllers/productController.js:49`.
@@ -673,7 +673,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   email + notification + hosting tests pass.
 
 
-- [ ] **T125 · Guest-checkout customer fields have no length cap and no email-format validation** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
+- [x] **T125 · APPLIED 2026-08-30 — caps + email validation on `Order.customer`** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
   - **Issue:** `Order.customer` (`models/Order.js:197-203`) declares `name`, `phone`, `phoneDigits`,
     `email` and `address` as `String` with `trim` and, for two of them, `required` — but **no
     `maxlength` on any field and no email format validator**. `createOrder` applies `.trim()`,
@@ -694,6 +694,37 @@ Not defects; product features that don't exist yet. Scope separately before buil
     (`validation/` already has Zod schemas — `orderSchema` would be the consistent home), or call the
     existing `sanitizeName`/`sanitizeText`/`sanitizeEmail` helpers in `createOrder`.
   - **Location:** `models/Order.js:197-203`; `controllers/orderController.js:453-457`
+
+  ### Implementation Notes (2026-08-30 — commit `c44d541`, covers T93 and T125)
+
+  **T93** — one line, but the sweep mattered more than the fix: all 30 `$regex` sites in the
+  codebase were checked, and `adminRoutes.js` was genuinely the only unescaped one. Everything
+  under `activityLog`, `product`, `pos/expense`, `pos/inventory`, `pos/job`, `pos/sales` and
+  `pos/customer` already routes through `escapeRegex`.
+
+  **T125** — fixed in **both** layers, because `createOrder` is not the only writer:
+  `maxlength` on every `customer` field plus an email format validator on the model, and the
+  existing `sanitizeName`/`sanitizeText`/`sanitizeEmail` helpers in `createOrder`. The email
+  validator allows `''` — the field is optional. Caps: name 100, phone 20, phoneDigits 15,
+  email 254 (RFC 5321), address 500.
+
+  **No Zod `orderSchema` was added.** `validation/` has none and `orderRoutes` never calls
+  `validate()`; introducing one is **T126**'s scope and does not belong in a targeted fix.
+
+  7 tests in `tests/orderCustomerLimits.test.js`, mutation-verified: removing the address cap and
+  the email validator fails exactly the two cases that exist to catch them.
+
+  ### ⚠️ T108 re-opened by evidence found here
+
+  The full run *before* the final one failed 2 tests — `cart` with **"socket hang up"** and the
+  T84 phone case returning **426** instead of 409. Both pass in isolation, both are
+  connection-level rather than assertion failures, there is **no 426 anywhere in this codebase**,
+  and the immediately following identical run was fully green (84/84, 1028/1028).
+
+  They are intermittent and not caused by T93/T125 — but they are **T108's exact signature**, and
+  **T120 recorded T108 as superseded**. That was wrong: the failing run had **zero**
+  mongod-startup errors, so T108's root cause is *not* the per-file mongod churn T120 fixed.
+  Something else drops connections late in a long serial run. See T108.
 
 - [ ] **T126 · Input validation is inconsistent: 5 Zod `validate()` uses across ~119 write endpoints** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
   - **Issue:** counted every `router.post|patch|put|delete` against every `validate(` in `routes/`:
@@ -1059,7 +1090,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     - [ ] `.lean()` plus a field projection
     - [ ] Marketplace still renders correctly against the paginated response
 
-- [ ] **T108 · `refunds.test.js` fails only inside the full serial run, with an unexplained 426** (found during T83 verification, 2026-08-29)
+- [ ] **T108 · RE-OPENED 2026-08-30 · connection-level flake in the full serial run — an unexplained 426 and "socket hang up"** (found during T83 verification, 2026-08-29)
   - **Issue:** in `npx jest --runInBand`, "Paystack webhook — refund.processed / refund.failed ›
     completes a processing refund on refund.processed" (`tests/refunds.test.js:175`) gets
     **426 Upgrade Required** where it expects 200. Run on its own the file is **19/19 green**, on
@@ -1077,6 +1108,33 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     to find the polluting file; check for shared state left in `app`-level middleware or a module
     -scope cache. `tests/setup.js` wipes collections per test but nothing resets module state.
   - **Location:** `tests/refunds.test.js:175`; `tests/setup.js`
+
+  ### Re-opened 2026-08-30 (during T93/T125 verification)
+
+  **T120 recorded this as superseded — that was wrong.** T120 fixed the per-file mongod churn,
+  and the failing run below had **zero** `Instance failed to start` / `buffering timed out`
+  errors. So the 426 has a different cause and is still live.
+
+  Evidence, two identical back-to-back full runs on the same commit:
+
+  | Run | Result |
+  |---|---|
+  | 9  | **2 failed** — `cart` "socket hang up", T84 phone case got **426**, expected 409 |
+  | 10 | 84/84 suites, 1028/1028 tests, exit 0 |
+
+  Both failing tests pass in isolation. Both failures are **connection-level, not assertions**.
+  There is no `426` anywhere in this codebase or in `express-rate-limit`, so it is not the app
+  choosing that status — something is dropping or mangling the connection late in a long serial
+  run (superagent surfacing an aborted socket is the leading hypothesis).
+
+  **Why it matters:** the suite is now fast (~7.8 min) and usually green, so this is the last
+  thing stopping it being a trustworthy gate. A red run still has to be hand-inspected to tell
+  this flake from a real break.
+
+  - **Repro:** `npx jest --runInBand` repeatedly; it does not reproduce every run.
+  - **Next step:** capture whether the Express server or the supertest agent closes first —
+    an unhandled rejection or an exhausted ephemeral-port range are both consistent with the
+    symptom.
 
 - [ ] **T109 · Product edit page pulls the whole catalogue to render one product** (found during T107, 2026-08-29)
   - **Issue:** `frontend-eaz/src/app/dashboard/commerce/products/[id]/edit/page.jsx` uses

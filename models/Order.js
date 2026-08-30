@@ -194,12 +194,53 @@ const orderSchema = new mongoose.Schema({
     required: true,
     min: [0, 'Total cannot be negative']
   },
+  // T125 — these are GUEST-supplied and were previously bounded only by
+  // express.json({ limit: '5mb' }), so a single order could carry a multi-megabyte
+  // address. On a 512MB heap, a handful of those in one admin list query is a
+  // memory problem. Caps are enforced here as well as in the controller, because
+  // the controller is not the only writer.
+  //
+  // Not an XSS control — app.js runs xss-clean globally and it traverses nested
+  // objects. This is about size and deliverability.
   customer: {
-    name: { type: String, required: [true, 'Customer name is required'], trim: true },
-    phone: { type: String, required: [true, 'Phone is required'], trim: true },
-    phoneDigits: { type: String, trim: true, default: '' },
-    email: { type: String, trim: true, lowercase: true, default: '' },
-    address: { type: String, trim: true, default: '' }
+    name: {
+      type: String,
+      required: [true, 'Customer name is required'],
+      trim: true,
+      maxlength: [100, 'Customer name cannot exceed 100 characters'],
+    },
+    phone: {
+      type: String,
+      required: [true, 'Phone is required'],
+      trim: true,
+      maxlength: [20, 'Phone cannot exceed 20 characters'],
+    },
+    phoneDigits: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: [15, 'Normalized phone cannot exceed 15 digits'],
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: '',
+      maxlength: [254, 'Email cannot exceed 254 characters'], // RFC 5321 maximum
+      validate: {
+        // Optional field, so '' must stay valid. Order confirmations and invoices
+        // go out through Resend, and before T125 "not-an-email" was accepted —
+        // turning a paid order into a silent delivery failure.
+        validator: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+        message: 'Customer email is not a valid email address',
+      },
+    },
+    address: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: [500, 'Delivery address cannot exceed 500 characters'],
+    }
   },
   status: {
     type: String,
