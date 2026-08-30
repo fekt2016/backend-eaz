@@ -567,7 +567,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
     - [ ] Comments in `config/domainPricing.js`, `utils/domainHelper.js` and `services/spaceship.js`
           that reference the retired file updated so they do not point at something gone
 
-- [ ] **T131 · Register or retire the seven unlisted `scripts/*.js`** (dead-code audit 2026-08-29)
+- [x] **T131 · APPLIED 2026-08-30 — all 16 `scripts/*.js` registered and documented** (dead-code audit 2026-08-29)
   - **Issue:** `scripts/` holds 16 files; only 9 are registered in `package.json`. Unregistered:
     `mergeCashierToStaff`, `mergeCustomerDuplicates`, `normalizePhones`, `resanitizePostContent`,
     `seedRoleAccounts`, `setUserAdmin`, `verifyUser`.
@@ -579,10 +579,44 @@ Not defects; product features that don't exist yet. Scope separately before buil
     move genuinely spent one-offs into `scripts/archive/` with a dated note. Deleting them loses
     re-runnable recovery tooling.
   - **Acceptance:**
-    - [ ] Every file in `scripts/` is either registered in `package.json` or archived with a reason
-    - [ ] Each retained script's header states whether it is idempotent
+    - [x] Every file in `scripts/` is either registered in `package.json` or archived with a reason
+    - [x] Each retained script's header states whether it is idempotent
 
-- [ ] **T132 · Document the 16 undocumented backend environment variables** (dead-code audit 2026-08-29)
+  ### Implementation Notes (2026-08-30 — commit `871ddb7`)
+
+  Nothing archived — all seven are re-runnable ops tooling, so all seven were registered,
+  following the existing `migrate:`/`check:`/`seed:` convention. 16/16 now reachable by name:
+
+  | npm script | file |
+  |---|---|
+  | `migrate:cashier-to-staff` | `mergeCashierToStaff.js` |
+  | `migrate:merge-customers` | `mergeCustomerDuplicates.js` |
+  | `migrate:pos-customer-phones` | `normalizePhones.js` |
+  | `migrate:resanitize-posts` | `resanitizePostContent.js` |
+  | `seed:role-accounts` | `seedRoleAccounts.js` |
+  | `user:set-role` | `setUserAdmin.js` — args after `--` |
+  | `user:verify` | `verifyUser.js` — args after `--` |
+
+  Two headers needed more than a usage line:
+
+  - **`normalizePhones.js` had no header at all.** It now carries the point the audit flagged —
+    it is *not* a duplicate of `normalizeUserPhones.js` (`poscustomers` vs `users`). Without
+    that line, the next person tidying up deletes it.
+  - **`mergeCustomerDuplicates.js` is idempotent on re-run but destructive on the first**: it
+    deletes newer duplicate `PosCustomer`s after re-pointing their `RepairJob`s. Header now says
+    so and says to back up first.
+
+  **`seedRoleAccounts.js` needed a guard, not just a name.** It writes five hard-coded,
+  publicly-known passwords, creates each account **pre-verified**, prints the credentials to
+  stdout, and targets whatever `MONGO_URL` points at. Giving that a one-word npm command lowers
+  the bar to running it against production, so it now refuses when `NODE_ENV=production` unless
+  `SEED_ROLE_ACCOUNTS_FORCE=1`. Verified it exits 1 **before** opening a database connection.
+  (Scope note: the guard is slightly beyond "register or retire" — added because this task makes
+  the script easier to run, and it seemed wrong to do that without it.)
+
+  Verified: all 16 pass `node --check`, `app.js` loads, eslint 0 errors.
+
+- [x] **T132 · APPLIED 2026-08-30 — `.env.example` now covers all 59 variables** (dead-code audit 2026-08-29)
   - **Issue:** backend code reads 58 distinct `process.env.*` names; 16 appear in no `.env` and in no
     example file: `ANTHROPIC_API_KEY`, `COOKIE_SECRET`, `CYBERPANEL_HOST/PASS/USER`,
     `HOSTING_GRACE_DAYS`, `HOSTING_NAMESERVERS`, `HOSTING_SUSPEND_TO_TERMINATE_DAYS`, `LOG_LEVEL`,
@@ -593,8 +627,38 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** add a `.env.example` listing all 58 with required/optional and a one-line purpose. The
     `CYBERPANEL_*` three should disappear with T128 rather than be documented.
   - **Acceptance:**
-    - [ ] `.env.example` exists and covers every variable the code reads
-    - [ ] Required vs optional is stated for each, matching `utils/validateEnv.js`
+    - [x] `.env.example` exists and covers every variable the code reads
+    - [x] Required vs optional is stated for each, matching `utils/validateEnv.js`
+
+  ### Implementation Notes (2026-08-30 — commit `8db9ab6`)
+
+  Re-counted from source rather than trusting the task: the backend reads **59** distinct
+  `process.env` names (58 plus the new `SEED_ROLE_ACCOUNTS_FORCE` from T131). All 59 documented,
+  tiered to match `utils/validateEnv.js` exactly:
+
+  - **REQUIRED** (validateEnv `process.exit(1)`s): `MONGO_URL`, `DATABASE_PASSWORD` *when the URL
+    contains `<PASSWORD>`*, `JWT_SECRET` with its 32-character floor, and `PAYSTACK_SECRET`
+    *in production only* — it merely warns in development.
+  - **RECOMMENDED** (validateEnv warns): the six in its `recommendedVars` array.
+  - **OPTIONAL**: each annotated with the actual `[default: …]` read out of the code.
+
+  Cross-references embedded in the file so a deployer meets them at the point of use: `T119`
+  (`FRONTEND_URL` degrades to `""` rather than failing fast), `T85` (`NODE_ENV` must really be
+  set or the Secure cookie *and* stack-trace suppression both switch off), `T96` (in-process jobs
+  double-run if scaled out), and the note that `tests/setup.js` blanks the Spaceship keys on
+  purpose because Spaceship has no sandbox.
+
+  - The four `NAMECHEAP_*` names are documented as **retired-but-still-read**, tied to the
+    `services/namecheap.js` rollback path held under **T130**, so they are not mistaken for live
+    config. They are deleted together when T130 closes.
+  - `CYBERPANEL_*` is **absent**, which is what this task asked for — T128 deleted the only file
+    that read it, so there was nothing left to document.
+
+  Verified both directions mechanically: every one of the 59 names appears in the file, and no
+  name in the file is unread by the code. Also confirmed no real value leaked out of the local
+  `.env` — the only keys sharing a value are non-secret defaults documented as defaults (`PORT`,
+  `NODE_ENV`, `HOST`, `JWT_EXPIRES_IN`, `WHM_USER`). `app.js` loads, eslint 0 errors, 66/66
+  email + notification + hosting tests pass.
 
 
 - [ ] **T125 · Guest-checkout customer fields have no length cap and no email-format validation** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
