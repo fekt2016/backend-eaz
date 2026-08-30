@@ -2,7 +2,12 @@
  * One-off migration: merge duplicate PosCustomer records that share the same phone number.
  * For each group of duplicates, the OLDEST record is kept; all RepairJobs are re-pointed to it;
  * the newer duplicates are deleted.
- * Usage: node scripts/mergeCustomerDuplicates.js
+ * Idempotent — once each phone maps to a single record there is nothing left
+ * to group, so a second run is a no-op. NOTE: destructive on first run (it
+ * deletes the newer duplicates after re-pointing their RepairJobs). Take a
+ * backup before the first run.
+ *
+ * Usage: npm run migrate:merge-customers
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });

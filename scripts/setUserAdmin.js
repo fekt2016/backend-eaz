@@ -1,6 +1,9 @@
 /**
  * One-off / ops: set any user's role by email.
- * Usage: node scripts/setUserAdmin.js user@example.com [role]
+ * Idempotent — setting a role the user already has rewrites the same value.
+ *
+ * Usage: npm run user:set-role -- user@example.com [role]
+ *   (the `--` is required so npm forwards the arguments to the script)
  * Role defaults to 'superadmin' if omitted.
  * Valid roles: superadmin, admin, staff, technician, user
  */

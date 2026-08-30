@@ -1,3 +1,15 @@
+/**
+ * Normalise `poscustomers.phone` to bare 10-digit Ghanaian local form
+ * (+233XXXXXXXXX / 233XXXXXXXXX / 9-digit → 0XXXXXXXXX).
+ *
+ * NOT a duplicate of normalizeUserPhones.js: that one targets the `users`
+ * collection, this one targets `poscustomers`. Both are needed.
+ *
+ * Idempotent — it only writes when the normalised value differs, so a second
+ * run reports 0 updates.
+ *
+ * Usage: npm run migrate:pos-customer-phones
+ */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');

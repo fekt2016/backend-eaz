@@ -30,7 +30,14 @@
     "lint": "eslint .",
     "seed:zones": "node src/seedDistanceZones.js",
     "seed:neighborhoods": "node src/seedNeighborhoods.js",
-    "seed:regions": "node src/seedRegions.js"
+    "seed:regions": "node src/seedRegions.js",
+    "migrate:cashier-to-staff": "node scripts/mergeCashierToStaff.js",
+    "migrate:merge-customers": "node scripts/mergeCustomerDuplicates.js",
+    "migrate:pos-customer-phones": "node scripts/normalizePhones.js",
+    "migrate:resanitize-posts": "node scripts/resanitizePostContent.js",
+    "seed:role-accounts": "node scripts/seedRoleAccounts.js",
+    "user:set-role": "node scripts/setUserAdmin.js",
+    "user:verify": "node scripts/verifyUser.js"
   },
   "keywords": [],
   "author": "",

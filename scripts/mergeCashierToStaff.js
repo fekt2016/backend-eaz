@@ -4,7 +4,7 @@
  *
  * Safe to run more than once (it's a no-op once no cashiers remain).
  *
- * Usage: node scripts/mergeCashierToStaff.js
+ * Usage: npm run migrate:cashier-to-staff
  *
  * Note: this only touches the User.role field. The `cashier` field on the Sale
  * model (which records *who* rang up a sale) is unrelated and is left untouched.
