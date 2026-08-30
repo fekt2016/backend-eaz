@@ -1,13 +1,15 @@
 /**
  * Dev/ops: create (or reset) one demo account per role.
- * Usage: node scripts/seedRoleAccounts.js
+ * Usage: npm run seed:role-accounts
  *
  * Idempotent — if an email already exists, its role, password and verified
  * status are updated (no duplicate is created). Passwords are hashed by the
  * User model's pre-save hook.
  *
- * ⚠️ These are shared, known credentials. Change them (or delete the accounts)
- *    before going anywhere near real production use.
+ * ⚠️ DEVELOPMENT ONLY. These are shared, hard-coded credentials that are
+ *    printed to stdout, and each account is created pre-verified. The script
+ *    refuses to run when NODE_ENV=production; override with SEED_ROLE_ACCOUNTS_FORCE=1
+ *    only if you genuinely mean to put known passwords in a production database.
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -37,7 +39,18 @@ const ACCOUNTS = [
   { role: 'user',       name: 'Customer',    email: 'customer@eazworld.com',   password: 'Eaz@Customer2026' },
 ];
 
+function assertNotProduction() {
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_ROLE_ACCOUNTS_FORCE !== '1') {
+    throw new Error(
+      'Refusing to seed demo role accounts with NODE_ENV=production. These are ' +
+      'hard-coded, publicly-known credentials created pre-verified. If you really ' +
+      'intend this, re-run with SEED_ROLE_ACCOUNTS_FORCE=1.'
+    );
+  }
+}
+
 async function main() {
+  assertNotProduction();
   const db = resolveMongoUrl();
   await mongoose.connect(db, { maxPoolSize: 3, serverSelectionTimeoutMS: 10_000 });
   logDbTarget();

@@ -1,6 +1,9 @@
 /**
  * One-off: verify a user account by email.
- * Usage: node scripts/verifyUser.js user@example.com
+ * Idempotent — verifying an already-verified account is a no-op.
+ *
+ * Usage: npm run user:verify -- user@example.com
+ *   (the `--` is required so npm forwards the argument to the script)
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
