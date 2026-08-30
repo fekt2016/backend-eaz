@@ -134,3 +134,28 @@ describe("T126 — domain payment validation", () => {
     expect(res.body.error || "").not.toMatch(/email/i);
   });
 });
+
+// The schema had never been executed against the installed Zod. It was written
+// for Zod 3, the project is on Zod 4.3.6, and `z.record(z.unknown())` — one
+// argument where Zod 4 needs two — throws a TypeError rather than a ZodError.
+// The error handler maps ZodError to 400 and everything else to 500, so a
+// perfectly valid domain purchase came back as a server error.
+describe("T126 — registrantInfo survives the Zod 4 record signature", () => {
+  const { paymentSchema } = require("../validation/domainSchema");
+
+  it("parses a nested registrantInfo instead of throwing", () => {
+    const parsed = paymentSchema.parse({
+      domain: "example.com",
+      amount: 3000,
+      years: 1,
+      registrantInfo: { firstName: "Kwesi", city: "Accra", country: "GH" },
+    });
+    expect(parsed.registrantInfo).toEqual({ firstName: "Kwesi", city: "Accra", country: "GH" });
+  });
+
+  it("a schema failure is a ZodError, so the handler can render it as 400", () => {
+    const result = paymentSchema.safeParse({ domain: "example.com", amount: -1 });
+    expect(result.success).toBe(false);
+    expect(result.error.constructor.name).toBe("ZodError");
+  });
+});

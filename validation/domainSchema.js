@@ -31,7 +31,12 @@ const paymentSchema = z.object({
   city: z.string().optional(),
   country: z.string().optional(),
   postalCode: z.string().optional(),
-  registrantInfo: z.record(z.unknown()).optional(),
+  // Zod 4 requires BOTH a key and a value schema. Written as
+  // `z.record(z.unknown())` this threw a TypeError — not a ZodError — so the
+  // error handler returned 500 rather than 400. The schema had never been wired
+  // to a route, so nothing had ever executed it against the installed Zod (4.3.6);
+  // it was written for Zod 3 and quietly rotted through the upgrade.
+  registrantInfo: z.record(z.string(), z.unknown()).optional(),
   years: z.number().min(1).max(10).optional(),
 });
 
