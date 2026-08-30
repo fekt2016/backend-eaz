@@ -319,6 +319,23 @@ const logout = async (req, res) => {
       if (payload && payload.id) {
         actor = { id: payload.id, email: payload.email, role: payload.role };
       }
+
+      // T91 — end every session for this account, so a captured token stops
+      // working the moment the user logs out. Previously logout cleared the
+      // cookie and nothing else, and the stolen JWT stayed valid for its full
+      // expiry.
+      //
+      // Gated on jwt.VERIFY, not the decode above. The decode is deliberately
+      // unverified because logout must never fail, but bumping on an unverified
+      // token would let anyone forge `{ id }` and log any user out of every
+      // device — a trivial denial of service. An unverified token still clears
+      // the caller's own cookie; it just cannot touch server state.
+      try {
+        const verified = jwt.verify(token, process.env.JWT_SECRET);
+        if (verified && verified.id) {
+          await User.updateOne({ _id: verified.id }, { $inc: { tokenVersion: 1 } });
+        }
+      } catch { /* expired or forged — clear the cookie, change nothing */ }
     }
   } catch { /* ignore — logout should never fail */ }
   await log({
