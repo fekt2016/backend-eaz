@@ -260,6 +260,17 @@ const login = async (req, res, next) => {
       });
     }
 
+    // A self-deactivated account cannot log back in. Checked here as well as in
+    // `protect` so the refusal happens at the door with a useful message,
+    // rather than a token being issued that every subsequent request rejects.
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'This account has been deactivated. Please contact support to reactivate it.',
+        deactivated: true,
+      });
+    }
+
     // Block unverified accounts — only applies to accounts registered
     // after the PIN verification system was introduced. Old accounts
     // (isVerified=false but no verifyPin set) are treated as verified.
