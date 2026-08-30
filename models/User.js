@@ -95,6 +95,20 @@ const userSchema = new mongoose.Schema(
       type: Date,
       select: false,
     },
+    // T91 — bumped whenever every existing session for this account must stop
+    // working: logout, a self-service password change, an admin password reset,
+    // and the forgot-password flow. The value is stamped into the JWT and
+    // compared in `protect`, so a token minted before the bump is refused.
+    //
+    // An int, not a deny-list: this is a single PM2 instance with no Redis, and
+    // a version compare costs nothing on a lookup `protect` already does. The
+    // trade-off is that logout ends EVERY session for the account rather than
+    // just the calling device — which is the behaviour someone hitting "log
+    // out" because they think they are compromised actually wants.
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
     isBlocked: {
       type: Boolean,
       default: false,
@@ -235,11 +249,42 @@ userSchema.methods.comparePassword = async function (candidate) {
   return bcrypt.compare(candidate, this.password);
 };
 
+/**
+ * T88 — whether this account is still waiting on its emailed/texted PIN.
+ *
+ * NOT simply `!isVerified`. Accounts that predate the PIN system have
+ * `isVerified: false` and no `verifyPin`, and they are treated as verified —
+ * `login` has always worked this way. Refusing on `!isVerified` alone would lock
+ * every one of those accounts out of every endpoint while still letting them log
+ * in, which is worse than the hole it closes.
+ *
+ * `verifyPin` is `select: false`, so a caller must select it explicitly or this
+ * always reports false. `protect` and `login` both do.
+ */
+// T91 — any password change ends every existing session for the account.
+//
+// A hook rather than three increments in the controllers: self-service change,
+// admin reset and the forgot-password flow all end up here, and a fourth path
+// added later inherits it instead of having to remember. `isNew` is excluded so
+// a freshly created account starts at version 0 rather than 1.
+userSchema.pre('save', function bumpTokenVersionOnPasswordChange(next) {
+  if (!this.isNew && this.isModified('password')) {
+    this.tokenVersion = (this.tokenVersion || 0) + 1;
+  }
+  next();
+});
+
+userSchema.methods.needsVerification = function () {
+  return this.isVerified === false && Boolean(this.verifyPin);
+};
+
 userSchema.methods.generateAuthToken = function () {
   const secret = process.env.JWT_SECRET;
   const expiresIn = process.env.JWT_EXPIRES_IN || "7d";
   return jwt.sign(
-    { id: this._id, email: this.email, role: this.role },
+    // `tv` is the token version (T91). protect compares it with the user's
+    // current tokenVersion and refuses anything stale.
+    { id: this._id, email: this.email, role: this.role, tv: this.tokenVersion || 0 },
     secret,
     { expiresIn },
   );

@@ -25,10 +25,27 @@ const { MongoMemoryServer } = require("mongodb-memory-server");
 // MongoDB 8.x requires macOS 14+; 7.0.x supports macOS 12+.
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || "7.0.14";
 
+// mongodb-memory-server picks a random high port. If something else already
+// holds it, `create()` throws `Port "NNNNN" already in use` and — because this
+// is globalSetup — the ENTIRE run dies at startup having executed no tests.
+// Observed once: port 49224 was held by an unrelated node process.
+//
+// A transient collision should not read as a broken suite, so retry on that one
+// error and let every other failure through untouched.
+async function startMongod(attempt = 1) {
+  const MAX_ATTEMPTS = 5;
+  try {
+    return await MongoMemoryServer.create({ binary: { version: MONGOD_VERSION } });
+  } catch (err) {
+    const isPortClash = /already in use/i.test(err && err.message);
+    if (!isPortClash || attempt >= MAX_ATTEMPTS) throw err;
+    console.warn(`[globalSetup] mongod port clash (attempt ${attempt}/${MAX_ATTEMPTS}) — retrying`);
+    return startMongod(attempt + 1);
+  }
+}
+
 module.exports = async () => {
-  const mongod = await MongoMemoryServer.create({
-    binary: { version: MONGOD_VERSION },
-  });
+  const mongod = await startMongod();
 
   // globalTeardown reads this off the same globalThis to stop the instance.
   globalThis.__MONGO_INSTANCE__ = mongod;
