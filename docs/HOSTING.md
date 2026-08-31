@@ -177,6 +177,58 @@ Only `shared` and `wordpress` plans auto-provision. `vps` / `cloud` / `email` or
 marked `skipped` and handled through the manual queue at
 `GET /api/v1/hosting/orders/awaiting-provisioning`.
 
+### The six packages to create
+
+The catalogue is sized to the **Nebula** reseller plan. Create exactly these, and keep the
+quotas at or under the figures shown — they are chosen so the whole catalogue fits:
+
+| WHM package | Disk | Mailboxes | Addon domains | Databases |
+|---|---|---|---|---|
+| `<prefix>_eazworld_shared_deluxe` | 1 GB | 1 | 0 | 2 |
+| `<prefix>_eazworld_shared_professional` | 3 GB | 3 | 0 | 5 |
+| `<prefix>_eazworld_shared_enterprise` | 6 GB | 5 | 2 | 10 |
+| `<prefix>_eazworld_shared_ultimate` | 10 GB | 10 | 9 | 20 |
+| `<prefix>_eazworld_wordpress_starter` | 2 GB | 1 | 0 | 2 |
+| `<prefix>_eazworld_wordpress_business` | 5 GB | 3 | 0 | 5 |
+
+### Why these numbers — Nebula's limits are PLAN-WIDE
+
+| | Nebula | Galaxy Expert | Universe Pro |
+|---|---|---|---|
+| cPanel accounts | **25** (cannot be raised) | 100 | 150 |
+| Disk | **30 GB** | 90 GB | 150 GB |
+| Mailboxes | **30 total** | Unlimited | Unlimited |
+| Physical memory | **4 GB** | 8 GB | 12 GB |
+| Email rate | 50 msg/hour per domain | 200/hour | 200/hour |
+
+Every figure is a total for the whole plan, shared by all customers **and by
+`eazworld.co` itself** — not a per-account allowance. Reading them as per-account is how
+the catalogue once advertised a 50 GB shared tier on a 30 GB plan, and an `ultimate` tier
+promising unlimited storage and unlimited mailboxes.
+
+Budget: **6 GB / 5 mailboxes / 2 accounts** reserved for the site and API, leaving
+**24 GB / 25 mailboxes / 23 accounts** to sell. Capacity then runs to 23 `deluxe`
+customers (accounts bind first), 8 `professional`, 4 `enterprise` or 2 `ultimate`.
+Nebula costs ~$17.88/mo, so break-even is 6 `deluxe`, 3 `professional` or 2 `enterprise`.
+
+**Do not advertise per-account RAM on a shared tier.** Nebula has 4 GB in total; a
+"1GB RAM" line on a $3 plan is the same category error as the 50 GB tier was.
+
+`vps` and `cloud` remain in the catalogue but **cannot be delivered from a reseller
+plan at all** — it can only create cPanel accounts. They are priced at $18–61/mo
+advertising up to 160 GB and 16 GB RAM. Either hide them or price them as resold
+third-party infrastructure with that cost accounted for.
+
+### One catalogue, not two
+
+`config/hostingPlans.js` is the single source of truth. The storefront reads it over
+`GET /api/v1/hosting/plans` (`hooks/queries/useHosting` → `lib/hostingPlans.js`).
+
+It used to keep its own copy in `src/data/hostingHostingData.js`; T66/T67 repriced the
+backend on 2026-08-26 and that copy was missed, so the page advertised GH₵9/mo where
+checkout charged GH₵62/mo — about sevenfold on every shared tier. Do not reintroduce a
+price list in the frontend.
+
 ---
 
 ## Background jobs — cron, not setInterval
