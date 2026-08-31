@@ -23,7 +23,13 @@ const {
   verifyTwoFactor,
 } = require('../controllers/authController');
 const { protect, restrictTo } = require('../middleware/auth');
-const { createUserSchema } = require('../validation/authSchema');
+const {
+  createUserSchema,
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} = require('../validation/authSchema');
 const { validate } = require('../middleware/validate');
 const { createAddressSchema } = require('../validation/addressSchema');
 const {
@@ -34,13 +40,13 @@ const {
 
 const router = express.Router();
 
-router.post('/register', register);
+router.post('/register', validate(registerSchema), register);
 router.post('/verify-pin', verifyPin);
 router.post('/resend-pin', resendPin);
-router.post('/login', login);
+router.post('/login', validate(loginSchema), login);
 router.post('/logout', logout);
-router.post('/forgot-password', forgotPassword);
-router.patch('/reset-password/:token', resetPassword);
+router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
+router.patch('/reset-password/:token', validate(resetPasswordSchema), resetPassword);
 router.get('/me', protect, getMe);
 router.patch('/me', protect, updateProfile);
 // T84 — binds the phone parked by PATCH /me, once its SMS PIN is proven.

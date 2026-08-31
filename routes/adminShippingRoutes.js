@@ -9,6 +9,14 @@ const {
   deliveryChargeSummary, manualRefundDeliveryCharge,
   listNeighborhoodDistances, resolveNeighborhoodDistances, setManualNeighborhoodDistance,
 } = require("../controllers/adminShippingController");
+const { validate } = require("../middleware/validate");
+const {
+  zoneCreateSchema, zoneUpdateSchema,
+  tierCreateSchema, tierUpdateSchema,
+  settingsUpdateSchema,
+  courierRateUpdateSchema,
+  distanceResolveSchema, distanceManualSchema,
+} = require("../validation/shippingSchema");
 
 // All admin shipping routes require authentication + admin role.
 router.use(protect, restrictTo("admin"));
@@ -16,30 +24,30 @@ router.use(protect, restrictTo("admin"));
 // ── Zones ────────────────────────────────────────────────────────────────────
 router.route("/zones")
   .get(listZones)
-  .post(createZone);
+  .post(validate(zoneCreateSchema), createZone);
 router.route("/zones/:id")
   .get(getZone)
-  .patch(updateZone)
+  .patch(validate(zoneUpdateSchema), updateZone)
   .delete(deleteZone);
 
 // ── Tiers ────────────────────────────────────────────────────────────────────
 router.route("/tiers")
   .get(listTiers)
-  .post(createTier);
+  .post(validate(tierCreateSchema), createTier);
 router.route("/tiers/:id")
   .get(getTier)
-  .patch(updateTier)
+  .patch(validate(tierUpdateSchema), updateTier)
   .delete(deleteTier);
 
 // ── Settings (singleton) ─────────────────────────────────────────────────────
 router.route("/settings")
   .get(getSettings)
-  .patch(updateSettings);
+  .patch(validate(settingsUpdateSchema), updateSettings);
 
 // ── Courier payout config ────────────────────────────────────────────────────
 router.route("/courier-rate")
   .get(getOrCreateCourierRate)
-  .patch(updateCourierRate);
+  .patch(validate(courierRateUpdateSchema), updateCourierRate);
 
 // ── Delivery charges (Phase 5) ──────────────────────────────────────────────
 router.route("/delivery-charges")
@@ -50,8 +58,8 @@ router.route("/delivery-charges/:id/refund")
 // ── Neighbourhood distances (Google Maps) ───────────────────────────────────
 router.route("/distances")
   .get(listNeighborhoodDistances)
-  .patch(setManualNeighborhoodDistance);
+  .patch(validate(distanceManualSchema), setManualNeighborhoodDistance);
 router.route("/distances/resolve")
-  .post(resolveNeighborhoodDistances);
+  .post(validate(distanceResolveSchema), resolveNeighborhoodDistances);
 
 module.exports = router;

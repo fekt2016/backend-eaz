@@ -7,10 +7,19 @@ const { z } = require('zod');
 const blankToUndefined = (val) =>
   typeof val === 'string' && val.trim() === '' ? undefined : val;
 
+// Every controller here runs sanitizeEmail() before using the value, so a padded
+// address is a legitimate request today. Validating the raw string would reject
+// it before that runs — trim first, then check the format.
+const trimBlankToUndefined = (val) => {
+  if (typeof val !== 'string') return val;
+  const trimmed = val.trim();
+  return trimmed === '' ? undefined : trimmed;
+};
+
 const registerSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
-    email: z.preprocess(blankToUndefined, z.string().email('Invalid email').optional()),
+    email: z.preprocess(trimBlankToUndefined, z.string().email('Invalid email').optional()),
     phone: z.preprocess(blankToUndefined, z.string().optional()),
     password: z.string().min(8, 'Password must be at least 8 characters'),
   })
@@ -19,13 +28,30 @@ const registerSchema = z
     path: ['email'],
   });
 
-const loginSchema = z.object({
-  email: z.string().email('Invalid email'),
-  password: z.string().min(1, 'Password is required'),
-});
+// NOT `.email()` on `email`. The login controller reads `req.body.email ||
+// req.body.phone` into ONE identifier and then tries BOTH sanitizeEmail and
+// sanitizePhone on it — so a customer typing their phone number into the email
+// field logs in successfully today, which is the common case in Ghana.
+// Demanding an email format here would break that. This schema therefore only
+// guarantees "an identifier and a password are present"; deciding whether the
+// identifier is a usable email or phone stays in the controller, which has the
+// better error messages for it.
+const loginSchema = z
+  .object({
+    email: z.preprocess(blankToUndefined, z.string().optional()),
+    phone: z.preprocess(blankToUndefined, z.string().optional()),
+    password: z.string({ error: 'Password is required' }).min(1, 'Password is required'),
+  })
+  .refine((data) => Boolean(data.email) || Boolean(data.phone), {
+    message: 'Email or phone and password are required.',
+    path: ['email'],
+  });
 
+// Trimmed before the format check: the controller runs sanitizeEmail(), so
+// " Me@Example.com " is a legitimate request today. Validating the raw string
+// would reject it before that ever runs.
 const forgotPasswordSchema = z.object({
-  email: z.string().email('Invalid email'),
+  email: z.preprocess(trimBlankToUndefined, z.string().email('Invalid email')),
 });
 
 const resetPasswordSchema = z.object({

@@ -142,7 +142,26 @@ const zoneCreateSchema = z.object({
   isActive: z.boolean().optional().default(true),
 });
 
-const zoneUpdateSchema = zoneCreateSchema.partial();
+/**
+ * Build the PATCH counterpart of a create schema.
+ *
+ * `.partial()` alone is NOT enough: it makes each field optional but leaves its
+ * `.default()` in place, so a PATCH body of `{ name }` parses into every
+ * defaulted field as well. Wired as route middleware — which replaces req.body
+ * with the parsed result — that would silently reset an admin's whole pricing
+ * config on a rename: perKgRate to 0, sameDayMultiplier to 1.2, isActive to
+ * true, and 16 more. Strip the defaults first, then make it partial, so an
+ * absent key stays absent.
+ */
+function patchSchemaOf(createSchema) {
+  const shape = {};
+  for (const [key, field] of Object.entries(createSchema.shape)) {
+    shape[key] = typeof field.removeDefault === 'function' ? field.removeDefault() : field;
+  }
+  return z.object(shape).partial();
+}
+
+const zoneUpdateSchema = patchSchemaOf(zoneCreateSchema);
 
 // ── Admin: tier CRUD ────────────────────────────────────────────────────────
 const tierCreateSchema = z.object({
@@ -156,11 +175,11 @@ const tierCreateSchema = z.object({
   isActive: z.boolean().optional().default(true),
 });
 
-const tierUpdateSchema = tierCreateSchema.partial();
+const tierUpdateSchema = patchSchemaOf(tierCreateSchema);
 
 // ── Admin: settings update ──────────────────────────────────────────────────
-const settingsUpdateSchema = z
-  .object({
+const settingsUpdateSchema = patchSchemaOf(
+  z.object({
     inHouseDeliveryAvailable: z.boolean(),
     courierDispatchAvailable: z.boolean(),
     expressAvailable: z.boolean(),
@@ -182,8 +201,8 @@ const settingsUpdateSchema = z
     // Google-Maps distance pricing: measurement origin + master switch.
     originAddress: z.string().max(300).optional(),
     useGoogleDistance: z.boolean().optional(),
-  })
-  .partial();
+  }),
+);
 
 // ── Admin: neighbourhood distance resolution ────────────────────────────────
 const distanceResolveSchema = z.object({
@@ -218,6 +237,12 @@ const courierRateSchema = z.object({
   isActive: z.boolean().optional().default(true),
 });
 
+// The only courier-rate route is a PATCH that applies whichever keys were sent
+// (`req.body[key] !== undefined`). The strict schema above would break it twice
+// over: `mode` would become required, so `{ isActive: false }` alone is refused;
+// and the defaults would reset percentage, flatAmount and zoneRates on any edit.
+const courierRateUpdateSchema = patchSchemaOf(courierRateSchema);
+
 module.exports = {
   quoteSchema,
   methodsQuerySchema,
@@ -227,6 +252,7 @@ module.exports = {
   tierUpdateSchema,
   settingsUpdateSchema,
   courierRateSchema,
+  courierRateUpdateSchema,
   distanceResolveSchema,
   distanceManualSchema,
 };

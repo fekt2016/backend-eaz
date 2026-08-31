@@ -50,12 +50,18 @@ describe("POST /api/v1/auth/register — email OR phone", () => {
     expect(stored.email).toBeUndefined();
   });
 
+  // registerSchema is now applied as route middleware, so these are rejected by
+  // Zod before the controller runs. That means the standard validation envelope
+  // — { error: 'Validation failed', errors: [{ field, message }] } — the same one
+  // addresses.test.js and shippingCheckout.test.js already assert. The actionable
+  // message moves into errors[], it is not lost.
   it("rejects both email and phone missing", async () => {
     const res = await request(app).post("/api/v1/auth/register")
       .send({ name: "Nobody", password: "Password123!" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/email or phone/i);
+    expect(res.body.error).toBe("Validation failed");
+    expect(res.body.errors.map((e) => e.message).join(" ")).toMatch(/email or phone/i);
   });
 
   it("rejects empty-string email and empty-string phone (not just omitted keys)", async () => {
@@ -63,7 +69,8 @@ describe("POST /api/v1/auth/register — email OR phone", () => {
       .send({ name: "Blank", email: "", phone: "", password: "Password123!" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/email or phone/i);
+    expect(res.body.error).toBe("Validation failed");
+    expect(res.body.errors.map((e) => e.message).join(" ")).toMatch(/email or phone/i);
   });
 
   it("allows multiple phone-only accounts to coexist (partial unique index on email)", async () => {
