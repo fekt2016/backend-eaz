@@ -350,7 +350,7 @@
 
   Mutation-verified: reverting to `!isVerified` fails precisely the legacy-account test.
 
-- [ ] **T89 · Paid orders can silently under-fulfil** (audit ref EZ-010)
+- [x] **T89 · APPLIED 2026-08-30 — under-fulfilled lines are recorded and staff notified** (audit ref EZ-010)
   - **Issue:** `utils/fulfilShopOrder.js` decrements stock per line under an atomic guard; when the
     guard fails (insufficient stock) it **logs and continues** by design. The order is already `paid`
     and nothing records that a line went unfulfilled.
@@ -443,6 +443,20 @@
     rather than logging out every customer on deploy. They die the moment that account next logs out
     or changes password. Residual risk: a token stolen before the deploy on an account that then does
     neither.
+
+  ### Implementation Notes (2026-08-30 — merged as `51edec8`)
+
+  Failed lines are recorded on `Order.fulfilmentIssues`, staff are notified through the existing
+  notifyRoles path, and it is written to the activity log. Fulfilment still succeeds and stays
+  idempotent — the payment landed and must not be undone; this makes the gap visible.
+
+  Persisted in the SAME write as `stockDeducted`: two writes would leave a window where the order
+  reads as fully deducted with no issues recorded, which is exactly the misleading state this
+  exists to end.
+
+  **A line with no product ref is not a shortfall.** `product` and `part` are both optional on the
+  item schema, so a line with neither is legal data. The first version recorded those as
+  `insufficient_stock` — false data in the order record. They are skipped now.
 
 - [ ] **T92 · Missing authorization + pagination tests** (audit ref EZ-015)
   - **Issue:** 927 tests pass, but none assert the controls behind T83, T84, T86, T87 or T88.
@@ -602,7 +616,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Applied in three commits on `chore/dead-code-phase-b`.** Note `docs/code_review.md:316` had
     already flagged the two react-email packages as unused on **2026-07-16** — six weeks before this.
 
-- [ ] **T130 · Decide the fate of `services/namecheap.js` — blocked on T3** (dead-code audit 2026-08-29)
+- [x] **T130 · APPLIED 2026-08-31 — Namecheap deleted; Spaceship is the sole registrar** (dead-code audit 2026-08-29)
   - **Issue:** `services/namecheap.js` (491 lines) is orphaned — nothing requires it — and `xml2js`
     is a prod dependency required by that file alone. It looks like an obvious deletion.
   - **Why it is NOT being deleted:** its own header states it is retained as the rollback path off
@@ -765,7 +779,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   mongod-startup errors, so T108's root cause is *not* the per-file mongod churn T120 fixed.
   Something else drops connections late in a long serial run. See T108.
 
-- [ ] **T126 · Input validation is inconsistent: 5 Zod `validate()` uses across ~119 write endpoints** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
+- [~] **T126 · PARTLY APPLIED 2026-08-30 — the two existing schemas are wired; cart/orders/reviews still need schemas WRITTEN** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
   - **Issue:** counted every `router.post|patch|put|delete` against every `validate(` in `routes/`:
     **~119 write endpoints, 5 uses of the Zod middleware** — 2 in `addressRoutes.js`, 2 in
     `shippingRoutes.js`, 1 in `authRoutes.js`. Ten controllers read `req.body` with **zero** calls to
@@ -919,7 +933,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   Verified: full run **473s**, zero `Instance failed to start` / `buffering timed out` across all 82
   suites. The three suites this task names went from ~3,563s combined to 56s.
 
-- [ ] **T121 · Hosting/domain webhook fulfilment guards duplicates with read-then-check, not atomically** (final re-audit 2026-08-29) — **POTENTIAL RISK**
+- [x] **T121 · APPLIED 2026-08-30 — hosting and domain claims are now atomic** (final re-audit 2026-08-29) — **POTENTIAL RISK**
   - **Issue:** the shop path is airtight — `utils/fulfilShopOrder.js:57` does a single
     `findOneAndUpdate({ paystackReference, status: 'pending', total: amountPesewas })`, so a duplicate
     or replayed webhook is an atomic no-op and the charged amount is bound into the filter. The
