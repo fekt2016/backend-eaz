@@ -294,15 +294,31 @@ const HOSTING_PLANS = {
   // account with WordPress preinstalled, not separate capacity. Sizing it as if
   // it had its own budget is what produced the old 80 GB `agency` tier.
   //
-  // `agency` is dropped rather than resized: at a Nebula-realistic 8 GB it
-  // overlapped `shared.enterprise`, and each tier costs a WHM package to create
-  // and maintain. Safe to remove — hostingorders is empty, so no order
-  // references it. Six packages to build instead of seven.
+  // WordPress draws on the SAME disk pool as `shared` — it is a shared cPanel
+  // account with WordPress preinstalled, not separate capacity.
+  //
+  // Repriced 2026-08-31 to sit just ABOVE the comparable shared tier rather than
+  // several times above the whole shared range. When shared moved to GH₵9–62, these
+  // still sat at GH₵78/140/185, so every WordPress plan cost more than Shared
+  // Ultimate (GH₵62, 10 GB, unlimited sites) while giving less — WP Agency was 3×
+  // the price for less disk and 3 sites instead of unlimited. Nobody would have
+  // bought one. The premium now reflects what WordPress actually adds: a Softaculous
+  // preinstall and managed core/plugin updates, not a different class of hardware.
+  //
+  // This is the same inversion T66 recorded when Shared Ultimate outpriced VPS Pro.
+  // Check the whole ladder after moving ANY tier.
+  //
+  // `agency` was briefly dropped and is restored here by request. Its SPECS are not
+  // restored: it advertised 80 GB on a plan holding 30 GB in total. Redis and a CDN
+  // went with them — neither is available without root on a cPanel reseller plan.
+  // White-labelling stays, because WHM genuinely supports reseller branding.
+  // Seven WHM packages to create, not six.
   wordpress: {
     starter: {
       name: 'WP Starter',
       tagline: 'WordPress, installed and kept updated.',
-      priceUsd: 5,
+      // GH₵25/mo — 1.61 × 15.5 = 24.955 → 25, × 10 months = 250.
+      priceUsd: 1.61,
       specs: [
         { label: 'WordPress Sites', value: '1' },
         { label: 'NVMe SSD Storage', value: '2GB' },
@@ -326,7 +342,8 @@ const HOSTING_PLANS = {
     business: {
       name: 'WP Business',
       tagline: 'A busier WordPress site, with mail for a team.',
-      priceUsd: 9,
+      // GH₵45/mo — 2.901 × 15.5 = 44.9655 → 45, × 10 months = 450.
+      priceUsd: 2.901,
       specs: [
         { label: 'WordPress Sites', value: '1' },
         { label: 'NVMe SSD Storage', value: '5GB' },
@@ -344,6 +361,35 @@ const HOSTING_PLANS = {
         'Free Malware Scanning',
         'Managed with cPanel',
         'Cache manager',
+        'Priority 24/7 Support',
+        'Email sending: 50 messages/hour per domain',
+      ],
+    },
+    agency: {
+      name: 'WP Agency',
+      tagline: 'Several client sites, managed under one roof.',
+      // GH₵75/mo — 4.84 × 15.5 = 75.02 → 75, × 10 months = 750.
+      priceUsd: 4.84,
+      specs: [
+        { label: 'WordPress Sites', value: '3' },
+        { label: 'NVMe SSD Storage', value: '8GB' },
+        { label: 'Email Accounts', value: '5' },
+        { label: 'Monthly Bandwidth', value: 'Unmetered' },
+        { label: 'Databases', value: '10' },
+      ],
+      features: [
+        'WordPress preinstalled (Softaculous)',
+        'Automatic core + plugin updates',
+        'White-label control panel',
+        'Client management tools',
+        'FREE UNLIMITED Auto SSL',
+        'Weekly Website Backups',
+        'Web Application Firewall',
+        'DDoS Protection',
+        'Free Malware Scanning',
+        'Managed with cPanel',
+        'Cache manager',
+        'Dedicated account manager',
         'Priority 24/7 Support',
         'Email sending: 50 messages/hour per domain',
       ],

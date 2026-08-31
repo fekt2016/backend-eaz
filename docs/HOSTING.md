@@ -177,7 +177,7 @@ Only `shared` and `wordpress` plans auto-provision. `vps` / `cloud` / `email` or
 marked `skipped` and handled through the manual queue at
 `GET /api/v1/hosting/orders/awaiting-provisioning`.
 
-### The six packages to create
+### The seven packages to create
 
 The catalogue is sized to the **Nebula** reseller plan. Create exactly these, and keep the
 quotas at or under the figures shown — they are chosen so the whole catalogue fits:
@@ -190,6 +190,7 @@ quotas at or under the figures shown — they are chosen so the whole catalogue 
 | `<prefix>_eazworld_shared_ultimate` | 10 GB | 10 | 9 | 20 |
 | `<prefix>_eazworld_wordpress_starter` | 2 GB | 1 | 0 | 2 |
 | `<prefix>_eazworld_wordpress_business` | 5 GB | 3 | 0 | 5 |
+| `<prefix>_eazworld_wordpress_agency` | 8 GB | 5 | 2 | 10 |
 
 ### Why these numbers — Nebula's limits are PLAN-WIDE
 
