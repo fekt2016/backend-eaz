@@ -1265,6 +1265,38 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   re-running the suite in isolation (11/11) and reading the error text — before the push could be
   called safe. That is the tax on every change until this is fixed.
 
+  ### Shared-server fix: MECHANISM CONFIRMED, FIX FAILED (2026-08-30/31)
+
+  **The mechanism is real and worth keeping.** `supertest/lib/test.js` does
+  `http.createServer(app)` in the Test constructor (:32-41), `serverAddress()` then calls
+  `app.listen(0)` (:63), and `end()` closes it again (:143). So **every HTTP request binds a fresh
+  ephemeral port and tears it down** — several thousand listen/close cycles in a full run, with the
+  OS recycling the port range throughout. That is a plausible source of connection-level failures
+  and it is a fact about the code, not a theory.
+
+  **The obvious fix does not work.** Patching `Test.prototype.serverAddress` to return one
+  per-file server's address (so supertest never calls `listen(0)`, never sets `this._server`, and
+  `end()` therefore never closes anything) was measured to work at small scale — a probe showed
+  10 requests using **1** port instead of 10, and 3 suites / 35 tests passed normally.
+
+  At FULL-SUITE scale it is catastrophic. Individual tests begin hitting the 30s jest timeout and
+  suites take hours:
+
+  | Suite | Normal | With the shared server |
+  |---|---|---|
+  | `chatMonitoring` | seconds | **6,487 s** |
+  | `addressCustomerOnly` | seconds | **6,487 s** |
+  | `sessionInvalidation` | seconds | **3,308 s** |
+  | `shippingEndpoints` | seconds | **3,244 s** |
+
+  7 suites in ~7 hours, all failing, before it was killed. Reverted; the same suites pass in
+  seconds again. **Why sharing the server makes requests hang is NOT understood** — that is the
+  open question, not whether it is slow.
+
+  **Process note for whoever picks this up:** the small-scale check (3 suites, 35 tests) said the
+  change was fine. It is not enough. Every T108 attempt must be judged on a FULL run — this is now
+  the third time in one day that targeted suites passed while the full run disagreed.
+
   - **Next hypotheses, in order:** (a) supertest leaks the ephemeral server between files — each
     `request(app)` binds a new port and nothing closes it, so late in a run the process holds
     hundreds of listening sockets; check the fd count as the run progresses. (b) an unhandled
