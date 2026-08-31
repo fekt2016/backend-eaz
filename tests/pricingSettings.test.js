@@ -92,13 +92,13 @@ describe("Admin pricing settings", () => {
 describe("The saved rate actually moves prices", () => {
   it("a new rate changes BOTH domain and hosting prices", async () => {
     const token = await adminToken();
-    const spaceship = require("../services/spaceship");
+    const namecheap = require("../services/namecheap");
     const { HOSTING_PLANS } = require("../config/hostingPlans");
 
     await auth(request(app).patch(`${BASE}/settings`), token)
       .send({ pricing: { usdToGhsRate: 15.5, domainMarkup: 1.2 } });
     await pricingSettings.refresh();
-    const domainBefore = spaceship.tldPriceGhs(".com");
+    const domainBefore = namecheap.tldPriceGhs(".com");
     const hostingBefore = HOSTING_PLANS.shared.deluxe.monthlyPrice;
 
     // Cedi weakens.
@@ -106,7 +106,7 @@ describe("The saved rate actually moves prices", () => {
       .send({ pricing: { usdToGhsRate: 20 } });
     await pricingSettings.refresh();
 
-    expect(spaceship.tldPriceGhs(".com")).toBeGreaterThan(domainBefore);
+    expect(namecheap.tldPriceGhs(".com")).toBeGreaterThan(domainBefore);
     // The shared-rate contract: hosting moves too. If this ever fails, someone
     // has split the rate without deciding to.
     expect(HOSTING_PLANS.shared.deluxe.monthlyPrice).toBeGreaterThan(hostingBefore);
@@ -114,20 +114,20 @@ describe("The saved rate actually moves prices", () => {
 
   it("raising the markup moves domains but NOT hosting", async () => {
     const token = await adminToken();
-    const spaceship = require("../services/spaceship");
+    const namecheap = require("../services/namecheap");
     const { HOSTING_PLANS } = require("../config/hostingPlans");
 
     await auth(request(app).patch(`${BASE}/settings`), token)
       .send({ pricing: { usdToGhsRate: 15.5, domainMarkup: 1.2 } });
     await pricingSettings.refresh();
     const hostingBefore = HOSTING_PLANS.shared.deluxe.monthlyPrice;
-    const domainBefore = spaceship.tldPriceGhs(".com");
+    const domainBefore = namecheap.tldPriceGhs(".com");
 
     await auth(request(app).patch(`${BASE}/settings`), token)
       .send({ pricing: { domainMarkup: 1.5 } });
     await pricingSettings.refresh();
 
-    expect(spaceship.tldPriceGhs(".com")).toBeGreaterThan(domainBefore);
+    expect(namecheap.tldPriceGhs(".com")).toBeGreaterThan(domainBefore);
     // Hosting priceUsd values are already sell prices — no markup applies.
     expect(HOSTING_PLANS.shared.deluxe.monthlyPrice).toBe(hostingBefore);
   });

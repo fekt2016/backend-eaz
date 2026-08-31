@@ -15,7 +15,7 @@ const { fulfilShopOrder, PAYMENT_GUARD_CODES } = require('../utils/fulfilShopOrd
 const { sendDomainConfirmationEmail, sendServiceConfirmationEmail } = require('../utils/email');
 const { notifyCustomer } = require('../services/notify');
 const { deductPartStock } = require('../utils/deductPartStock');
-const spaceship = require('../services/spaceship');
+const namecheap = require('../services/namecheap');
 const whm = require('../services/whm');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
 const { applyRefundOutcome } = require('../utils/refunds');
@@ -351,8 +351,8 @@ const handlePaystackWebhook = async (req, res) => {
 
       let registrationSucceeded = false;
 
-      if (spaceship.hasConfig() && domainOrder.registrantInfo) {
-        const regResult = await spaceship.registerDomain(
+      if (namecheap.hasConfig() && domainOrder.registrantInfo) {
+        const regResult = await namecheap.registerDomain(
           domainOrder.domain,
           domainOrder.years || 1,
           {

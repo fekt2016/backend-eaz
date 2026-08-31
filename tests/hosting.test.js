@@ -1,5 +1,5 @@
 // Hosting provisioning + lifecycle tests. The WHM (cPanel) service and all
-// outbound integrations are mocked — no real WHM/Spaceship/email calls.
+// outbound integrations are mocked — no real WHM/Namecheap/email calls.
 jest.mock("../services/whm", () => ({
   hasConfig: jest.fn(() => true),
   generateUsername: jest.fn(() => "testusr"),
@@ -18,7 +18,7 @@ jest.mock("../utils/hostingEmail", () => ({
   sendOrderConfirmation: jest.fn(async () => {}),
   sendPaymentReceived: jest.fn(async () => {}),
 }));
-jest.mock("../services/spaceship", () => ({
+jest.mock("../services/namecheap", () => ({
   registerDomain: jest.fn(async () => ({ success: true })),
   setEazWorldNameservers: jest.fn(async () => ({ success: true })),
   hasConfig: jest.fn(() => false),
@@ -31,7 +31,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const app = require("../app");
 const whm = require("../services/whm");
-const spaceship = require("../services/spaceship");
+const namecheap = require("../services/namecheap");
 const HostingOrder = require("../models/HostingOrder");
 const User = require("../models/User");
 const { provisionHostingAccount } = require("../utils/provisionHosting");
@@ -301,7 +301,7 @@ describe("POST /api/v1/hosting/orders — invalid plan/tier (T60)", () => {
 });
 
 describe("POST /api/v1/hosting/orders — domain fee is server-computed, not client-trusted (T54)", () => {
-  it("uses the Spaceship price for a known TLD and ignores a client-supplied domainRegistrationFee", async () => {
+  it("uses the Namecheap price for a known TLD and ignores a client-supplied domainRegistrationFee", async () => {
     const { token } = await makeUser();
 
     const res = await request(app)
@@ -369,8 +369,8 @@ describe("POST /api/v1/hosting/orders — domain fee is server-computed, not cli
     expect(order.domainRegistrationFee).toBe(500); // capped, not the raw 9999
   });
 
-  it("falls back to the capped client value when Spaceship is unavailable", async () => {
-    spaceship.getPricing.mockRejectedValueOnce(new Error("Spaceship down"));
+  it("falls back to the capped client value when Namecheap is unavailable", async () => {
+    namecheap.getPricing.mockRejectedValueOnce(new Error("Namecheap down"));
     const { token } = await makeUser();
 
     const res = await request(app)

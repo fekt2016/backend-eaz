@@ -1,9 +1,9 @@
-const spaceship = require('../services/spaceship');
+const namecheap = require('../services/namecheap');
 const User = require('../models/User');
 const logger = require('./logger');
 
 /**
- * Register a paid domain order with Spaceship and link it to the buyer's account.
+ * Register a paid domain order with Namecheap and link it to the buyer's account.
  * Used by the admin "retry registration" action for orders that were paid but
  * whose registration failed (status 'completed' with a registrationError). Mirrors
  * the registration + account-linking the payment webhook performs on first payment.
@@ -12,8 +12,8 @@ const logger = require('./logger');
  * Returns { success: boolean, error?: string, skipped?: boolean }.
  */
 async function registerDomainOrder(order) {
-  if (!spaceship.hasConfig()) {
-    return { success: false, skipped: true, error: 'Spaceship is not configured on the server.' };
+  if (!namecheap.hasConfig()) {
+    return { success: false, skipped: true, error: 'Namecheap is not configured on the server.' };
   }
   if (!order.registrantInfo) {
     return { success: false, error: 'This order has no registrant information to register with.' };
@@ -22,7 +22,7 @@ async function registerDomainOrder(order) {
   const reg = order.registrantInfo;
   const nameParts = (order.customerName || '').split(' ');
 
-  const regResult = await spaceship.registerDomain(order.domain, order.years || 1, {
+  const regResult = await namecheap.registerDomain(order.domain, order.years || 1, {
     firstName:  reg.firstName || nameParts[0] || '',
     lastName:   reg.lastName || nameParts.slice(1).join(' ') || '',
     email:      order.email,

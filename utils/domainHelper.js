@@ -86,6 +86,7 @@ module.exports = {
 // `getDefaultPrice` used to live here: a hardcoded GH₵ table that priced .com at
 // 85 against a real cost of ~190, i.e. below cost, and that two callers then
 // mistook for USD and converted a second time (T65). Prices now come from one
-// place — config/domainPricing.js (USD) through spaceship.usdToGhs(). The
-// (services/namecheap.js kept its own private copy for rollback; that file is
-// gone now that Spaceship is the sole registrar.)
+// place — config/domainPricing.js (USD) through namecheap.usdToGhs(), which
+// prefers live cost from Namecheap's users.getPricing and falls back to that
+// table. The old private copy in the registrar service is gone for good: it
+// priced .com below cost.

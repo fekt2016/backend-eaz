@@ -1,6 +1,6 @@
 // Staff-created hosting accounts (in-store): cash provisions immediately via WHM;
 // Paystack returns a payment link and the webhook provisions later.
-// WHM, email, Spaceship and the Paystack SDK are all mocked — no real calls.
+// WHM, email, Namecheap and the Paystack SDK are all mocked — no real calls.
 process.env.PAYSTACK_SECRET = "sk_test_dummy";
 
 jest.mock("@paystack/paystack-sdk", () =>
@@ -29,7 +29,7 @@ jest.mock("../utils/hostingEmail", () => ({
   sendOrderConfirmation: jest.fn(async () => {}),
   sendPaymentReceived: jest.fn(async () => {}),
 }));
-jest.mock("../services/spaceship", () => ({
+jest.mock("../services/namecheap", () => ({
   registerDomain: jest.fn(async () => ({ success: true })),
   setEazWorldNameservers: jest.fn(async () => ({ success: true })),
   hasConfig: jest.fn(() => false),

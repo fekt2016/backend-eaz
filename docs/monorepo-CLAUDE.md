@@ -32,8 +32,8 @@ backend-eaz/
 ├── routes/              # thin routers, wire middleware → controller
 ├── controllers/         # request handling + business logic (async fn (req,res,next) with try/catch → next(err))
 ├── models/              # Mongoose schemas
-├── services/            # external integrations: spaceship, whm, notify, reminderJob
-│                        #   (namecheap.js + cyberpanel.js are retired — see T64)
+├── services/            # external integrations: namecheap, whm, notify, reminderJob
+│                        #   (spaceship.js + cyberpanel.js are retired)
 ├── middleware/          # auth.js (protect, restrictTo), errorHandler.js
 ├── validation/          # Zod schemas (authSchema, contactSchema, domainSchema)
 ├── utils/               # email, invoices, provisioning, jobs, sanitize, validateEnv
@@ -47,14 +47,17 @@ Conventions:
 - **Controllers** are `async (req, res, next)` wrapped in `try/catch` that calls `next(err)`. Use `req.user.id` for identity, never a client-supplied id.
 - **Pagination:** clamp `page`/`limit` in the controller (see `productController.getProducts` — default/min/max pattern).
 - **Validation:** Zod schemas live in `validation/`. Apply them for new endpoints; some legacy controllers parse manually.
-- **Security is already wired in `app.js`:** helmet + CSP, `xss-clean`, `express-mongo-sanitize`, `hpp`, `express-rate-limit`, `cors`, `cookie-parser`. `trust proxy` is 1 (Nginx/cPanel).
-- **External domains:** **Spaceship** (domain search/registration — `services/spaceship.js`), WHM on a Spaceship Starlight VPS (hosting provisioning), Cloudinary (uploads), Resend (transactional email — hand-written HTML, no React renderer), Paystack (payments).
-- **Domain pricing lives in code.** Spaceship has no pricing endpoint, so per-TLD costs sit in
-  `config/domainPricing.js` (USD) and are converted by `usdToGhs()` using `USD_TO_GHS_RATE` +
-  `DOMAIN_MARKUP`. Update that file when Spaceship's prices move. Spaceship cannot sell
-  `.gh`/`.com.gh`/`.africa` — they're listed in `UNSUPPORTED_TLDS` and rejected before any API call.
-- **Spaceship has no sandbox.** Every registration spends real money, so `tests/setup.js` blanks
-  `SPACESHIP_API_KEY`/`SPACESHIP_API_SECRET`. Never remove that.
+- **Security is already wired in `app.js`:** helmet + CSP, `xss-clean`, `express-mongo-sanitize`, `hpp`, `express-rate-limit`, `cors`, `cookie-parser`. `trust proxy` is 1 (LiteSpeed/cPanel).
+- **External domains:** **Namecheap** (domain search/registration — `services/namecheap.js`), WHM on the Namecheap cPanel reseller server (hosting provisioning), Cloudinary (uploads), Resend (transactional email — hand-written HTML, no React renderer), Paystack (payments).
+- **Domain pricing is live, with a local fallback.** Namecheap's `users.getPricing` gives
+  wholesale cost (cached an hour); `config/domainPricing.js` (USD) covers the case where that
+  call fails. Both are converted by `usdToGhs()` using the admin-editable rate and markup in
+  `Settings.pricing` — NOT env vars. ⚠️ The figures in that file were verified against the
+  previous registrar and need re-checking against a Namecheap invoice. `.gh`/`.com.gh` are
+  registry-restricted and rejected before any API call; `.africa` is sellable again.
+- **Namecheap has a sandbox** (`NAMECHEAP_SANDBOX=true`), but a test run must still never reach
+  it: `tests/setup.js` blanks the `NAMECHEAP_*` vars so `hasConfig()` is false. Never remove that.
+  Registration has never been verified end to end — prove it in the sandbox first.
 - Run: `cd backend-eaz && npm run dev` (nodemon, port 5000). Health check: `GET /api/health` (note: not versioned).
 - Seed shop data: `npm run seed:ecommerce`.
 
@@ -91,8 +94,15 @@ Conventions (see root `STYLE_GUIDE.md`):
 
 ## Deployment
 
-Backend on cPanel/EC2 via PM2 (`deploy/ecosystem.config.js`) behind Nginx (`deploy/nginx.conf`); `render.yaml` also present.
-Frontend `next build` (`amplify.yml` for AWS Amplify). Backend tuned for a 512MB heap — keep queries lean.
+Both apps run on a **Namecheap cPanel reseller plan** (LiteSpeed, AutoSSL) under Phusion
+Passenger — registered in cPanel's *Setup Node.js App*, deployed by each repo's
+`.cpanel.yml` via cPanel Git Version Control. No root, so **no Nginx and no PM2**; a
+restart is `touch tmp/restart.txt`. Backend is tuned for a 512MB heap — keep queries lean.
+
+A reseller plan (not shared hosting) is deliberate: WHM is what lets customer hosting
+orders auto-provision. **See `docs/HOSTING.md`** for DNS, the registrar API, provisioning
+config, and the open items — chiefly that Passenger idles the app out, which affects the
+in-process background jobs.
 
 ## Working in this repo
 

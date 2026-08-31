@@ -54,7 +54,7 @@ const ENV  = process.env.NODE_ENV || 'development';
 const PROD = ENV === 'production';
 const IS_TEST = ENV === 'test';
 
-// Trust the first proxy (Nginx in prod, Next.js dev server locally)
+// Trust the first proxy (LiteSpeed/Passenger in prod, Next.js dev server locally)
 // Required for express-rate-limit to correctly read X-Forwarded-For
 app.set('trust proxy', 1);
 console.log(`\n🚀 [EazWorld API] Starting server in ${ENV.toUpperCase()} mode`);
@@ -191,7 +191,7 @@ app.use('/api/v1/chat',                 makeLimit(15, 60,  'Too many chat messag
 // endpoints.
 app.use('/api/v1/shipping/quote',       makeLimit(15, 30,  'Too many quote requests. Please try again later.'));
 
-// Domain search — calls the paid Spaceship API
+// Domain search — calls the paid Namecheap API
 app.use('/api/v1/domain/search',        makeLimit(15, 30,  'Too many domain searches. Please try again later.'));
 app.use('/api/v1/domain/check',         makeLimit(15, 30,  'Too many domain checks. Please try again later.'));
 

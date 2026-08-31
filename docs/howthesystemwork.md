@@ -10,7 +10,7 @@ EazWorld is a **Ghana-based digital agency** that does five things:
 
 1. **Builds websites** for clients (web design, SEO, branding)
 2. **Sells products online** (phone accessories, parts, gadgets)
-3. **Registers domains and sells hosting** (via Spaceship registrar)
+3. **Registers domains and sells hosting** (via Namecheap registrar)
 4. **Repairs phones and devices** (in-store POS system)
 5. **Runs a blog and portfolio** to showcase their work
 
@@ -149,15 +149,15 @@ Prices are stored in USD and converted to GH₵ using a configurable exchange ra
 
 ### Domain Registration
 
-Domains are registered through **Spaceship** (a domain registrar). The flow:
+Domains are registered through **Namecheap** (a domain registrar). The flow:
 
 1. Customer searches for a domain (e.g. `mybusiness.com`)
-2. The backend queries Spaceship's API to check availability
+2. The backend queries Namecheap's API to check availability
 3. Domain pricing is defined in `config/domainPricing.js` (USD prices converted to GH₵ with a markup)
 4. Customer pays for the domain + hosting together
-5. The backend registers the domain with Spaceship and sets EazWorld's nameservers
+5. The backend registers the domain with Namecheap and sets EazWorld's nameservers
 
-**Note:** `.gh`, `.com.gh`, and `.africa` domains cannot be registered through Spaceship — they're listed as unsupported.
+**Note:** `.gh` and `.com.gh` domains cannot be registered through us — they are registry-restricted by ghNIC and listed as unsupported. `.africa` is available again since the move to Namecheap.
 
 ---
 
@@ -347,7 +347,7 @@ eazworld/
 │   ├── controllers/          # Business logic for each feature
 │   ├── routes/               # URL → controller mappings
 │   ├── middleware/            # Auth (protect, restrictTo), error handler
-│   ├── services/             # External integrations (Spaceship, WHM, email)
+│   ├── services/             # External integrations (Namecheap, WHM, email)
 │   ├── utils/                # Helper functions (email, money, provisioning)
 │   ├── config/               # Plans, pricing, Cloudinary setup
 │   └── tests/                # Automated tests (Jest + in-memory MongoDB)
@@ -374,8 +374,9 @@ The backend needs these key environment variables:
 | `JWT_SECRET` | Secret key for signing login tokens |
 | `JWT_EXPIRES_IN` | How long a login session lasts (e.g. "7d") |
 | `PAYSTACK_SECRET` | Paystack payment API key |
-| `SPACESHIP_API_KEY` | Domain registrar API key |
-| `SPACESHIP_API_SECRET` | Domain registrar API secret |
+| `NAMECHEAP_API_USER` | Domain registrar API username |
+| `NAMECHEAP_API_KEY` | Domain registrar API key |
+| `NAMECHEAP_CLIENT_IP` | Whitelisted IP for registrar API calls |
 | `CLOUDINARY_API_KEY` | Image hosting API key |
 | `RESEND_API_KEY` | Transactional email service |
 | `FRONTEND_URL` | The website URL (for CORS and links) |

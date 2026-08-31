@@ -39,7 +39,7 @@ function generatePassword() {
 }
 
 // WHM packages are owned by — and prefixed with — the reseller username.
-// On an Asura cPanel RESELLER account this is NOT 'root'; it's your reseller
+// On a cPanel RESELLER account this is NOT 'root'; it's your reseller
 // username. Set WHM_PACKAGE_PREFIX (or WHM_USER) to that username so the package
 // name resolves to one that actually exists on the server.
 function packagePrefix() {

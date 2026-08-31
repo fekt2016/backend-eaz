@@ -1,7 +1,7 @@
 /**
  * Hosting plans. Prices are stored as **USD per month** (`priceUsd`) and converted
  * to GH₵ at read time — the same idea as domain pricing, where `config/domainPricing.js`
- * holds USD and `services/spaceship.js`'s `usdToGhs()` converts with the same
+ * holds USD and `services/namecheap.js`'s `usdToGhs()` converts with the same
  * admin-set exchange rate (Settings.pricing.usdToGhsRate).
  *
  * Why (T66/T67, 2026-08-25): the shared tiers used to be stored as 9/16/32/62 and
@@ -391,7 +391,7 @@ function getPlanPrice(planType, tier, billingCycle) {
 }
 
 // Nameservers customers must point their domain at (for 'own'/'skip' domains).
-// Set HOSTING_NAMESERVERS to a comma-separated list from your Asura/WHM server,
+// Set HOSTING_NAMESERVERS to a comma-separated list from your WHM server,
 // e.g. "ns1.eazworld.com,ns2.eazworld.com".
 const HOSTING_NAMESERVERS = (process.env.HOSTING_NAMESERVERS || '')
   .split(',')

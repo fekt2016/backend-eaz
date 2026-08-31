@@ -33,7 +33,7 @@ Audience: Ghanaian consumers and businesses. Currency **GH₵ (Ghana Cedi)**. Pa
   External integrations live in `services/`. All routes mount under `/api/v1`. Entry `server.js` → `app.js`.
 - **Frontend** — Next.js 14 App Router (JS/JSX), styled-components driven by CSS variables in
   `styles/GlobalStyles.js`, TanStack Query over an axios client (`lib/api.js`), `middleware.js` gate.
-- Deployment: backend on cPanel/EC2 (PM2 + Nginx, 512MB heap), frontend `next build` (Amplify).
+- Deployment: both apps on a Namecheap cPanel reseller plan (LiteSpeed, Passenger, 512MB heap on the API); deploys via `.cpanel.yml` + cPanel Git Version Control. See `docs/HOSTING.md`.
 
 ## 4. Cross-cutting rules
 

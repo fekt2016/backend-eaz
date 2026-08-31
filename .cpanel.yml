@@ -1,0 +1,31 @@
+---
+# cPanel Git Version Control deployment — Namecheap cPanel reseller plan.
+#
+# How this runs: cPanel clones this repo into ~/repositories/backend-eaz, and
+# pressing "Update from Remote" → "Deploy HEAD Commit" executes the tasks below.
+# There is no CI runner and no root on a shared plan, so deployment is this file
+# plus a restart touch — nothing else.
+#
+# DEPLOYPATH is the document root of the Node app registered in cPanel's
+# "Setup Node.js App". Change it if the app root differs; keep the trailing slash.
+#
+# Restarting: Passenger (not PM2 — a shared plan has no persistent process
+# manager) re-execs the app when tmp/restart.txt is touched. That is the only
+# supported restart from a deploy hook.
+
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/$(whoami)/api.eazworld.co/
+    - /bin/mkdir -p $DEPLOYPATH/tmp
+
+    # Application source. .env is deliberately NOT copied — it lives only on the
+    # server, outside git, and is edited through cPanel's Node.js App UI.
+    - /bin/cp -R app.js server.js package.json package-lock.json $DEPLOYPATH
+    - /bin/cp -R config controllers middleware models routes services utils validation $DEPLOYPATH
+
+    # Production dependencies only: the 20 GB quota is shared with every hosted
+    # site, and devDependencies (jest, mongodb-memory-server, nodemon) are ~300 MB.
+    - cd $DEPLOYPATH && /bin/npm ci --omit=dev
+
+    # Passenger picks this up and restarts the app on the next request.
+    - /bin/touch $DEPLOYPATH/tmp/restart.txt

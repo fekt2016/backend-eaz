@@ -5,7 +5,7 @@ const streamifier = require('streamifier');
 const HostingOrder = require('../models/HostingOrder');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, sanitizeDomain } = require('../utils/sanitize');
 const { getPlanPrice, HOSTING_PLANS } = require('../config/hostingPlans');
-const spaceship = require('../services/spaceship');
+const namecheap = require('../services/namecheap');
 const { cloudinary } = require('../config/cloudinary');
 const { sendOrderConfirmation, sendPaymentReceived, sendHostingCredentials } = require('../utils/hostingEmail');
 const { provisionHostingAccount } = require('../utils/provisionHosting');
@@ -84,12 +84,12 @@ const createOrder = async (req, res, next) => {
 
     // Re-compute domain fee server-side — never trust client-supplied price.
     // getPricing() keys are dot-prefixed (e.g. ".com") and already in GHS
-    // (rate + markup applied) — see services/spaceship.js's usdToGhs.
+    // (rate + markup applied) — see services/namecheap.js's usdToGhs.
     let domainFee = 0;
     if (domainMode === 'new' && domain_s) {
       try {
         const tld = extractTLD(domain_s);
-        const prices = await spaceship.getPricing();
+        const prices = await namecheap.getPricing();
         const priceGHS = prices[tld] ?? null;
         if (priceGHS != null) {
           const years = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
@@ -99,7 +99,7 @@ const createOrder = async (req, res, next) => {
           domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
         }
       } catch {
-        // Spaceship unavailable — fall back to client value with sanity cap
+        // Namecheap unavailable — fall back to client value with sanity cap
         domainFee = Math.min(Number(domainRegistrationFee) || 0, 500);
       }
     }
@@ -888,18 +888,18 @@ const staffCreateHostingAccount = async (req, res, next) => {
 
     // Domain fee (register-new mode) — recomputed server-side, never trusted from the client.
     // getPricing() keys are dot-prefixed (e.g. ".com") and already in GHS
-    // (rate + markup applied) — see services/spaceship.js's usdToGhs.
+    // (rate + markup applied) — see services/namecheap.js's usdToGhs.
     let domainFee = 0;
     if (domainMode === 'new' && domain_s) {
       try {
         const tld = extractTLD(domain_s);
-        const prices = await spaceship.getPricing();
+        const prices = await namecheap.getPricing();
         const priceGHS = prices[tld] ?? null;
         if (priceGHS != null) {
           const years = Math.min(10, Math.max(1, Number(domainRegistrationYears) || 1));
           domainFee = Math.round(priceGHS * years * 100) / 100;
         }
-      } catch { /* Spaceship unavailable — no domain fee added */ }
+      } catch { /* Namecheap unavailable — no domain fee added */ }
     }
     const totalAmount = price.total + addonsTotal + domainFee;
     const totalAmountPesewas = Math.round(totalAmount * 100);
@@ -1018,7 +1018,7 @@ const staffCreateHostingAccount = async (req, res, next) => {
 
 // ─── T68 — manual provisioning queue ─────────────────────────────────────────
 // VPS / Cloud / Email orders auto-provision nothing (provisionHostingAccount
-// marks them 'skipped' — Spaceship's Starlight VMs have no provisioning API),
+// marks them 'skipped' — VPS/Cloud/Email plans have no provisioning API),
 // so a customer could pay GH₵950/month and hear silence. These two endpoints
 // are the chase: a list of what's owed, and the moment staff say it's built.
 

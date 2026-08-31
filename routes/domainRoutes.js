@@ -13,16 +13,16 @@ const {
   retryDomainRegistration,
 } = require('../controllers/domainController');
 const { protect, restrictTo, denyRoles } = require('../middleware/auth');
-const spaceship = require('../services/spaceship');
+const namecheap = require('../services/namecheap');
 const { validate } = require('../middleware/validate');
 const { paymentSchema } = require('../validation/domainSchema');
 
 const router = express.Router();
 
-// Debug route — admin only, shows raw Spaceship pricing response
+// Debug route — admin only, shows raw Namecheap pricing response
 router.get('/pricing-debug', protect, restrictTo('admin'), async (req, res) => {
   try {
-    const prices = await spaceship.getPricing();
+    const prices = await namecheap.getPricing();
     res.json({ count: Object.keys(prices).length, prices });
   } catch (err) {
     res.status(500).json({ error: err.message });

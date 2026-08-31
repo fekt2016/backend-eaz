@@ -12,7 +12,7 @@ jest.mock("@paystack/paystack-sdk", () => {
     }
   };
 });
-jest.mock("../services/spaceship", () => ({
+jest.mock("../services/namecheap", () => ({
   hasConfig: jest.fn(() => true),
   getPricing: jest.fn(async () => ({ ".com": 85 })),
   registerDomain: jest.fn(async () => ({ success: true })),

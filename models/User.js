@@ -136,7 +136,7 @@ const userSchema = new mongoose.Schema(
     // and the forgot-password flow. The value is stamped into the JWT and
     // compared in `protect`, so a token minted before the bump is refused.
     //
-    // An int, not a deny-list: this is a single PM2 instance with no Redis, and
+    // An int, not a deny-list: this runs as a single app instance with no Redis, and
     // a version compare costs nothing on a lookup `protect` already does. The
     // trade-off is that logout ends EVERY session for the account rather than
     // just the calling device — which is the behaviour someone hitting "log

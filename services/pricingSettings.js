@@ -3,7 +3,7 @@
  *
  * WHY THIS EXISTS AS A CACHE RATHER THAN A DB READ
  *
- * `usdToGhs()` in services/spaceship.js and config/hostingPlans.js is
+ * `usdToGhs()` in services/namecheap.js and config/hostingPlans.js is
  * SYNCHRONOUS, and it is called from getters that render a price list. Making it
  * async would ripple into every caller and every template. So the value is held
  * in process and refreshed, rather than read per call.

@@ -554,7 +554,7 @@ async function sendRefundOutcomeEmail(order) {
  * T62 gap #5 — domains used to email nothing: pay for a domain and the only
  * record was a database row. One email at payment covering both outcomes of the
  * registration attempt that follows it: registered (with the years + renewal
- * framing) or handed to the team (Spaceship hiccups must not leave a paying
+ * framing) or handed to the team (registrar hiccups must not leave a paying
  * customer in silence). Expiry warnings are already covered by renewalJob.
  */
 async function sendDomainConfirmationEmail(order, { registered }) {

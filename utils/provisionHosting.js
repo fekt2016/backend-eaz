@@ -2,7 +2,7 @@ const whm = require('../services/whm');
 const HostingOrder = require('../models/HostingOrder');
 const DomainOrder = require('../models/DomainOrder');
 const { sendHostingCredentials } = require('./hostingEmail');
-const { registerDomain, setEazWorldNameservers } = require('../services/spaceship');
+const { registerDomain, setEazWorldNameservers } = require('../services/namecheap');
 const logger = require("./logger");
 
 async function provisionHostingAccount(orderRef) {
@@ -89,7 +89,7 @@ async function provisionHostingAccount(orderRef) {
     const isTempDomain = !doc.domain || (doc.domain.endsWith('.eazworld.com') && doc.domain.split('.').length === 3);
 
     // Case 1: Customer chose "Register new domain" in hosting checkout
-    // → Register the domain via Spaceship AND automatically set EazWorld nameservers
+    // → Register the domain via Namecheap AND automatically set EazWorld nameservers
     if (doc.domainMode === 'new' && doc.domain && !doc.domainRegistered && !isTempDomain) {
       logger.info(`[provision] Registering domain ${doc.domain} bundled with hosting order`);
       const regResult = await registerDomain(

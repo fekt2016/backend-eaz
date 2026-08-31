@@ -1,7 +1,7 @@
 // T68 — the manual provisioning queue. VPS / Cloud / Email orders are paid but
 // auto-provisioning skips them (Starlight VMs have no API), so staff build them
 // by hand: a queue to work from, and the moment they mark one done.
-// WHM, email, Spaceship and the Paystack SDK are all mocked — no real calls.
+// WHM, email, Namecheap and the Paystack SDK are all mocked — no real calls.
 process.env.PAYSTACK_SECRET = "sk_test_dummy";
 
 jest.mock("@paystack/paystack-sdk", () =>
@@ -31,7 +31,7 @@ jest.mock("../utils/hostingEmail", () => ({
   sendOrderConfirmation: jest.fn(async () => {}),
   sendPaymentReceived: jest.fn(async () => {}),
 }));
-jest.mock("../services/spaceship", () => ({
+jest.mock("../services/namecheap", () => ({
   registerDomain: jest.fn(async () => ({ success: true })),
   setEazWorldNameservers: jest.fn(async () => ({ success: true })),
   hasConfig: jest.fn(() => false),

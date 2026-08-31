@@ -29,11 +29,14 @@ process.env.RESEND_API_KEY = "";
 process.env.RESEND_FROM_EMAIL = "";
 process.env.CLOUDINARY_API_KEY = "";
 process.env.CLOUDINARY_API_SECRET = "";
-// T64 — the registrar is Spaceship now, and unlike Namecheap it has NO sandbox:
-// every registration spends real money. Blanking these makes `spaceship.hasConfig()`
-// false, so an unmocked path can't reach the live registrar from a test run.
-process.env.SPACESHIP_API_KEY = "";
-process.env.SPACESHIP_API_SECRET = "";
+// The registrar is Namecheap. It HAS a sandbox, but a test run must still never
+// reach the live API by accident: blanking these makes `namecheap.hasConfig()`
+// false, so an unmocked path cannot spend money. Set NAMECHEAP_SANDBOX and real
+// sandbox credentials deliberately, in a scratch run, never in the suite.
+process.env.NAMECHEAP_API_USER = "";
+process.env.NAMECHEAP_API_KEY = "";
+process.env.NAMECHEAP_CLIENT_IP = "";
+process.env.NAMECHEAP_SANDBOX = "";
 // Same hermeticity rule as the registrar above: a resolved distance costs real
 // money per element, and a test must never reach Google. Blanking this makes
 // googleDistance.hasConfig() false, so the admin resolve endpoint refuses

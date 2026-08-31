@@ -8,7 +8,7 @@ const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const app = require("../app");
 const User = require("../models/User");
-const spaceship = require("../services/spaceship");
+const namecheap = require("../services/namecheap");
 
 async function makeCustomer() {
   const user = await User.create({
@@ -29,21 +29,21 @@ describe("tldPriceGhs — the single source for a TLD's sell price", () => {
 
   it("converts the USD cost table exactly once", () => {
     // .com costs $10.18 → ceil(10.18 × 15.5 × 1.2) = 190, not 1,581.
-    expect(spaceship.tldPriceGhs(".com")).toBe(190);
+    expect(namecheap.tldPriceGhs(".com")).toBe(190);
   });
 
   it("returns null for a TLD we hold no cost for, rather than inventing one", () => {
-    expect(spaceship.tldPriceGhs(".madeup")).toBeNull();
+    expect(namecheap.tldPriceGhs(".madeup")).toBeNull();
   });
 
   it("agrees with getPricing(), so search and checkout can't disagree", async () => {
-    const pricing = await spaceship.getPricing();
-    expect(spaceship.tldPriceGhs(".com")).toBe(pricing[".com"]);
+    const pricing = await namecheap.getPricing();
+    expect(namecheap.tldPriceGhs(".com")).toBe(pricing[".com"]);
   });
 });
 
 describe("POST /api/v1/domain/payment — price guard (T65)", () => {
-  // tests/setup.js blanks the Spaceship credentials, so hasConfig() is false and
+  // tests/setup.js blanks the Namecheap credentials, so hasConfig() is false and
   // the request takes exactly the fallback branch this regression is about.
   it("accepts the real cedi price when the live pricing path is unavailable", async () => {
     const token = await makeCustomer();

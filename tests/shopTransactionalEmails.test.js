@@ -301,7 +301,7 @@ describe("wiring: webhooks receipt domain and service orders", () => {
       .set("x-paystack-signature", crypto.createHmac("sha512", SECRET).update(JSON.stringify(payload)).digest("hex"))
       .send(payload);
 
-  it("domain payment confirms even though Spaceship has no config in tests", async () => {
+  it("domain payment confirms even though Namecheap has no config in tests", async () => {
     const ref = `domref_${Date.now()}`;
     const owner = await User.create({
       name: "Buyer", email: `buyer-${Date.now()}@t.com`, password: "Password123!", role: "user",
@@ -328,7 +328,7 @@ describe("wiring: webhooks receipt domain and service orders", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(mockResendSend).toHaveBeenCalledTimes(1);
     const { subject } = mockResendSend.mock.calls[0][0];
-    // hasConfig() is false under test (setup.js blanks the Spaceship keys), so
+    // hasConfig() is false under test (setup.js blanks the Namecheap keys), so
     // registration could not run — but the paying customer still hears from us.
     expect(subject).toContain("We received your domain order");
   });
