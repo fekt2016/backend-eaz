@@ -29,7 +29,6 @@ process.env.RESEND_API_KEY = "";
 process.env.RESEND_FROM_EMAIL = "";
 process.env.CLOUDINARY_API_KEY = "";
 process.env.CLOUDINARY_API_SECRET = "";
-process.env.NAMECHEAP_API_KEY = "";
 // T64 — the registrar is Spaceship now, and unlike Namecheap it has NO sandbox:
 // every registration spends real money. Blanking these makes `spaceship.hasConfig()`
 // false, so an unmocked path can't reach the live registrar from a test run.

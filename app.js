@@ -191,7 +191,7 @@ app.use('/api/v1/chat',                 makeLimit(15, 60,  'Too many chat messag
 // endpoints.
 app.use('/api/v1/shipping/quote',       makeLimit(15, 30,  'Too many quote requests. Please try again later.'));
 
-// Domain search — calls paid Namecheap API
+// Domain search — calls the paid Spaceship API
 app.use('/api/v1/domain/search',        makeLimit(15, 30,  'Too many domain searches. Please try again later.'));
 app.use('/api/v1/domain/check',         makeLimit(15, 30,  'Too many domain checks. Please try again later.'));
 
