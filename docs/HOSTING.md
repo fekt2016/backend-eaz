@@ -164,6 +164,52 @@ marked `skipped` and handled through the manual queue at
 
 ---
 
+## Background jobs — cron, not setInterval
+
+Four jobs used to run on `setInterval` inside `server.js`. Passenger idles an app out when
+there is no traffic, and an idled app fires no timers — so a quiet night meant renewal
+reminders never sent, scheduled posts never published, and refunds never reconciled, with
+nothing in the logs to say so.
+
+They are now driven by **cPanel cron**, through `scripts/runJob.js`. Set
+`IN_PROCESS_JOBS=false` in the API's cPanel environment so the old timers stay off:
+running both would double every reminder email and every reconciliation.
+
+cPanel → **Cron Jobs**. `~/api.eazworld.co` is the app root from the table above:
+
+```cron
+# Hosting renewals: reminders, suspensions, terminations — daily, 02:15
+15 2 * * *   cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js renewals
+
+# Uncollected device reminders — twice daily, 08:30 and 20:30
+30 8,20 * * * cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js reminders
+
+# Scheduled blog publishing — hourly, on the hour
+0 * * * *    cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js publish
+
+# Refund reconciliation — every 2 hours. Refunds settle over DAYS (a live MTN GHA
+# mobile-money refund reported ~9 days out), so a tighter schedule polls for nothing.
+0 */2 * * *  cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js refunds
+```
+
+Confirm the Node path with `which node` over SSH — cPanel's Node.js selector installs
+per-version, so it is often under `~/nodevenv/...` rather than `/usr/local/bin`.
+
+Set **MAILTO** at the top of the crontab. Each run exits non-zero on failure, which is the
+only way anyone finds out — the in-process versions swallowed every error with
+`.catch(() => {})`.
+
+Run one by hand to check wiring:
+
+```bash
+cd ~/api.eazworld.co && npm run job:publish
+```
+
+Locally, nothing changes: `IN_PROCESS_JOBS` defaults to on, so `npm run dev` still
+schedules all four in process.
+
+---
+
 ## Open items
 
 1. **Re-verify domain costs** against a Namecheap invoice and update
@@ -171,14 +217,12 @@ marked `skipped` and handled through the manual queue at
 2. **Prove a registration end to end** in the sandbox, then once with a cheap real
    domain. This has never been verified against any registrar.
 3. **Create the WHM packages** before selling a plan.
-4. **Passenger idles the app out** when there is no traffic. The in-process jobs
-   (`reminderJob`, `refundReconcileJob`, `renewalJob`) run on `setInterval` and will not
-   fire until a request wakes the app — a behaviour change from PM2, which kept the
-   process alive permanently. Moving them to cPanel cron is the durable fix.
-5. **Passenger may run more than one process.** `services/shipping/shippingCache.js` and
-   the in-memory rate limits assume a single instance; pin the process count to 1.
-6. **Lost with Nginx:** the TLS cipher/OCSP policy (T95) and `client_max_body_size 6m`
+4. **Passenger may run more than one process.** `services/shipping/shippingCache.js` and
+   the in-memory rate limits assume a single instance; pin the process count to 1 in
+   cPanel → Setup Node.js App. The jobs no longer care — cron runs once regardless — but
+   the cache and rate limits still do.
+5. **Lost with Nginx:** the TLS cipher/OCSP policy (T95) and `client_max_body_size 6m`
    (T81). HSTS and CSP still come from helmet and `next.config.mjs`, but upload size now
    falls to the server default.
 
-**Items 4 and 5 are the two that can bite silently.**
+**Item 4 is the one that can still bite silently.**

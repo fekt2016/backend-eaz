@@ -101,8 +101,22 @@ const startServer = async () => {
       console.log(`🚀 Server running on http://${HOST}:${PORT}`);
     });
 
+    // ── Background jobs ──────────────────────────────────────────────────
+    // These used to be unconditional. Under Passenger (cPanel) an idle app
+    // fires no timers, so the schedule moved to cPanel cron via
+    // scripts/runJob.js — see docs/HOSTING.md. Running both would double every
+    // reminder email and every reconciliation, so the in-process timers are
+    // switched off wherever cron is driving them.
+    //
+    // Default is ON, so local dev and any PM2 deployment behave exactly as
+    // before; the cPanel host sets IN_PROCESS_JOBS=false.
+    const inProcessJobs = process.env.IN_PROCESS_JOBS !== 'false';
+    if (!inProcessJobs) {
+      console.log('⏹  In-process jobs disabled (IN_PROCESS_JOBS=false) — cron drives them');
+    }
+
     // Run renewal job once at startup, then every 24 hours
-    try {
+    if (inProcessJobs) try {
       const { runRenewalJob } = require('./utils/renewalJob');
       runRenewalJob().catch(() => {});
       setInterval(() => runRenewalJob().catch(() => {}), 24 * 60 * 60 * 1000);
@@ -112,7 +126,7 @@ const startServer = async () => {
     }
 
     // Uncollected device reminder — runs once at startup then every 12 hours
-    try {
+    if (inProcessJobs) try {
       const { runReminderJob } = require('./services/reminderJob');
       // Small delay so DB is fully ready
       setTimeout(() => runReminderJob().catch(() => {}), 10_000);
@@ -124,7 +138,7 @@ const startServer = async () => {
 
     // Scheduled blog publishing — runs shortly after startup then hourly, so a
     // post scheduledFor a given time goes live within the hour.
-    try {
+    if (inProcessJobs) try {
       const { runScheduledPublishJob } = require('./utils/scheduledPublishJob');
       setTimeout(() => runScheduledPublishJob().catch(() => {}), 15_000);
       setInterval(() => runScheduledPublishJob().catch(() => {}), 60 * 60 * 1000);
@@ -138,7 +152,7 @@ const startServer = async () => {
     // against the real Paystack sandbox that refunds settle on the order of
     // days (an MTN GHA mobile money refund reported ~9 days out), not
     // minutes, so a tighter interval would just poll Paystack for nothing.
-    try {
+    if (inProcessJobs) try {
       const { runRefundReconcileJob } = require('./services/refundReconcileJob');
       setTimeout(() => runRefundReconcileJob().catch(() => {}), 15_000);
       setInterval(() => runRefundReconcileJob().catch(() => {}), 2 * 60 * 60 * 1000);
