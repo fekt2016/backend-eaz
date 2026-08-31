@@ -2,7 +2,7 @@
  * Domain cost table — our wholesale cost per TLD, in USD, per year.
  *
  * Why this file exists: Spaceship's API has **no pricing endpoint**. Namecheap had
- * `users.getPricing`, which `services/namecheap.js` called live and cached for an
+ * `users.getPricing`, which the old Namecheap service called live and cached for an
  * hour. Spaceship only returns a price for *premium* domains, inside the
  * availability response. So standard TLD costs have to live here.
  *

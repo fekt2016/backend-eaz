@@ -4,7 +4,12 @@ const { getCostUsd, isSupportedTld, unsupportedTldMessage, DEFAULT_SEARCH_TLDS }
 const logger = require("../utils/logger");
 
 /**
- * Spaceship domain registrar (replaces services/namecheap.js).
+ * Spaceship domain registrar — the sole registrar.
+ *
+ * Replaced services/namecheap.js, which was deleted 2026-08-31 once Spaceship
+ * was confirmed as the reseller account. The comparisons below are kept because
+ * they explain WHY this service behaves as it does, not because that file is
+ * still around to look at.
  *
  * Deliberately exports the SAME six functions with the same signatures and return
  * shapes as the Namecheap service, so the eight call sites only change their

@@ -87,4 +87,5 @@ module.exports = {
 // 85 against a real cost of ~190, i.e. below cost, and that two callers then
 // mistook for USD and converted a second time (T65). Prices now come from one
 // place — config/domainPricing.js (USD) through spaceship.usdToGhs(). The
-// retired services/namecheap.js keeps its own private copy for rollback.
+// (services/namecheap.js kept its own private copy for rollback; that file is
+// gone now that Spaceship is the sole registrar.)
