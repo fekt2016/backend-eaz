@@ -148,6 +148,14 @@ app.use(cors({
 // ────────────────────────────────────────────────
 // 🔒 Rate Limiting
 // ────────────────────────────────────────────────
+// ⚠️ These use express-rate-limit's default MemoryStore, which counts PER
+// PROCESS. Passenger must therefore be pinned to a single process in cPanel →
+// Setup Node.js App; with N processes every limit below silently becomes N×
+// what it says. That matters most for the login limiter (the brute-force guard)
+// and /api/v1/domain, which is all that stops the unauthenticated /check-bulk
+// from burning through the paid Namecheap key quota. Scaling out means moving
+// these to a Redis store — not just the shipping cache. See docs/HOSTING.md
+// § Open items 4.
 function makeLimit(windowMinutes, max, message) {
   return rateLimit({
     windowMs: windowMinutes * 60 * 1000,

@@ -305,13 +305,41 @@ schedules all four in process.
    `config/domainPricing.js` (see above). Until then the fallback prices may be wrong.
 2. **Prove a registration end to end** in the sandbox, then once with a cheap real
    domain. This has never been verified against any registrar.
-3. **Create the WHM packages** before selling a plan.
-4. **Passenger may run more than one process.** `services/shipping/shippingCache.js` and
-   the in-memory rate limits assume a single instance; pin the process count to 1 in
-   cPanel → Setup Node.js App. The jobs no longer care — cron runs once regardless — but
-   the cache and rate limits still do.
+3. **Create the WHM packages** before selling a plan. `npm run check:whm` reports
+   which are missing — it deploys with the app (`.cpanel.yml` copies `scripts/`, and
+   its deps are production ones), so run it on the server where the real credentials
+   live.
+4. **Passenger may run more than one process** — pin the process count to 1 in
+   cPanel → Setup Node.js App. There is no process-count setting anywhere in this
+   repo; it exists only in that UI, so nothing in the codebase can assert or enforce
+   it. The jobs no longer care — cron runs once regardless — but three pieces of
+   module-scoped state do (verified 2026-08-31 by sweeping module-level `Map`/`Set`;
+   everything else found was per-request and safe):
+
+   | State | Where | Effect with N processes |
+   |---|---|---|
+   | **Rate limiters** (11) | `app.js:151`, `express-rate-limit` default MemoryStore | every limit becomes **N×** its intended value |
+   | Shipping cache | `services/shipping/shippingCache.js:18` | stale reads up to the 5-min TTL on instances that did not serve the admin write |
+   | Namecheap price cache | `services/namecheap.js` | N× the paid pricing API calls per hour |
+
+   **The rate limiters are the sharper edge, not the cache.** Two matter: the login
+   limiter (10 attempts/15 min) is the brute-force guard, and `/api/v1/domain`
+   (30/15 min) is what stops `/check-bulk` — unauthenticated, 50 domains a call —
+   burning through the Namecheap key quota. Scaling out later needs Redis for the
+   limiters as well as the cache, not just the cache.
+
 5. **Lost with Nginx:** the TLS cipher/OCSP policy (T95) and `client_max_body_size 6m`
-   (T81). HSTS and CSP still come from helmet and `next.config.mjs`, but upload size now
-   falls to the server default.
+   (T81). HSTS and CSP still come from helmet and `next.config.mjs`.
+
+   **The body-size half is a footnote, not a gap** (verified 2026-08-31). The app
+   enforces its own limits: `express.json`/`urlencoded` at 5mb (`app.js:105`), multer
+   at 5MB (`uploadController.js:15`, `accountController.js:23`) and 8MB for POS job
+   photos (`posRoutes.js:24`). Every upload route sits behind `protect`, `/api/v1/uploads`
+   additionally behind admin/staff, and all are `.single()` or `.fields()` with
+   `maxCount: 1` — so the worst case is ~10MB buffered by an authenticated user, which
+   a 512MB heap absorbs. The only real change is that rejection now happens in Node
+   after buffering rather than at the edge before it. Residual exposure is
+   `express.json`'s 5mb on unauthenticated `/api/` routes, bounded by the global
+   150/15 min limiter — which is item 4 again.
 
 **Item 4 is the one that can still bite silently.**
