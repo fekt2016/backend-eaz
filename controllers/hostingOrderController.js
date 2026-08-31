@@ -4,7 +4,7 @@ const Paystack = require('@paystack/paystack-sdk');
 const streamifier = require('streamifier');
 const HostingOrder = require('../models/HostingOrder');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, sanitizeDomain } = require('../utils/sanitize');
-const { getPlanPrice, HOSTING_PLANS } = require('../config/hostingPlans');
+const { getPlanPrice, HOSTING_PLANS, PLAN_AVAILABILITY, isSellable } = require('../config/hostingPlans');
 const namecheap = require('../services/namecheap');
 const { cloudinary } = require('../config/cloudinary');
 const { sendOrderConfirmation, sendPaymentReceived, sendHostingCredentials } = require('../utils/hostingEmail');
@@ -36,7 +36,17 @@ function computeAddonsTotal(addons) {
  */
 const getPlans = async (req, res, next) => {
   try {
-    return res.status(200).json({ success: true, data: HOSTING_PLANS });
+    // `cloud` and `email` cannot be delivered from a cPanel reseller plan at all,
+    // so they are not advertised — a catalogue entry is a promise. `vps` IS
+    // returned: its prices are shown as indicative and the card asks for an
+    // enquiry (plan.availability === 'enquiry'), which is why availability
+    // travels with the plan instead of being re-decided in the storefront.
+    const sellable = Object.fromEntries(
+      Object.entries(HOSTING_PLANS).filter(
+        ([planType]) => PLAN_AVAILABILITY[planType] !== 'unavailable'
+      )
+    );
+    return res.status(200).json({ success: true, data: sellable });
   } catch (err) {
     next(err);
   }
@@ -72,6 +82,23 @@ const createOrder = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'planType, tier, billingCycle, and customer (name, email) are required'
+      });
+    }
+
+    // Only take money for what we can actually deliver. A reseller plan creates
+    // cPanel accounts and nothing else: `vps` has no supplier and no API, and
+    // `cloud`/`email` cannot be delivered at all. Both used to be accepted here —
+    // the storefront never linked to them, but the endpoint did, so a stale
+    // client or a crafted request could pay GH₵950/month for a server nobody
+    // could build. Staff keep their own path (`staffCreateHostingAccount`) for
+    // an order they have genuinely sourced.
+    if (!isSellable(planType)) {
+      return res.status(400).json({
+        success: false,
+        error:
+          PLAN_AVAILABILITY[planType] === 'enquiry'
+            ? 'This plan is quoted individually — please request a quote instead of ordering online.'
+            : 'This plan is not available for online purchase.',
       });
     }
 

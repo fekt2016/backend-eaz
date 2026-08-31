@@ -443,12 +443,44 @@ const HOSTING_PLANS = {
   },
 };
 
+// ── What can actually be sold, and how ──────────────────────────────────────
+// A cPanel RESELLER plan can create cPanel accounts. That is the entire
+// constraint, and it decides this table:
+//
+//   instant      shared / wordpress — provisioned by utils/provisionHosting.js
+//   enquiry      vps — no supplier and no API; the price is indicative and the
+//                real one is quoted by hand, so we must not take money upfront
+//   unavailable  cloud / email — cannot be delivered from Nebula at all
+//                (email is capped at 30 mailboxes PLAN-WIDE, not per account)
+//
+// This drives BOTH the storefront button and the `createOrder` guard so the two
+// can never disagree. It rides on each plan object as `plan.availability`, the
+// same way prices do, because "can a customer buy this" is business meaning, not
+// presentation — the frontend must not keep its own copy. That is the same
+// mistake that let src/data/hostingHostingData.js advertise GH₵9/mo against a
+// GH₵62/mo charge.
+const PLAN_AVAILABILITY = {
+  shared: "instant",
+  wordpress: "instant",
+  vps: "enquiry",
+  cloud: "unavailable",
+  email: "unavailable",
+};
+
+/** Can a customer pay for this plan type right now, unaided? */
+function isSellable(planType) {
+  return PLAN_AVAILABILITY[planType] === "instant";
+}
+
 // Expose the GH₵ figures as live getters rather than baked-in numbers: readers keep
 // using `plan.monthlyPrice` / `plan.annualPrice`, but the value always reflects the
 // current admin-set exchange rate, and the two can never drift apart. `enumerable` matters —
 // without it these vanish from JSON.stringify and the plans API would return no prices.
-for (const tiers of Object.values(HOSTING_PLANS)) {
+for (const [planType, tiers] of Object.entries(HOSTING_PLANS)) {
   for (const plan of Object.values(tiers)) {
+    // Ships on the plan itself, exactly like the prices below, so the storefront
+    // cannot hold an opinion about sellability that the API disagrees with.
+    plan.availability = PLAN_AVAILABILITY[planType] || "unavailable";
     Object.defineProperty(plan, "monthlyPrice", {
       enumerable: true,
       get() {
@@ -502,6 +534,8 @@ const LIFECYCLE = {
 };
 
 module.exports = {
+  PLAN_AVAILABILITY,
+  isSellable,
   HOSTING_PLANS,
   getPlanPrice,
   HOSTING_NAMESERVERS,

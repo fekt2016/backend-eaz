@@ -523,3 +523,80 @@ describe("HostingOrder.amountPesewas (T44 follow-up)", () => {
     expect(["paid", "active"]).toContain(fresh.status);
   });
 });
+
+// Guards the money-side consequence of a reseller plan: it creates cPanel
+// accounts and nothing else. `vps` has no supplier and no provisioning API, and
+// `cloud`/`email` cannot be delivered at all — yet all three were accepted here.
+// The storefront never linked to cloud/email, so the only thing standing between
+// a customer and a GH₵950/month charge for an undeliverable server was the UI.
+describe("POST /api/v1/hosting/orders — only deliverable plans are sellable", () => {
+  it("rejects a vps order and points the customer at a quote", async () => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "vps",
+        tier: "starter",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/quote/i);
+    expect(await HostingOrder.countDocuments({ planType: "vps" })).toBe(0);
+  });
+
+  it.each(["cloud", "email"])("rejects a %s order outright", async (planType) => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType,
+        tier: "starter",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(await HostingOrder.countDocuments({ planType })).toBe(0);
+  });
+
+  it("still accepts the shared plans that can actually be provisioned", async () => {
+    const { token } = await makeUser();
+
+    const res = await request(app)
+      .post("/api/v1/hosting/orders")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        planType: "shared",
+        tier: "deluxe",
+        billingCycle: "monthly",
+        customer: { name: "Cust", email: "cust@t.com" },
+        paymentMethod: "cash",
+      });
+
+    expect(res.status).toBeLessThan(400);
+  });
+});
+
+// GET /hosting/plans is the catalogue the storefront renders. Anything it lists
+// is a promise to deliver, so the two undeliverable categories must not appear —
+// while `vps` must, because its card asks for a quote rather than payment.
+describe("GET /api/v1/hosting/plans — advertises only what can be delivered", () => {
+  it("omits cloud and email, keeps vps marked as an enquiry", async () => {
+    const res = await request(app).get("/api/v1/hosting/plans");
+
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body.data).sort()).toEqual(["shared", "vps", "wordpress"]);
+    expect(res.body.data.vps.starter.availability).toBe("enquiry");
+    expect(res.body.data.shared.deluxe.availability).toBe("instant");
+  });
+});

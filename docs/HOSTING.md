@@ -215,10 +215,31 @@ Nebula costs ~$17.88/mo, so break-even is 6 `deluxe`, 3 `professional` or 2 `ent
 **Do not advertise per-account RAM on a shared tier.** Nebula has 4 GB in total; a
 "1GB RAM" line on a $3 plan is the same category error as the 50 GB tier was.
 
-`vps` and `cloud` remain in the catalogue but **cannot be delivered from a reseller
-plan at all** — it can only create cPanel accounts. They are priced at $18–61/mo
-advertising up to 160 GB and 16 GB RAM. Either hide them or price them as resold
-third-party infrastructure with that cost accounted for.
+### What is sellable — `PLAN_AVAILABILITY`
+
+A reseller plan creates cPanel accounts and nothing else, so
+`config/hostingPlans.js` marks each plan type with an availability, and that one
+table drives both the storefront button and the `createOrder` guard:
+
+| Availability | Types | Behaviour |
+|---|---|---|
+| `instant` | `shared`, `wordpress` | Bought online, auto-provisioned |
+| `enquiry` | `vps` | Listed with indicative "from" prices; the card links to `/contact?subject=…`. `createOrder` returns 400 |
+| `unavailable` | `cloud`, `email` | Not returned by `GET /hosting/plans` at all; `createOrder` returns 400 |
+
+It ships on each plan object as `plan.availability`, alongside the prices, so the
+storefront cannot hold an opinion the API disagrees with — the same drift that
+once let the frontend advertise GH₵9/mo against a GH₵62/mo charge.
+
+Resolved 2026-08-31. Previously `vps` took payment upfront against a
+"built to order" banner and landed in the manual queue — but there is no VPS
+supplier behind that queue, so it was money taken for a server nobody could
+source. `cloud` and `email` had no storefront link yet were still accepted by the
+endpoint. Selling either again means finding a supplier and pricing it as resold
+third-party infrastructure first.
+
+**Staff are unaffected:** `staffCreateHostingAccount` still accepts any plan type,
+for an order that has genuinely been sourced.
 
 ### One catalogue, not two
 
