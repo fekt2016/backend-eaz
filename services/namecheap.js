@@ -10,37 +10,35 @@ const parseXml = promisify(parseString);
 /**
  * Namecheap domain registrar — the sole registrar.
  *
- * Restored 2026-08-31 by owner decision, reversing T130 (which had made Spaceship
- * the sole registrar earlier the same day). services/spaceship.js is deleted.
+ * How it behaves, and what that means for callers:
  *
- * This is a PORT, not a revert. The file T130 deleted is not the file here:
- *
- *  - Its `getDefaultPrice` table is NOT restored. That table sold `.com` at
- *    GH₵85 against a real cost near GH₵190 — below cost — and listed TLDs that
- *    cannot be sold. It is the single most expensive thing in the old file and
- *    it is gone for good. Prices now come from one place: config/domainPricing.js
- *    (USD cost) through `usdToGhs()`.
- *  - `usdToGhs()` reads the ADMIN-EDITABLE rate and markup from Settings.pricing
- *    via services/pricingSettings, not the USD_TO_GHS_RATE / DOMAIN_MARKUP env
- *    vars the old file used. Those env vars were retired on 2026-08-31 and
- *    setting them does nothing; reintroducing them would mean two places to look
- *    when a price is wrong.
- *
- * Deliberately exports the SAME surface as the Spaceship service it replaces, so
- * the call sites only change their `require` line.
- *
- * Differences from Spaceship that matter:
- *
- *  - XML over query strings, not REST + JSON.
+ *  - XML over query strings. Every response is parsed with xml2js, so xml2js is
+ *    a load-bearing dependency, not leftover tooling.
  *  - Registration is SYNCHRONOUS: `domains.create` either succeeds or fails on
  *    the one call. There is no operation id and nothing to poll.
- *  - Contacts are repeated across four blocks on every register call, rather
- *    than created once and referenced by id.
+ *  - Contacts are repeated across four blocks on every register call rather than
+ *    stored once and referenced by id — see the `shared` block in
+ *    `registerDomain`, fanned out across Registrant/Tech/Admin/AuxBilling.
  *  - There IS a pricing endpoint (`users.getPricing`), so live cost is available
- *    and config/domainPricing.js becomes the fallback rather than the only
- *    source. This is the main reason the local table's staleness stops mattering.
- *  - There IS a sandbox. Set NAMECHEAP_SANDBOX=true to exercise registration
- *    without spending money — the thing Spaceship made impossible.
+ *    and config/domainPricing.js is only the fallback. That is what keeps the
+ *    local table's staleness from mattering much.
+ *  - There IS a sandbox: set NAMECHEAP_SANDBOX=true to exercise registration
+ *    without spending money. Use it — the live registration round-trip has never
+ *    been verified end to end, and `assertSandboxAllowed()` below refuses to let
+ *    the sandbox run in production, where it would confirm registrations that
+ *    never happened.
+ *
+ * Two rules this file must keep:
+ *
+ *  - There is NO hardcoded GH₵ price table here, and there must never be one
+ *    again. A previous version carried one that sold `.com` at GH₵85 against a
+ *    real cost near GH₵190 — below cost — and listed TLDs that cannot be sold.
+ *    Prices come from one place: config/domainPricing.js (USD) through
+ *    `usdToGhs()`, preferring live `users.getPricing` when it answers.
+ *  - `usdToGhs()` reads the ADMIN-EDITABLE rate and markup from Settings.pricing
+ *    via services/pricingSettings. The USD_TO_GHS_RATE / DOMAIN_MARKUP env vars
+ *    were retired on 2026-08-31 and setting them does nothing; reintroducing
+ *    them would mean two places to look when a price is wrong.
  */
 
 // Live pricing cache. Namecheap's getPricing is a large response and its prices
@@ -153,8 +151,8 @@ async function callApi(params, timeout = 15000) {
  * Convert USD to GH₵ using the admin-editable rate and markup in
  * Settings.pricing (defaults 15.5 and 1.2 — a 20% margin over registrar cost).
  * Read through services/pricingSettings, which caches so this stays synchronous.
- * Unchanged from the Spaceship service on purpose — the sell price a customer
- * sees must not move just because the registrar behind it did.
+ * The sell price a customer sees is deliberately decoupled from the registrar —
+ * changing supplier must not move it.
  */
 function usdToGhs(usd) {
   const { getRate, getMarkup } = require("./pricingSettings");
@@ -463,8 +461,8 @@ async function checkMultipleDomains(name, tlds = DEFAULT_SEARCH_TLDS) {
 /**
  * Register a domain.
  *
- * Unlike Spaceship this is a single synchronous call — `domains.create` returns
- * the outcome directly, so there is no operation to poll.
+ * A single synchronous call — `domains.create` returns the outcome directly, so
+ * there is no async operation to poll and no pending state to reconcile.
  *
  * @param {string} domain
  * @param {number} years

@@ -80,7 +80,9 @@ dependency, not a deletion candidate held behind another file. See §7.
 | Old | Replacement | Which is live | Reason |
 |---|---|---|---|
 | Direct `api.*` calls in page components | `@/hooks/queries/*` react-query hooks | **Both** — 50 files use hooks, 21 call `api.*` directly, **5 use both in the same file** | CLAUDE.md documents the coexistence and says to prefer react-query for new work. The `useContacts.js` orphan in §1 is a symptom: the hook was written, the page kept the old pattern |
-| `services/spaceship.js` (428 lines) | `services/namecheap.js` (621 lines) | **Namecheap** | Reversed 2026-08-31: Namecheap became the sole registrar and `spaceship.js` was deleted. No duplicate remains — this row records an outcome, it is not an open finding |
+
+The registrar row that used to sit here is gone: there is only one registrar service
+(`services/namecheap.js`) and nothing duplicates it.
 
 ---
 
@@ -165,14 +167,14 @@ checkout is planned, this is scaffolding; if not, it is documentation for a vari
 
 Awaiting sign-off on specific rows before any deletion. My own recommendation, if useful: approve
 §1 and §2 (the four dependencies and two files, ~600 LoC), and **hold `services/namecheap.js` until
-T3 proves the Spaceship round-trip** — the rollback path is worth more than the 491 lines it costs.
+T3 proves the then-registrar's round-trip** — the rollback path is worth more than the 491 lines it costs.
 
 ---
 
 ## Phase B — executed 2026-08-29
 
 All four Confirmed Dead rows were approved and applied. `services/namecheap.js` was held back, as
-recommended, until T3 verifies the Spaceship live round-trip.
+recommended, until T3 verifies the then-registrar's live round-trip.
 
 | Row | Status | Commit |
 |---|---|---|
@@ -185,7 +187,7 @@ recommended, until T3 verifies the Spaceship live round-trip.
 | `CYBERPANEL_*` secrets | **Partial** — absent from local `.env`; retire wherever deployment sets them | — |
 
 **Verification after each batch:** backend eslint 0 errors, `app.js` loads, 44/44 hosting +
-spaceship, 51/51 email + notification, `npm audit` 0 vulnerabilities. Frontend eslint clean,
+registrar, 51/51 email + notification, `npm audit` 0 vulnerabilities. Frontend eslint clean,
 357/357 tests, `next build` compiles and generates all 78 static pages.
 
 **Actual scope removed:** 2 files, ~117 lines, 4 packages — smaller than the ~600 estimated, because
@@ -203,13 +205,13 @@ is reasoning, not observation.
 ## Update — 2026-08-31: the `namecheap.js` hold is closed
 
 The single row Phase B left open resolved in the opposite direction to the one this report
-anticipated. It was held pending **T3** verifying the Spaceship live registration round-trip.
-That verification never happened; instead the registrar decision was reversed.
+anticipated. It was held pending **T3** verifying the then-registrar's live registration round-trip.
+That verification never happened; instead the registrar was changed to Namecheap.
 
 | Item | In this report | Now |
 |---|---|---|
 | `services/namecheap.js` | Held for deletion, "wired to nothing" | **Live — the sole registrar.** Restored as a port, not a revert: the below-cost `getDefaultPrice` table is gone for good, and `usdToGhs()` reads the admin-editable `Settings.pricing` rather than the retired `USD_TO_GHS_RATE` / `DOMAIN_MARKUP` env vars |
-| `services/spaceship.js` | The live registrar | **Deleted** |
+| The previous registrar's service | Live | **Deleted** |
 | `xml2js` | Deletable once `namecheap.js` went | **A live dependency** — the Namecheap API is XML over query strings |
 
 `namecheap.js` and `xml2js` are therefore **off the deletion list permanently**, and §2, §3 and §7
@@ -218,9 +220,9 @@ above have been corrected. Nothing in this report now proposes removing either.
 Two things the reversal does **not** settle, both still open:
 
 - The argument that justified the hold — the live registration round-trip has **never been verified
-  end to end** — still stands, now against Namecheap rather than Spaceship. What changed is that it
-  is provable: Namecheap has a sandbox (`NAMECHEAP_SANDBOX=true`), which Spaceship did not.
-- `config/domainPricing.js` still carries the **Spaceship-era USD figures**, flagged in-file as not
+  end to end** — still stands, now against Namecheap. What changed is that it is provable:
+  Namecheap has a sandbox (`NAMECHEAP_SANDBOX=true`), which the previous supplier did not.
+- `config/domainPricing.js` still carries the **previous supplier's USD figures**, flagged in-file as not
   yet re-checked against a Namecheap invoice. It is now the fallback rather than the only source —
   Namecheap's `users.getPricing` is preferred, cached for an hour — which lowers the cost of that
   staleness without removing it.

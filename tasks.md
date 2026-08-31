@@ -590,8 +590,9 @@ Not defects; product features that don't exist yet. Scope separately before buil
     2. `services/cyberpanel.js` — the old hosting-panel tool, replaced by WHM, wired to nothing.
     3. The three `CYBERPANEL_*` secrets, which only that file read.
     4. Two lines in the docs that wrongly say react-email is in use.
-  - **What is deliberately NOT deleted:** `services/namecheap.js`. It looks unused but it is the
-    fallback if Spaceship fails, and Spaceship has never been tested with a real purchase. See T130.
+  - **What is deliberately NOT deleted:** `services/namecheap.js`. It looked unused at the time but
+    was the rollback path for the then-registrar, which had never been tested with a real purchase.
+    See T130 — it is now the live registrar.
   - **Full evidence:** `docs/DEAD-CODE-REPORT.md`. Audit branch `chore/dead-code-audit`.
   - **Fix — do these, in this order, each as its own commit with lint + tests between:**
     - [x] **1. Drop `@react-email/components` and `@react-email/render`** from `package.json`
@@ -616,21 +617,20 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Applied in three commits on `chore/dead-code-phase-b`.** Note `docs/code_review.md:316` had
     already flagged the two react-email packages as unused on **2026-07-16** — six weeks before this.
 
-- [x] **T130 · APPLIED 2026-08-31 — Namecheap deleted; Spaceship is the sole registrar** (dead-code audit 2026-08-29)
-  - **Issue:** `services/namecheap.js` (491 lines) is orphaned — nothing requires it — and `xml2js`
-    is a prod dependency required by that file alone. It looks like an obvious deletion.
-  - **Why it is NOT being deleted:** its own header states it is retained as the rollback path off
-    Spaceship, and **T3 records that the Spaceship live registration round-trip has never been
-    verified**. Spaceship has no sandbox, so every real registration spends money and the rollback
-    still carries value. Deleting it now would remove the only fallback for an unproven integration.
-  - **Also recorded in that header:** its price table sells `.com` below cost and lists TLDs that
-    cannot be sold. If the rollback is ever taken, it must be repriced first — do not simply re-wire it.
-  - **Fix:** revisit once T3 closes successfully. Then delete the file and drop `xml2js` together.
-  - **Acceptance:**
-    - [ ] T3 closed with a verified live Spaceship registration
-    - [ ] `services/namecheap.js` deleted and `xml2js` removed from `package.json`
-    - [ ] Comments in `config/domainPricing.js`, `utils/domainHelper.js` and `services/spaceship.js`
-          that reference the retired file updated so they do not point at something gone
+- [x] **T130 · REVERSED 2026-08-31 — Namecheap is the sole registrar** (dead-code audit 2026-08-29)
+  - **Original issue:** `services/namecheap.js` (491 lines) was orphaned — nothing required it — and
+    `xml2js` was a prod dependency of that file alone, so it looked like an obvious deletion. It was
+    held back as the rollback path for a registrar whose live round-trip had never been verified.
+  - **What actually happened:** the hold was never resolved by T3. On **2026-08-31** the registrar
+    decision was reversed by the owner instead — `services/namecheap.js` was restored as the sole
+    registrar and the other service was deleted. `xml2js` is now load-bearing, not leftover.
+  - **It was a port, not a revert.** The below-cost `getDefaultPrice` table that this task warned
+    about (`.com` at GH₵85 against ~GH₵190 cost, plus unsellable TLDs) was **not** brought back;
+    prices come from `config/domainPricing.js` through `usdToGhs()`, which reads the admin-editable
+    `Settings.pricing`. Do not reintroduce a hardcoded GH₵ table.
+  - **Outcome:** nothing here is outstanding. `services/namecheap.js` and `xml2js` are off the
+    deletion list permanently — see `docs/DEAD-CODE-REPORT.md`. The unverified-round-trip concern
+    survives as **T3**, now against Namecheap, which does have a sandbox.
 
 - [x] **T131 · APPLIED 2026-08-30 — all 16 `scripts/*.js` registered and documented** (dead-code audit 2026-08-29)
   - **Issue:** `scripts/` holds 16 files; only 9 are registered in `package.json`. Unregistered:
@@ -710,8 +710,8 @@ Not defects; product features that don't exist yet. Scope separately before buil
   Cross-references embedded in the file so a deployer meets them at the point of use: `T119`
   (`FRONTEND_URL` degrades to `""` rather than failing fast), `T85` (`NODE_ENV` must really be
   set or the Secure cookie *and* stack-trace suppression both switch off), `T96` (in-process jobs
-  double-run if scaled out), and the note that `tests/setup.js` blanks the Spaceship keys on
-  purpose because Spaceship has no sandbox.
+  double-run if scaled out), and the note that `tests/setup.js` blanks the registrar keys on
+  purpose so a test run can never reach the live API.
 
   - The four `NAMECHEAP_*` names are documented as **retired-but-still-read**, tied to the
     `services/namecheap.js` rollback path held under **T130**, so they are not mistaken for live
@@ -950,7 +950,8 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Issue:** `nginx.conf` and `ecosystem.config.js` live at the workspace root
     (`/Users/mac/Desktop/eazworld/`), which is **not a git repository** — only `backend-eaz/` and
     `frontend-eaz/` are. Neither file is tracked by either repo. There is also no `Dockerfile` or
-    `docker-compose.yml` anywhere in the tree, though deployment is Docker on a Spaceship VPS.
+    `docker-compose.yml` anywhere in the tree. (Deployment has since moved to a Namecheap cPanel
+    reseller plan under Passenger — `.cpanel.yml` is tracked, and these two files were deleted.)
   - **Impact:** the files that define how the app is served exist only on this machine. They cannot
     be deployed by pulling either repo, are not reviewed, are not backed up, and are lost with the
     laptop. This is a deployment blocker independent of their contents.
@@ -1238,7 +1239,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   ### A FOURTH face, 2026-08-30 (during the address-restriction verification)
 
   A clean full run — nothing else on the machine — failed one test with **401 instead of 200**:
-  `hosting.test.js` › "uses the Spaceship price for a known TLD". It passes in isolation (24/24).
+  `hosting.test.js` › "uses the Namecheap price for a known TLD". It passes in isolation (24/24).
 
   That makes four symptoms of what is almost certainly one bug:
 

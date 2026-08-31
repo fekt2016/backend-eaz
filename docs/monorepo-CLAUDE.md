@@ -33,7 +33,6 @@ backend-eaz/
 ├── controllers/         # request handling + business logic (async fn (req,res,next) with try/catch → next(err))
 ├── models/              # Mongoose schemas
 ├── services/            # external integrations: namecheap, whm, notify, reminderJob
-│                        #   (spaceship.js + cyberpanel.js are retired)
 ├── middleware/          # auth.js (protect, restrictTo), errorHandler.js
 ├── validation/          # Zod schemas (authSchema, contactSchema, domainSchema)
 ├── utils/               # email, invoices, provisioning, jobs, sanitize, validateEnv

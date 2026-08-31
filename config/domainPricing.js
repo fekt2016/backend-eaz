@@ -15,14 +15,15 @@
  * Renewal prices are used rather than first-year promos: we bill the customer
  * every year, and a promo price would leave us short at renewal.
  *
- * ⚠️  These figures were verified against SPACESHIP, not Namecheap (2026-08-25),
- * and the registrar changed on 2026-08-31. Until they are re-verified they are
- * only a fallback for the live Namecheap prices — treat a value here as an upper
- * bound, not a fact. Re-verify against a Namecheap invoice and update.
+ * ⚠️  These figures have NOT been verified against Namecheap. They were carried
+ * over from a previous supplier's price list (2026-08-25) and never re-checked.
+ * Until they are, treat a value here as an upper bound, not a fact — it is only
+ * the fallback for the live `users.getPricing` figures. Re-verify against a
+ * Namecheap invoice and update.
  */
 
-// Carried over from the Spaceship price list (2026-08-25) — NOT yet re-verified
-// against Namecheap. See the warning above.
+// Carried over from a previous supplier's price list (2026-08-25) — NOT yet
+// re-verified against Namecheap. See the warning above.
 const VERIFIED_USD = {
   ".com": 10.18,
   ".net": 11.4,
@@ -59,8 +60,8 @@ const TLD_COST_USD = { ...VERIFIED_USD, ...UNVERIFIED_USD };
 // requires proof of Ghana business registration) and no mainstream registrar
 // resells them — see tasks.md T64.
 //
-// `.africa` is NOT in this list any more: Spaceship could not sell it, Namecheap
-// can. It returned to DEFAULT_SEARCH_TLDS with the registrar change.
+// `.africa` is NOT in this list: Namecheap sells it, so it is offered in
+// DEFAULT_SEARCH_TLDS.
 const UNSUPPORTED_TLDS = [".gh", ".com.gh", ".org.gh", ".edu.gh", ".gov.gh"];
 
 // What the domain search offers by default. `.africa` is back now that Namecheap

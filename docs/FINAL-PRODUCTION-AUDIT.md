@@ -71,22 +71,23 @@ Express API (backend-eaz, :5000)
       │
       └── Services
             · Paystack        payments — card + Mobile Money (GHS, pesewas)
-            · Spaceship       domain search / registration
-            · WHM             hosting provisioning (Starlight VPS)
+            · Namecheap       domain search / registration
+            · WHM             hosting provisioning (cPanel reseller server)
             · Cloudinary      image uploads
             · Resend + react-email  transactional email
             · Anthropic SDK   chat assistant
             · Hubtel          SMS (verification PINs, tracking links)
 
-Background jobs: in-process setInterval in server.js — renewals (24 h),
+Background jobs: cPanel cron via scripts/runJob.js — renewals (24 h),
 reminders (12 h), scheduled publish (1 h), refund reconcile (2 h).
+IN_PROCESS_JOBS=false disables the in-process timers so they cannot double-run.
 
-Serving (intended): Docker on a Spaceship VPS, behind Nginx.
-Serving (committed): nothing. See T122.
+Serving: Phusion Passenger on a Namecheap cPanel reseller plan (LiteSpeed,
+AutoSSL). Deployed by .cpanel.yml through cPanel Git Version Control.
 ```
 
 **External dependencies that can take the site down:** MongoDB Atlas, Paystack, Resend, Cloudinary,
-Spaceship, WHM, Hubtel, Anthropic.
+Namecheap, WHM, Hubtel, Anthropic.
 
 ---
 
@@ -212,14 +213,16 @@ act on.
 
 ## 8. Domain Assessment
 
-Search, availability and pricing are implemented against Spaceship, with per-TLD pricing in code
-(`config/domainPricing.js`) because Spaceship exposes no pricing endpoint. `.gh`, `.com.gh` and
-`.africa` are rejected up front as unsupported. Payment initialization and the webhook branch exist.
+Search, availability and pricing are implemented against Namecheap, which exposes a pricing endpoint
+(`users.getPricing`, cached an hour); `config/domainPricing.js` holds per-TLD USD costs as the
+fallback. `.gh` and `.com.gh` are rejected up front as registry-restricted; `.africa` is sellable.
+Payment initialization and the webhook branch exist.
 
-**Not verifiable here:** Spaceship has no sandbox — `tests/setup.js` deliberately blanks the API
-credentials, so every registration path is exercised against mocks only. A real registration spends
-real money. **The live round-trip has never been proven** (tracked as T3). Treat domain registration as
-untested in production terms.
+**Not verifiable here:** `tests/setup.js` deliberately blanks the API credentials, so every
+registration path is exercised against mocks only. **The live round-trip has never been proven**
+(tracked as T3). Namecheap does have a sandbox (`NAMECHEAP_SANDBOX=true`), so unlike the previous
+supplier this is provable without spending money — but until someone runs it, treat domain
+registration as untested in production terms.
 
 ---
 
@@ -359,8 +362,9 @@ headroom, which is exactly why the clamps mattered.
 | CORS | Configured in `app.js`, origin-driven. |
 | Webhook reachability | Depends on the Nginx block that is still templated. |
 
-`render.yaml` and the deleted `amplify.yml` are leftovers from platforms no longer used — the target is
-a Spaceship VPS.
+`render.yaml`, `deploy/nginx.conf` and `deploy/ecosystem.config.js` have since been deleted along with
+`amplify.yml` — the target is a Namecheap cPanel reseller plan, where there is no root, no Nginx and
+no PM2. See `docs/HOSTING.md`.
 
 ---
 
@@ -413,7 +417,7 @@ Dependency audit:   FAIL   frontend 2 high; backend 0
 - **T89** — paid orders can silently under-fulfil
 - **T124/T99** — 2 high frontend advisories; image-optimizer surface open via `remotePatterns: "**"`
 - **T115** — two shipping suites depend on the wall clock
-- **T3** — Spaceship and WHM live round-trips never verified
+- **T3** — Namecheap and WHM live round-trips never verified
 
 ### Low
 - **T93** unescaped `$regex` (admin-only) · **T102** 84 raw `err.message` sites · **T103** `/seo` redirect shim
@@ -448,7 +452,7 @@ Dependency audit:   FAIL   frontend 2 high; backend 0
 
 ## 21. Deployment Checklist
 
-- [ ] Production environment variables set and verified — `MONGO_URL` + `DATABASE_PASSWORD`, `JWT_SECRET` (≥32 chars), `PAYSTACK_SECRET`, **`FRONTEND_URL`**, `NEXT_PUBLIC_API_URL`, `RESEND_API_KEY`, `CLOUDINARY_*`, `SPACESHIP_*`, `HUBTEL_*`
+- [ ] Production environment variables set and verified — `MONGO_URL` + `DATABASE_PASSWORD`, `JWT_SECRET` (≥32 chars), `PAYSTACK_SECRET`, **`FRONTEND_URL`**, `NEXT_PUBLIC_API_URL`, `RESEND_API_KEY`, `CLOUDINARY_*`, `NAMECHEAP_*`, `HUBTEL_*`
 - [ ] `NODE_ENV=production` guaranteed at process level (not only `pm2 --env production`)
 - [ ] Database reachable from the VPS; Atlas IP allowlist includes it
 - [ ] Backups configured and a restore actually tested
