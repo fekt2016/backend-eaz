@@ -64,8 +64,8 @@ async function sendHostingCredentials(order, { username, password, domain }) {
   if (!resend || !order?.customer?.email) return;
   const cpanelUrl = process.env.CPANEL_URL || `https://${domain}:2083`;
   const planLabel = `${order.planType} ${order.tier}`;
-  const ns1 = process.env.NAMESERVER_1 || 'ns1.eazworld.com';
-  const ns2 = process.env.NAMESERVER_2 || 'ns2.eazworld.com';
+  const ns1 = process.env.NAMESERVER_1 || 'ns1.eazworld.co';
+  const ns2 = process.env.NAMESERVER_2 || 'ns2.eazworld.co';
 
   // A temp domain looks like "username.eazworld.com" — if the customer provided
   // their own domain, show nameserver setup instructions.

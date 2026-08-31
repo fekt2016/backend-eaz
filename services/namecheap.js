@@ -520,8 +520,8 @@ async function registerDomain(domain, years, registrant, options = {}) {
   // server at registration time rather than in a second call.
   const nameserverParams = {};
   if (options.useEazWorldNameservers) {
-    const ns1 = process.env.NAMESERVER_1 || "ns1.eazworld.com";
-    const ns2 = process.env.NAMESERVER_2 || "ns2.eazworld.com";
+    const ns1 = process.env.NAMESERVER_1 || "ns1.eazworld.co";
+    const ns2 = process.env.NAMESERVER_2 || "ns2.eazworld.co";
     nameserverParams.Nameservers = `${ns1},${ns2}`;
     logger.info(`[Namecheap] Registering ${clean} with EazWorld nameservers: ${ns1}, ${ns2}`);
   }
@@ -580,8 +580,8 @@ async function setEazWorldNameservers(domain) {
     return { success: false, error: "Namecheap API not configured" };
   }
 
-  const ns1 = process.env.NAMESERVER_1 || "ns1.eazworld.com";
-  const ns2 = process.env.NAMESERVER_2 || "ns2.eazworld.com";
+  const ns1 = process.env.NAMESERVER_1 || "ns1.eazworld.co";
+  const ns2 = process.env.NAMESERVER_2 || "ns2.eazworld.co";
   const clean = String(domain || "").trim().toLowerCase();
   const [sld, ...tldParts] = clean.split(".");
   const tld = tldParts.join(".");

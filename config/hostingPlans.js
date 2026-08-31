@@ -392,7 +392,7 @@ function getPlanPrice(planType, tier, billingCycle) {
 
 // Nameservers customers must point their domain at (for 'own'/'skip' domains).
 // Set HOSTING_NAMESERVERS to a comma-separated list from your WHM server,
-// e.g. "ns1.eazworld.com,ns2.eazworld.com".
+// e.g. "ns1.eazworld.co,ns2.eazworld.co".
 const HOSTING_NAMESERVERS = (process.env.HOSTING_NAMESERVERS || '')
   .split(',')
   .map((s) => s.trim())

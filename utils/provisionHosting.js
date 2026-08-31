@@ -101,7 +101,7 @@ async function provisionHostingAccount(orderRef) {
           email: doc.customer.email,
           phone: doc.customer.phone || '',
         },
-        { useEazWorldNameservers: true } // ← auto-sets ns1/ns2.eazworld.com
+        { useEazWorldNameservers: true } // ← auto-sets ns1/ns2.eazworld.co
       );
 
       if (regResult.success) {
