@@ -67,10 +67,11 @@ provisioning tests exercise the WHM path only.
 **Explicitly NOT flagged** — checked and found genuinely used, despite looking unreferenced to a naive
 scan: `nodemon` (the `dev` script), `@eslint/js` and `globals` (`eslint.config.js`),
 `@testing-library/jest-dom` (`vitest.setup.js`), `eslint-config-next` (`.eslintrc.json`),
-`axios` (spaceship, whm, googleDistance).
+`axios` (namecheap, whm, googleDistance).
 
-`xml2js` is **not** listed above: it is required only by the retired `services/namecheap.js`, so it can
-only go when that file does. See §7.
+`xml2js` is **not** listed above, and no longer for the reason first given here: it is required by
+`services/namecheap.js`, which has been the **live registrar** since 2026-08-31. It is a working
+dependency, not a deletion candidate held behind another file. See §7.
 
 ---
 
@@ -79,7 +80,7 @@ only go when that file does. See §7.
 | Old | Replacement | Which is live | Reason |
 |---|---|---|---|
 | Direct `api.*` calls in page components | `@/hooks/queries/*` react-query hooks | **Both** — 50 files use hooks, 21 call `api.*` directly, **5 use both in the same file** | CLAUDE.md documents the coexistence and says to prefer react-query for new work. The `useContacts.js` orphan in §1 is a symptom: the hook was written, the page kept the old pattern |
-| `services/namecheap.js` (491 lines) | `services/spaceship.js` | **Spaceship** | Namecheap is wired to nothing. See §7 — it is retained deliberately, not by accident |
+| `services/spaceship.js` (428 lines) | `services/namecheap.js` (621 lines) | **Namecheap** | Reversed 2026-08-31: Namecheap became the sole registrar and `spaceship.js` was deleted. No duplicate remains — this row records an outcome, it is not an open finding |
 
 ---
 
@@ -125,8 +126,12 @@ proxy configuration, not dead application code, and is already covered by audit 
 
 | Item | Recommendation |
 |---|---|
-| `services/namecheap.js` (491 lines) + `xml2js` | **Keep for now.** Its header states it is retained as the rollback path off Spaceship and is "wired to nothing". That rollback still has value: audit task **T3** records that the Spaceship live registration round-trip has **never been verified**, and Spaceship has no sandbox. Delete once T3 closes successfully — then `xml2js` goes with it. The header also warns its price table is below cost, so it must not be re-wired without repricing |
 | Two data-fetching patterns | Migrate page-by-page to react-query as files are touched, per CLAUDE.md. Not a deletion task |
+
+`services/namecheap.js` + `xml2js` used to head this table as "keep for now, delete once T3 closes".
+**That row is gone.** Namecheap is the live registrar as of 2026-08-31, so neither the file nor the
+dependency is deprecated and neither is a deletion candidate. See the update at the end of this
+report.
 
 ---
 
@@ -176,7 +181,7 @@ recommended, until T3 verifies the Spaceship live round-trip.
 | Docs claiming react-email is in use | **Done** | `T128 (3/3)` |
 | `src/hooks/queries/useContacts.js` + `qk.consultations` | **Done** | `T129 (1/2)` |
 | `@playwright/test` + `playwright` (dev) | **Done** | `T129 (2/2)` |
-| `services/namecheap.js` + `xml2js` | **Held** — blocked on T3 (see backend T130) | — |
+| `services/namecheap.js` + `xml2js` | **Closed — not deleted.** The hold was lifted by reversing the registrar, not by T3. See the 2026-08-31 update | — |
 | `CYBERPANEL_*` secrets | **Partial** — absent from local `.env`; retire wherever deployment sets them | — |
 
 **Verification after each batch:** backend eslint 0 errors, `app.js` loads, 44/44 hosting +
@@ -192,3 +197,30 @@ is reasoning, not observation.
 
 **Worth noting:** `docs/code_review.md:316` flagged the two react-email packages as unused on
 **2026-07-16**. They shipped in production dependencies for six more weeks.
+
+---
+
+## Update — 2026-08-31: the `namecheap.js` hold is closed
+
+The single row Phase B left open resolved in the opposite direction to the one this report
+anticipated. It was held pending **T3** verifying the Spaceship live registration round-trip.
+That verification never happened; instead the registrar decision was reversed.
+
+| Item | In this report | Now |
+|---|---|---|
+| `services/namecheap.js` | Held for deletion, "wired to nothing" | **Live — the sole registrar.** Restored as a port, not a revert: the below-cost `getDefaultPrice` table is gone for good, and `usdToGhs()` reads the admin-editable `Settings.pricing` rather than the retired `USD_TO_GHS_RATE` / `DOMAIN_MARKUP` env vars |
+| `services/spaceship.js` | The live registrar | **Deleted** |
+| `xml2js` | Deletable once `namecheap.js` went | **A live dependency** — the Namecheap API is XML over query strings |
+
+`namecheap.js` and `xml2js` are therefore **off the deletion list permanently**, and §2, §3 and §7
+above have been corrected. Nothing in this report now proposes removing either.
+
+Two things the reversal does **not** settle, both still open:
+
+- The argument that justified the hold — the live registration round-trip has **never been verified
+  end to end** — still stands, now against Namecheap rather than Spaceship. What changed is that it
+  is provable: Namecheap has a sandbox (`NAMECHEAP_SANDBOX=true`), which Spaceship did not.
+- `config/domainPricing.js` still carries the **Spaceship-era USD figures**, flagged in-file as not
+  yet re-checked against a Namecheap invoice. It is now the fallback rather than the only source —
+  Namecheap's `users.getPricing` is preferred, cached for an hour — which lowers the cost of that
+  staleness without removing it.
