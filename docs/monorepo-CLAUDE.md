@@ -47,7 +47,7 @@ Conventions:
 - **Controllers** are `async (req, res, next)` wrapped in `try/catch` that calls `next(err)`. Use `req.user.id` for identity, never a client-supplied id.
 - **Pagination:** clamp `page`/`limit` in the controller (see `productController.getProducts` — default/min/max pattern).
 - **Validation:** Zod schemas live in `validation/`. Apply them for new endpoints; some legacy controllers parse manually.
-- **Security is already wired in `app.js`:** helmet + CSP, `xss-clean`, `express-mongo-sanitize`, `hpp`, `express-rate-limit`, `cors`, `cookie-parser`. `trust proxy` is 1 (Nginx/cPanel).
+- **Security is already wired in `app.js`:** helmet + CSP, `xss-clean`, `express-mongo-sanitize`, `hpp`, `express-rate-limit`, `cors`, `cookie-parser`. `trust proxy` is 1 (LiteSpeed/cPanel).
 - **External domains:** **Spaceship** (domain search/registration — `services/spaceship.js`), WHM on a Spaceship Starlight VPS (hosting provisioning), Cloudinary (uploads), Resend (transactional email — hand-written HTML, no React renderer), Paystack (payments).
 - **Domain pricing lives in code.** Spaceship has no pricing endpoint, so per-TLD costs sit in
   `config/domainPricing.js` (USD) and are converted by `usdToGhs()` using `USD_TO_GHS_RATE` +
@@ -91,8 +91,14 @@ Conventions (see root `STYLE_GUIDE.md`):
 
 ## Deployment
 
-Backend on cPanel/EC2 via PM2 (`deploy/ecosystem.config.js`) behind Nginx (`deploy/nginx.conf`); `render.yaml` also present.
-Frontend `next build` (`amplify.yml` for AWS Amplify). Backend tuned for a 512MB heap — keep queries lean.
+Both apps run on **Spaceship Essential** (shared cPanel, LiteSpeed, AutoSSL) under
+Phusion Passenger — registered in cPanel's *Setup Node.js App*, deployed by each repo's
+`.cpanel.yml` via cPanel Git Version Control. There is no root, so **no Nginx and no PM2**;
+a restart is `touch tmp/restart.txt`. Backend is tuned for a 512MB heap — keep queries lean.
+
+**See `docs/HOSTING.md`** for DNS, the 5-hostname budget, deploy steps, and the limits this
+plan imposes (no cipher/OCSP control, no 6MB body cap, Passenger idle-out affecting
+in-process jobs, and no WHM — so the customer hosting product cannot provision here).
 
 ## Working in this repo
 

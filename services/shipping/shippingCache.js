@@ -2,7 +2,7 @@
  * In-process TTL cache for shipping configuration (zones, tiers, settings).
  *
  * The audit found no Redis and no shared cache anywhere in this app — a single
- * PM2 instance behind Nginx — so a plain Map with a TTL is all the quote path
+ * app instance behind LiteSpeed — so a plain Map with a TTL is all the quote path
  * needs to keep rate reads off the hot checkout path.
  *
  * TTL alone is NOT the invalidation story: every admin write calls

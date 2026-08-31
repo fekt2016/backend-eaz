@@ -33,4 +33,5 @@ other's files. These are duplicated on purpose:
 | `AUDIT.md` | 2026-08-18 audit |
 | `REFACTORING_AUDIT.md` | Duplication / structure review |
 | `PHASE7_MONEY_MIGRATION_PLAN.md` | Money → integer pesewas migration |
-| `hosting-asura.md`, `shipping.md`, `shipping-expansion-plan.md`, `pr-*.md` | Pre-existing notes |
+| `HOSTING.md` | Where eazworld.co itself is hosted (Spaceship Essential) |
+| `shipping.md`, `shipping-expansion-plan.md`, `pr-*.md` | Pre-existing notes |

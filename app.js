@@ -54,7 +54,7 @@ const ENV  = process.env.NODE_ENV || 'development';
 const PROD = ENV === 'production';
 const IS_TEST = ENV === 'test';
 
-// Trust the first proxy (Nginx in prod, Next.js dev server locally)
+// Trust the first proxy (LiteSpeed/Passenger in prod, Next.js dev server locally)
 // Required for express-rate-limit to correctly read X-Forwarded-For
 app.set('trust proxy', 1);
 console.log(`\n🚀 [EazWorld API] Starting server in ${ENV.toUpperCase()} mode`);

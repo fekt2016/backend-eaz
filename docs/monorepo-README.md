@@ -123,16 +123,24 @@ Example endpoints:
 
 ## Deployment
 
-The backend runs on cPanel/EC2 under PM2 behind Nginx, tuned for a ~512MB heap (see the memory handling in
-`backend-eaz/server.js`). The frontend builds with `next build` (AWS Amplify config in `frontend-eaz/amplify.yml`;
-a `render.yaml` is also present for the backend).
+Both apps run on **Spaceship Essential** — shared cPanel (LiteSpeed, AutoSSL via Let's Encrypt,
+Imunify360), 20 GB NVMe, 1 core, up to 5 hosted domains. Each app runs under Phusion Passenger,
+registered in cPanel's *Setup Node.js App*. A shared plan has no root, so there is **no Nginx and
+no PM2**. The backend is tuned for a ~512MB heap (see the memory handling in `backend-eaz/server.js`).
 
-1. Clone both repos and install dependencies (`backend-eaz` + `frontend-eaz`).
-2. Set production env vars (`backend-eaz/.env`, `frontend-eaz/.env.local` or env in PM2/Amplify).
-3. Build the frontend: `cd frontend-eaz && npm run build`.
-4. Start the backend with PM2: `pm2 start ecosystem.config.js --env production`.
-5. Configure Nginx using `deploy/nginx.conf` (update `server_name` and SSL paths).
-6. For updates: pull, `npm install`, rebuild the frontend, and `pm2 restart` the backend.
+1. Clone both repos into cPanel → **Git Version Control**.
+2. Register each app in cPanel → **Setup Node.js App**:
+   - API — app root `~/api.eazworld.co`, startup file `server.js`
+   - Frontend — app root `~/eazworld.co`, startup file `node_modules/.bin/next` (`start`)
+3. Set production env vars in that same screen (they are *not* committed; `.env` is server-only).
+   Include `NODE_OPTIONS=--max-old-space-size=512` on the API.
+4. Point DNS at the nameservers from your cPanel welcome email, or use the TXT+A record path.
+5. Build the frontend **before** deploying (`npm ci && npm run build`) — one shared core is not
+   enough to build reliably during a deploy.
+6. Deploy: *Update from Remote* → *Deploy HEAD Commit*. Each repo's `.cpanel.yml` copies the
+   source, installs dependencies, and touches `tmp/restart.txt` to restart Passenger.
+
+Full details, the 5-hostname budget, and the limits this plan imposes are in `docs/HOSTING.md`.
 
 ## License
 
