@@ -234,6 +234,19 @@ async function getAccountStatus(username) {
   };
 }
 
+/**
+ * List the WHM packages this reseller owns (WHM `listpkgs`).
+ * Used by `npm run check:whm` to prove every catalogue tier has a package
+ * BEFORE a customer pays — a missing package fails `createacct` on a paid order.
+ * @returns {Promise<{ success: boolean, packages?: string[], error?: string }>}
+ */
+async function listPackages() {
+  const res = await callWhm('listpkgs', {}, 15000);
+  if (!res.success) return res;
+  const pkgs = res.data?.pkg || [];
+  return { success: true, packages: pkgs.map((p) => p.name).filter(Boolean) };
+}
+
 module.exports = {
   hasConfig,
   createAccount,
@@ -248,4 +261,5 @@ module.exports = {
   terminateAccount,
   changePassword,
   getAccountStatus,
+  listPackages,
 };

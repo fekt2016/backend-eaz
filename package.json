@@ -29,6 +29,7 @@
     "migrate:remove-same-day": "node scripts/removeSameDayTier.js",
     "check:duplicate-skus": "node scripts/checkDuplicateSkus.js",
     "check:duplicate-phones": "node scripts/checkDuplicatePhones.js",
+    "check:whm": "node scripts/checkWhm.js",
     "test": "jest --runInBand",
     "test:watch": "jest --runInBand --watch",
     "lint": "eslint .",
