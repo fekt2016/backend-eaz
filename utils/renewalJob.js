@@ -9,18 +9,15 @@
  */
 
 const HostingOrder = require('../models/HostingOrder');
-const EmailLog = require('../models/EmailLog');
-const { Resend } = require('resend');
 const whm = require('../services/whm');
 const { LIFECYCLE } = require('../config/hostingPlans');
 const logger = require("./logger");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-// From-address precedence: RESEND_FROM_EMAIL (.env, what Resend actually accepts)
-// → legacy EMAIL_FROM → default.
-const FROM = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'EazWorld <onboarding@resend.dev>';
+// Sends via the shared sender in utils/email.js — see the note at the top of
+// utils/hostingEmail.js for why the three private Resend clients were collapsed.
+const { send } = require('./email');
 const FRONTEND_URL = require('../utils/frontendUrl')();
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -30,18 +27,19 @@ function daysFromNow(date) {
 }
 
 async function sendRenewalReminder(order, daysLeft) {
-  if (!resend || !order?.customer?.email) return;
+  if (!order?.customer?.email) return;
   const planLabel = `${order.planType} ${order.tier}`;
   const renewUrl = `${FRONTEND_URL}/dashboard/hosting/${order._id}`;
   const urgency = daysLeft <= 1 ? '🚨' : daysLeft <= 7 ? '⚠️' : '📅';
   const subject = `${urgency} Your EazWorld hosting expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
 
-  try {
-    await resend.emails.send({
-      from: FROM,
-      to: [order.customer.email],
-      subject,
-      html: `
+  return send({
+    to: order.customer.email,
+    subject,
+    type: 'renewal_reminder',
+    orderId: order._id,
+    meta: { daysLeft },
+    html: `
         <h2>${urgency} Hosting renewal reminder</h2>
         <p>Hi ${order.customer?.name || 'there'},</p>
         <p>Your <strong>${planLabel}</strong> hosting plan${order.domain ? ` for <strong>${order.domain}</strong>` : ''} expires in <strong>${daysLeft} day${daysLeft === 1 ? '' : 's'}</strong>.</p>
@@ -54,27 +52,22 @@ async function sendRenewalReminder(order, daysLeft) {
         </p>
         <p style="color:#6b7280;font-size:13px;">If you have already renewed, you can ignore this email.</p>
         <p>— The EazWorld Team</p>
-      `
-    });
-    EmailLog.create({ to: order.customer.email, subject, type: 'renewal_reminder', status: 'sent', orderId: order._id, meta: { daysLeft } }).catch(() => {});
-  } catch (err) {
-    logger.error(`[renewalJob] Reminder email failed for ${order.customer.email}:`, err.message);
-    EmailLog.create({ to: order.customer.email, subject, type: 'renewal_reminder', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
-  }
+      `,
+  });
 }
 
 async function sendExpiredNotice(order) {
-  if (!resend || !order?.customer?.email) return;
+  if (!order?.customer?.email) return;
   const planLabel = `${order.planType} ${order.tier}`;
   const renewUrl = `${FRONTEND_URL}/dashboard/hosting/${order._id}`;
   const subject = '❌ Your EazWorld hosting has expired';
 
-  try {
-    await resend.emails.send({
-      from: FROM,
-      to: [order.customer.email],
-      subject,
-      html: `
+  return send({
+    to: order.customer.email,
+    subject,
+    type: 'expired_notice',
+    orderId: order._id,
+    html: `
         <h2>Your hosting has expired</h2>
         <p>Hi ${order.customer?.name || 'there'},</p>
         <p>Your <strong>${planLabel}</strong> hosting plan${order.domain ? ` for <strong>${order.domain}</strong>` : ''} has expired and your account has been suspended.</p>
@@ -87,13 +80,8 @@ async function sendExpiredNotice(order) {
         </p>
         <p style="color:#6b7280;font-size:13px;">Need help? Reply to this email and we will assist you.</p>
         <p>— The EazWorld Team</p>
-      `
-    });
-    EmailLog.create({ to: order.customer.email, subject, type: 'expired_notice', status: 'sent', orderId: order._id }).catch(() => {});
-  } catch (err) {
-    logger.error(`[renewalJob] Expired notice email failed for ${order.customer.email}:`, err.message);
-    EmailLog.create({ to: order.customer.email, subject, type: 'expired_notice', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
-  }
+      `,
+  });
 }
 
 // ── Main job ───────────────────────────────────────────────────────────────────
@@ -192,28 +180,23 @@ async function runRenewalJob() {
 }
 
 async function sendTerminatedNotice(order) {
-  if (!resend || !order?.customer?.email) return;
+  if (!order?.customer?.email) return;
   const planLabel = `${order.planType} ${order.tier}`;
   const subject = '⛔ Your EazWorld hosting account has been terminated';
 
-  try {
-    await resend.emails.send({
-      from: FROM,
-      to: [order.customer.email],
-      subject,
-      html: `
+  return send({
+    to: order.customer.email,
+    subject,
+    type: 'terminated_notice',
+    orderId: order._id,
+    html: `
         <h2>Your hosting account has been terminated</h2>
         <p>Hi ${order.customer?.name || 'there'},</p>
         <p>Your <strong>${planLabel}</strong> hosting plan${order.domain ? ` for <strong>${order.domain}</strong>` : ''} was suspended for more than ${LIFECYCLE.suspendToTerminateDays} days and has now been terminated. Associated data has been removed.</p>
         <p>If you would like to host with us again, you are welcome to place a new order at any time.</p>
         <p>— The EazWorld Team</p>
-      `
-    });
-    EmailLog.create({ to: order.customer.email, subject, type: 'terminated_notice', status: 'sent', orderId: order._id }).catch(() => {});
-  } catch (err) {
-    logger.error(`[renewalJob] Terminated notice email failed for ${order.customer.email}:`, err.message);
-    EmailLog.create({ to: order.customer.email, subject, type: 'terminated_notice', status: 'failed', error: err.message, orderId: order._id }).catch(() => {});
-  }
+      `,
+  });
 }
 
 module.exports = { runRenewalJob };

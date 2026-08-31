@@ -28,6 +28,13 @@ const emailLogSchema = new mongoose.Schema(
         'service_confirmation',
         'renewal_reminder',
         'expired_notice',
+        // The hosting lifecycle's third and final notice. Missing here while
+        // utils/renewalJob.js sent it, so EmailLog.create() failed validation and
+        // the .catch(() => {}) swallowed it: terminating someone's account left
+        // no record that they were told. Same shape as the T61 two_factor bug.
+        'terminated_notice',
+        // services/notify.js — the uncollected-device chase. Same story.
+        'repair_reminder',
         'other',
       ],
       default: 'other',

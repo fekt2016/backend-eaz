@@ -11,18 +11,47 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@eazworld.com';
 
 async function send({ to, subject, html, type = 'other', orderId = null, meta = {} }) {
   const recipient = Array.isArray(to) ? to[0] : to;
+  // Every EmailLog write below is AWAITED. It used to be fire-and-forget, which
+  // raced the shutdown in scripts/runJob.js: cron sets process.exitCode and then
+  // disconnects mongoose, so an in-flight log write from a renewal reminder could
+  // be cut off and the send would leave no record at all. The insert is one round
+  // trip and .catch() keeps it unable to throw.
   if (!resend) {
     console.warn('[email] Resend not configured — skipping email to', recipient);
-    EmailLog.create({ to: recipient, subject, type, status: 'failed', error: 'Resend not configured', orderId, meta }).catch(() => {});
+    await EmailLog.create({ to: recipient, subject, type, status: 'failed', error: 'Resend not configured', orderId, meta }).catch(() => {});
     return false;
   }
   try {
-    await resend.emails.send({ from: FROM, to: Array.isArray(to) ? to : [to], subject, html });
-    EmailLog.create({ to: recipient, subject, type, status: 'sent', orderId, meta }).catch(() => {});
+    // The Resend SDK RESOLVES with { data: null, error } for every API-level
+    // rejection — unverified from-domain, bad API key, rate limit, suppressed
+    // recipient — and throws only on a transport failure. Awaiting it without
+    // reading `error` therefore logged those as status:'sent', which is how
+    // EmailLog filled with successes for mail nobody ever received. Check the
+    // result, not just the absence of a throw.
+    const { data, error } = await resend.emails.send({
+      from: FROM,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+    });
+
+    if (error) {
+      const message = error.message || error.name || 'Resend rejected the message';
+      console.error('[email] Rejected by Resend:', message);
+      await EmailLog.create({ to: recipient, subject, type, status: 'failed', error: message, orderId, meta }).catch(() => {});
+      return false;
+    }
+
+    // Keep Resend's id: it is the only handle for looking a message up in their
+    // dashboard when a customer says it never arrived.
+    await EmailLog.create({
+      to: recipient, subject, type, status: 'sent', orderId,
+      meta: data?.id ? { ...meta, resendId: data.id } : meta,
+    }).catch(() => {});
     return true;
   } catch (err) {
     console.error('[email] Send failed:', err.message);
-    EmailLog.create({ to: recipient, subject, type, status: 'failed', error: err.message, orderId, meta }).catch(() => {});
+    await EmailLog.create({ to: recipient, subject, type, status: 'failed', error: err.message, orderId, meta }).catch(() => {});
     return false;
   }
 }
