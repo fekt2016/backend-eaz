@@ -1029,13 +1029,21 @@ const staffCreateHostingAccount = async (req, res, next) => {
  * forever. Oldest first, because that customer has been waiting longest. Unpaid
  * orders are excluded, same reasoning as the pre-order queue: nobody builds a
  * server for money that has not landed.
+ *
+ * 'failed' belongs here too, and its absence was a real hole: a paid order whose
+ * WHM build errored — a missing package, an unreachable host, a transient 500 —
+ * was counted in the admin overview (`getAdminOverview`) and listed NOWHERE. The
+ * count told an admin something was wrong without giving them a single row to act
+ * on, so the customer waited unseen. Both states mean the same thing operationally:
+ * money has landed and no server exists yet. `provisioningError` distinguishes them
+ * for whoever picks the order up.
  */
 const getAwaitingProvisioning = async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const orders = await HostingOrder.find({
       status: 'paid',
-      provisioningStatus: 'skipped',
+      provisioningStatus: { $in: ['skipped', 'failed'] },
     })
       .sort({ createdAt: 1 }) // oldest first — longest-waiting customer at the top
       .limit(limit)

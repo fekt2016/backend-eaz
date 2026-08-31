@@ -97,6 +97,51 @@ describe("GET /api/v1/hosting/orders/awaiting-provisioning", () => {
     expect(res.body.data[0].customer.email).toBe("kofi@example.com");
   });
 
+  // A paid order whose automatic WHM build errored used to be counted by
+  // getAdminOverview and listed nowhere — an admin saw a number with no row to
+  // act on, so the customer waited unseen. Operationally 'failed' and 'skipped'
+  // mean the same thing: money landed, no server exists.
+  it("lists paid orders whose automatic build FAILED, with the reason", async () => {
+    const { token } = await makeUser("admin");
+    await makeSkippedOrder({
+      planType: "shared",
+      tier: "deluxe",
+      provisioningStatus: "failed",
+      provisioningError: "WHM package root_eazworld_shared_deluxe does not exist",
+    });
+
+    const res = await request(app).get(QUEUE_URL).set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.data[0].provisioningStatus).toBe("failed");
+    // The reason has to survive to the client — it is what tells staff whether
+    // this is a one-off or a misconfiguration that will hit the next order too.
+    expect(res.body.data[0].provisioningError).toMatch(/does not exist/);
+  });
+
+  it("interleaves failed and skipped orders oldest-first, not grouped by status", async () => {
+    const { token } = await makeUser("admin");
+    const oldestFailed = await makeSkippedOrder({
+      provisioningStatus: "failed",
+      provisioningError: "WHM unreachable",
+      createdAt: new Date(Date.now() - 172800000),
+    });
+    const middleSkipped = await makeSkippedOrder({ createdAt: new Date(Date.now() - 86400000) });
+    const newestFailed = await makeSkippedOrder({
+      provisioningStatus: "failed",
+      provisioningError: "WHM unreachable",
+    });
+
+    const res = await request(app).get(QUEUE_URL).set("Authorization", `Bearer ${token}`);
+
+    expect(res.body.data.map((o) => o._id)).toEqual([
+      oldestFailed._id.toString(),
+      middleSkipped._id.toString(),
+      newestFailed._id.toString(),
+    ]);
+  });
+
   it("excludes unpaid, already-active and auto-provisioned orders", async () => {
     const { token } = await makeUser("admin");
     await makeSkippedOrder({ status: "pending" }); // not paid yet
