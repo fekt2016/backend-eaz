@@ -59,15 +59,17 @@ function errorMessage(err, fallback) {
 }
 
 /**
- * Convert USD to GHS using USD_TO_GHS_RATE env var (default 15.5).
- * Applies DOMAIN_MARKUP (default 20%) to cover the registrar cost + margin.
+ * Convert USD to GH₵ using the admin-editable rate and markup in
+ * Settings.pricing (defaults 15.5 and 1.2 — a 20% margin over registrar cost).
+ * Read through services/pricingSettings, which caches so this stays synchronous.
  * Unchanged from the Namecheap service on purpose — the sell price a customer
  * sees must not move just because the registrar behind it did.
  */
 function usdToGhs(usd) {
-  const rate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
-  const markup = parseFloat(process.env.DOMAIN_MARKUP) || 1.2; // 20% markup
-  return Math.ceil(usd * rate * markup);
+  // Admin-editable since 2026-08-31 (Settings.pricing), with the old env vars as
+  // the fallback so nothing moves for a deployment that has not set them.
+  const { getRate, getMarkup } = require('./pricingSettings');
+  return Math.ceil(usd * getRate() * getMarkup());
 }
 
 /**

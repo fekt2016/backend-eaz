@@ -23,8 +23,8 @@ async function makeCustomer() {
 
 describe("tldPriceGhs — the single source for a TLD's sell price", () => {
   beforeEach(() => {
-    process.env.USD_TO_GHS_RATE = "15.5";
-    process.env.DOMAIN_MARKUP = "1.2";
+    // Pricing comes from Settings.pricing now, not env. The defaults are the
+    // same 15.5 / 1.2, so this suite's expected figures are unchanged.
   });
 
   it("converts the USD cost table exactly once", () => {

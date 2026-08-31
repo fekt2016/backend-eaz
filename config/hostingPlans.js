@@ -1,7 +1,8 @@
 /**
  * Hosting plans. Prices are stored as **USD per month** (`priceUsd`) and converted
  * to GH₵ at read time — the same idea as domain pricing, where `config/domainPricing.js`
- * holds USD and `services/spaceship.js`'s `usdToGhs()` converts with USD_TO_GHS_RATE.
+ * holds USD and `services/spaceship.js`'s `usdToGhs()` converts with the same
+ * admin-set exchange rate (Settings.pricing.usdToGhsRate).
  *
  * Why (T66/T67, 2026-08-25): the shared tiers used to be stored as 9/16/32/62 and
  * rendered as **GH₵**, i.e. about $0.58–$4/month — a USD price list that never got
@@ -28,8 +29,11 @@
 const MONTHS_BILLED_ANNUALLY = 10;
 
 function usdToGhs(usd) {
-  const rate = parseFloat(process.env.USD_TO_GHS_RATE) || 15.5;
-  return Math.round(usd * rate);
+  // Same admin-editable rate the domain prices use — deliberately shared, so a
+  // cedi move reprices hosting and domains together instead of leaving one
+  // behind. No markup here: hosting `priceUsd` values are already sell prices.
+  const { getRate } = require('../services/pricingSettings');
+  return Math.round(usd * getRate());
 }
 
 const HOSTING_PLANS = {
@@ -345,7 +349,7 @@ const HOSTING_PLANS = {
 
 // Expose the GH₵ figures as live getters rather than baked-in numbers: readers keep
 // using `plan.monthlyPrice` / `plan.annualPrice`, but the value always reflects the
-// current USD_TO_GHS_RATE, and the two can never drift apart. `enumerable` matters —
+// current admin-set exchange rate, and the two can never drift apart. `enumerable` matters —
 // without it these vanish from JSON.stringify and the plans API would return no prices.
 for (const tiers of Object.values(HOSTING_PLANS)) {
   for (const plan of Object.values(tiers)) {

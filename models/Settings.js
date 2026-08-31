@@ -9,6 +9,39 @@ const settingsSchema = new mongoose.Schema({
   maintenanceScheduledStart: { type: Date,    default: null },
   maintenanceScheduledEnd:   { type: Date,    default: null },
 
+  // ── Pricing knobs (owner request 2026-08-31) ──────────────────────────
+  //
+  // These were env vars (USD_TO_GHS_RATE, DOMAIN_MARKUP) until 2026-08-31, which meant every
+  // cedi move needed a redeploy — and a rate that is awkward to change is a rate
+  // that goes stale, quietly eating the margin it was meant to protect.
+  //
+  // `usdToGhsRate` is SHARED: it prices domains AND every hosting plan, because
+  // config/hostingPlans.js converts with the same number. Changing it moves both.
+  // That is existing behaviour, not something introduced here, but it is the
+  // reason the admin UI labels it plainly rather than filing it under "domains".
+  //
+  // `domainMarkup` is domains only — 1.2 means a 20% margin on top of cost.
+  //
+  // Bounds are deliberate. A rate of 0 would make every price free; a markup
+  // below 1 would sell below cost, which is the one mistake that cannot be
+  // recovered from after the fact.
+  pricing: {
+    usdToGhsRate: {
+      type: Number,
+      default: 15.5,
+      min: [1, 'Exchange rate must be at least 1'],
+      max: [1000, 'Exchange rate looks wrong — above 1000'],
+    },
+    domainMarkup: {
+      type: Number,
+      default: 1.2,
+      min: [1, 'Markup below 1 would sell domains below cost'],
+      max: [10, 'Markup above 10x looks wrong'],
+    },
+    updatedAt: { type: Date, default: null },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  },
+
   // ── Business profile (shop identity + service pricing — read by the chat
   //    knowledge base and customer notification service instead of each
   //    hardcoding their own copy) ────────────────────────────────────────

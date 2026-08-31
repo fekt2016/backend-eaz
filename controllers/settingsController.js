@@ -43,6 +43,7 @@ const updateSettings = async (req, res, next) => {
       'maintenanceScheduledStart',
       'maintenanceScheduledEnd',
       'business',
+      'pricing',
     ];
 
     const updates = {};
@@ -51,6 +52,40 @@ const updateSettings = async (req, res, next) => {
       if (key in req.body) {
         if (key === 'maintenanceMessage') {
           updates[key] = sanitizeMessage(req.body[key], 500) ?? null;
+        } else if (key === 'pricing' && req.body.pricing && typeof req.body.pricing === 'object') {
+          // Dot-paths for the same reason as `business` below: a PATCH of one
+          // knob must not wipe the other.
+          //
+          // Validated HERE as well as in the schema, because these two numbers
+          // set every domain and hosting price in the shop. A typo — 155 instead
+          // of 15.5, or a markup of 0.2 instead of 1.2 — would either 10x every
+          // price or sell everything below cost, and the second is not
+          // recoverable once orders land.
+          const pr = req.body.pricing;
+          if ('usdToGhsRate' in pr) {
+            const rate = Number(pr.usdToGhsRate);
+            if (!Number.isFinite(rate) || rate < 1 || rate > 1000) {
+              return res.status(400).json({
+                success: false,
+                error: 'Exchange rate must be a number between 1 and 1000.',
+              });
+            }
+            updates['pricing.usdToGhsRate'] = rate;
+          }
+          if ('domainMarkup' in pr) {
+            const markup = Number(pr.domainMarkup);
+            if (!Number.isFinite(markup) || markup < 1 || markup > 10) {
+              return res.status(400).json({
+                success: false,
+                error: 'Markup must be between 1 and 10. Below 1 would sell domains below cost.',
+              });
+            }
+            updates['pricing.domainMarkup'] = markup;
+          }
+          if (Object.keys(updates).some((k) => k.startsWith('pricing.'))) {
+            updates['pricing.updatedAt'] = new Date();
+            updates['pricing.updatedBy'] = req.user?._id || null;
+          }
         } else if (key === 'business' && req.body.business && typeof req.body.business === 'object') {
           // Dot-path each field so an admin can PATCH one business field without
           // wiping the rest — `$set: { business: {...} }` would replace the whole
@@ -88,6 +123,13 @@ const updateSettings = async (req, res, next) => {
     );
 
     if (touchedBusiness) clearBusinessProfileCache();
+
+    // Drop the pricing cache so the new rate/markup is live immediately. Without
+    // this an admin would save, see the old prices for up to the TTL, and
+    // reasonably conclude the save had not worked.
+    if (Object.keys(updates).some((k) => k.startsWith('pricing.'))) {
+      require('../services/pricingSettings').invalidate();
+    }
 
     await logFromRequest(req, {
       action: ACTIONS.SETTINGS_UPDATED,
