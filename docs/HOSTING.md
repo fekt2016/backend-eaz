@@ -1,6 +1,6 @@
-# Hosting — eazworld.co on Spaceship Essential
+# Domain & hosting — eazworld.co on Spaceship
 
-**Scope.** This document covers where **EazWorld's own site and API run**. It is not
+**Scope.** This document covers **EazWorld's own domain and where its site and API run**. It is not
 about the hosting *product* EazWorld sells to customers — that is a separate system
 (`services/whm.js`, `config/hostingPlans.js`, `utils/provisionHosting.js`) and is
 untouched by this migration.
@@ -34,6 +34,31 @@ untouched by this migration.
 Adding a fourth real hostname leaves no room for staging. See **Limits** below.
 
 ---
+
+## The domain — eazworld.co
+
+`eazworld.co` is registered at **Spaceship**, the same account as the hosting above.
+That is a change of record-keeping only: the domain *product* EazWorld sells to
+customers already ran on Spaceship (T130, 2026-08-31, replacing Namecheap) and is
+not affected by this migration.
+
+| Setting | Value |
+|---|---|
+| Registrar | Spaceship |
+| Managed at | Spaceship → Domain Manager → `eazworld.co` |
+| Auto-renew | **must be ON** — the site and every customer email address depend on it |
+| WHOIS privacy | on (free with Spaceship) |
+| Transfer lock | on, except during a deliberate transfer |
+| DNS | see below |
+
+Renewal is a separate charge from the $19.88/$28.88 hosting — the plan price does
+**not** include the domain.
+
+> **Two different Spaceship accounts, one bill.** The API credentials in
+> `SPACESHIP_API_KEY` / `SPACESHIP_API_SECRET` are for *reselling domains to
+> customers*. They are not used to manage `eazworld.co` itself, and nothing in the
+> codebase reads or needs the hosting account's credentials — deployment is a
+> cPanel Git push, not an API call.
 
 ## DNS
 
