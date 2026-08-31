@@ -36,6 +36,24 @@ function usdToGhs(usd) {
   return Math.round(usd * getRate());
 }
 
+// ── Shared-tier prices are pinned to GH₵, not USD (2026-08-31) ──────────────
+//
+// The shared tiers are priced against the Ghanaian market — Aveshost's entry
+// shared plan is ~GH₵9/mo — so the customer-facing figure that matters is the
+// cedi one: GH₵9 / 16 / 32 / 62. This file stores USD and derives GH₵, so those
+// four `priceUsd` values are back-derived to land on the cedi targets after
+// `Math.round`, which is why they are fractional and look odd (0.58, 1.03,
+// 2.065, 4.00). Each was chosen so BOTH monthly and annual round exactly:
+// e.g. 2.065 × 15.5 = 32.0075 → 32, and × 10 months = 320.075 → 320.
+//
+// ⚠️ They are therefore RATE-SENSITIVE. `usdToGhsRate` is admin-editable in
+// Business Settings, and changing it moves these off their targets — at 16.0,
+// Deluxe becomes GH₵9.28 → 9 (still fine), but at 20.0 it becomes GH₵12. If the
+// cedi price must hold regardless of the rate, this file needs a `priceGhs`
+// field rather than a derived one; that is a structural change, not a retune.
+//
+// Only the four SHARED tiers are pinned this way. vps/cloud/wordpress/email
+// still hold genuine USD sell prices.
 const HOSTING_PLANS = {
   // Sized against the Namecheap Nebula reseller plan, which gives 30 GB disk,
   // 30 mailboxes and 25 cPanel accounts FOR THE WHOLE PLAN — shared by every
@@ -57,7 +75,9 @@ const HOSTING_PLANS = {
     deluxe: {
       name: 'Deluxe',
       tagline: 'A single small site, online and looked after.',
-      priceUsd: 3,
+      // GH₵9/mo. Back-derived: 0.58 × 15.5 = 8.99 → 9. See the note above
+      // HOSTING_PLANS on why these are fractional.
+      priceUsd: 0.58,
       specs: [
         { label: 'Websites', value: '1' },
         { label: 'NVMe SSD Storage', value: '1GB' },
@@ -82,7 +102,8 @@ const HOSTING_PLANS = {
     professional: {
       name: 'Professional',
       tagline: 'Room to grow, and mail for a small team.',
-      priceUsd: 6,
+      // GH₵16/mo — 1.03 × 15.5 = 15.965 → 16.
+      priceUsd: 1.03,
       specs: [
         { label: 'Websites', value: '1' },
         { label: 'NVMe SSD Storage', value: '3GB' },
@@ -109,7 +130,8 @@ const HOSTING_PLANS = {
     enterprise: {
       name: 'Enterprise',
       tagline: 'Several sites for one business.',
-      priceUsd: 11,
+      // GH₵32/mo — 2.065 × 15.5 = 32.0075 → 32, and × 10 months = 320 exactly.
+      priceUsd: 2.065,
       specs: [
         { label: 'Websites', value: '3' },
         { label: 'NVMe SSD Storage', value: '6GB' },
@@ -137,17 +159,20 @@ const HOSTING_PLANS = {
     },
     ultimate: {
       name: 'Ultimate',
-      // Was 'UNLIMITED' storage, websites and mailboxes. Nothing on a 30 GB
-      // reseller plan can honour that, and the provisioned account would hit a
-      // quota the customer was told did not exist.
-      tagline: 'Our largest shared plan.',
-      priceUsd: 18,
+      // Websites/subdomains are UNLIMITED; storage and mailboxes are not, and
+      // must not be advertised as such. cPanel addon domains genuinely are
+      // unlimited within an account — they cost no extra cPanel account slot —
+      // so "unlimited websites" is deliverable. Disk is the real ceiling, which
+      // is why the 10GB line stays and is what actually bounds the plan.
+      tagline: 'Unlimited sites on our largest shared plan.',
+      // GH₵62/mo — 4.00 × 15.5 = 62 exactly.
+      priceUsd: 4.0,
       specs: [
-        { label: 'Websites', value: '10' },
+        { label: 'Websites', value: 'Unlimited' },
         { label: 'NVMe SSD Storage', value: '10GB' },
         { label: 'Email Accounts', value: '10' },
         { label: 'Monthly Bandwidth', value: 'Unmetered' },
-        { label: 'Subdomains', value: '50' },
+        { label: 'Subdomains', value: 'Unlimited' },
         { label: 'Databases', value: '20' },
       ],
       features: [
