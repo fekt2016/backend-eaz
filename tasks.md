@@ -1100,7 +1100,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     - [ ] Both suites pass at any hour, verified by forcing at least two very different clocks
     - [ ] No remaining assertion depends on the ambient cutoff
 
-- [ ] **T111 · Reports controller still carries unreachable staff-scoping logic** (found during T83, 2026-08-29)
+- [x] **T111 · APPLIED 2026-08-31 — dead staff-scoping removed, restore note left in its place** (found during T83, 2026-08-29)
   - **Issue:** `getReportsAnalytics` implements T32's staff scoping — pin a staff caller to their
     own activity, never trust a client-supplied `staffId` for the staff role, return an empty
     `staffList` so staff get no picker. T83 removed staff from the route entirely, so none of
@@ -1112,6 +1112,27 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     may be reversed. Do **not** simply re-open the route to make the code reachable again.
   - **Location:** `controllers/pos/reportsController.js` (the `scope` block); the rewritten
     assertions in `tests/reportsAnalytics.test.js`
+
+  ### Implementation Notes (2026-08-31)
+
+  Took the "delete" option, not the "keep with a comment" one: unreachable protection is exactly
+  what this task warns about. Three dead pieces went — the `role === 'staff'` id pin, the
+  `isAdminRole` guard around `staffList` (always true on a superadmin+admin route), and
+  `isOwnReport` (always `false`).
+
+  **The knowledge was kept without the false guarantee.** The controller now carries a note listing
+  what must be restored if staff are ever re-admitted: the id pin, `isOwnReport`, and an EMPTY
+  `staffList` so they get no picker. Re-opening the route without those exposes shop-wide
+  financials.
+
+  **The frontend was fixed too, though this is a backend task.** The reports page branched on
+  `scope.isOwnReport` to render a "My Report" view — removing the field server-side alone would
+  have relocated the dead code rather than removing it. That branch had never rendered for anyone.
+
+  **Its test was asserting an impossible scenario:** "shows 'My Report' for a staff caller" passed
+  only because it hand-fed `isOwnReport: true` into a mock — a payload the server cannot produce.
+  Rewritten to pin the real decision (no self-report view here; staff use /dashboard/pos), and the
+  stale `isOwnReport: false` fixtures were dropped so the mocks match the real response.
 
 - [ ] **T105 · `roles.md` and the POS routes disagree on ~11 rows for admin and staff** (found during T83, 2026-08-29)
   - **Issue:** T83 closed the technician holes, and the technician column now matches `roles.md`

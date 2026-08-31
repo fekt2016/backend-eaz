@@ -263,15 +263,24 @@ const getReportsAnalytics = async (req, res, next) => {
     today.setHours(0, 0, 0, 0);
 
     // ── Staff scope ──────────────────────────────────────────────────────────
-    // `staff` role: always forced to their own id — a client-supplied staffId
-    // is never trusted for that role. admin/superadmin: optional, selects a
-    // single staff member's activity; omitted = shop-wide (unchanged
-    // behaviour). Invalid ids are silently ignored (shop-wide), matching the
-    // existing pattern for optional id filters elsewhere in this controller.
+    // Optional: selects a single staff member's activity; omitted = shop-wide.
+    // Invalid ids are silently ignored (shop-wide), matching the pattern for
+    // optional id filters elsewhere in this controller.
+    //
+    // T111 — this block USED to also pin a `staff` caller to their own id and
+    // refuse a client-supplied staffId for that role (T32). T83 then removed
+    // staff from the route entirely (`restrictTo('superadmin','admin')` on
+    // routes/posRoutes.js), so `req.user.role === 'staff'` became unreachable
+    // and the guard was dead code that read as a live guarantee — the risk being
+    // that someone re-opens the route believing the scoping still protects them.
+    //
+    // IF STAFF ARE EVER ALLOWED BACK ON THIS ROUTE, restore all three pieces:
+    //   1. force staffIdParam to req.user._id for role 'staff'
+    //   2. return isOwnReport so the UI can title the page accordingly
+    //   3. return an EMPTY staffList for staff, so they get no picker
+    // Re-opening the route without them exposes shop-wide financials.
     let staffIdParam = req.query.staffId;
-    if (req.user.role === 'staff') {
-      staffIdParam = String(req.user._id);
-    } else if (staffIdParam && !mongoose.Types.ObjectId.isValid(staffIdParam)) {
+    if (staffIdParam && !mongoose.Types.ObjectId.isValid(staffIdParam)) {
       staffIdParam = undefined;
     }
     const staffObjectId = staffIdParam ? new mongoose.Types.ObjectId(staffIdParam) : null;
@@ -538,15 +547,13 @@ const getReportsAnalytics = async (req, res, next) => {
       netProfit = totalRevenue - expenseTotal;
     }
 
-    // ── Staff scope metadata (name for the active filter; picker list for
-    // admin/superadmin — the same roles allowed on this route in the first
-    // place, since only they can appear as cashier/receivedBy/createdBy) ────
-    const isAdminRole = ['superadmin', 'admin'].includes(req.user.role);
+    // ── Staff scope metadata: the name for the active filter, and the picker
+    // list. T111 — the `isAdminRole` conditional around staffList was dead: the
+    // route is superadmin+admin only, so it was always true. Fetched
+    // unconditionally now rather than guarded by a check that cannot fail.
     const [staffUser, staffList] = await Promise.all([
       staffObjectId ? User.findById(staffObjectId).select('name role') : Promise.resolve(null),
-      isAdminRole
-        ? User.find({ role: { $in: ['staff', 'admin', 'superadmin'] } }).select('name role').sort({ name: 1 })
-        : Promise.resolve([]),
+      User.find({ role: { $in: ['staff', 'admin', 'superadmin'] } }).select('name role').sort({ name: 1 }),
     ]);
 
     res.json({
@@ -556,7 +563,9 @@ const getReportsAnalytics = async (req, res, next) => {
         scope: {
           staffId: staffObjectId ? String(staffObjectId) : null,
           staffName: staffUser?.name || null,
-          isOwnReport: req.user.role === 'staff',
+          // T111 — `isOwnReport` is gone. It was `req.user.role === 'staff'`,
+          // which is unreachable on a superadmin+admin route, so it shipped a
+          // permanent `false` that the UI still branched on.
           staffList,
         },
         previous,

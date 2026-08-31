@@ -203,7 +203,10 @@ describe("GET /api/v1/pos/reports/analytics — staff scope (T32)", () => {
     const d = res.body.data;
     expect(d.scope.staffId).toBe(String(staffB.user._id));
     expect(d.scope.staffName).toBe("staff");
-    expect(d.scope.isOwnReport).toBe(false);
+    // T111 — `isOwnReport` was removed. It was `req.user.role === 'staff'` on a
+    // route restricted to superadmin+admin, so it always shipped `false`. This
+    // asserted that constant rather than any behaviour.
+    expect(d.scope.isOwnReport).toBeUndefined();
 
     // Only staff B's numbers.
     expect(d.kpi.revenue.repair).toBe(7000);
