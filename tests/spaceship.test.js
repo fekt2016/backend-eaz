@@ -12,11 +12,22 @@ function withCreds() {
   process.env.SPACESHIP_API_SECRET = "test-secret";
 }
 
+// Pricing is no longer driven by env vars (owner decision 2026-08-31) — the rate
+// and markup live in Settings.pricing and are read through the cache in
+// services/pricingSettings. Setting the cache directly keeps these unit tests
+// synchronous and free of a database.
+const pricingSettings = require("../services/pricingSettings");
+
+function setPricing(usdToGhsRate, domainMarkup) {
+  jest.spyOn(pricingSettings, "getRate").mockReturnValue(usdToGhsRate);
+  jest.spyOn(pricingSettings, "getMarkup").mockReturnValue(domainMarkup);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.restoreAllMocks();
   withCreds();
-  process.env.USD_TO_GHS_RATE = "15.5";
-  process.env.DOMAIN_MARKUP = "1.2";
+  setPricing(15.5, 1.2);
 });
 
 afterEach(() => {
@@ -45,9 +56,8 @@ describe("usdToGhs", () => {
     expect(spaceship.usdToGhs(10.18)).toBe(190);
   });
 
-  it("honours env overrides", () => {
-    process.env.USD_TO_GHS_RATE = "10";
-    process.env.DOMAIN_MARKUP = "2";
+  it("honours an admin-changed rate and markup", () => {
+    setPricing(10, 2);
     expect(spaceship.usdToGhs(5)).toBe(100);
   });
 });

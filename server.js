@@ -81,6 +81,9 @@ const startServer = async () => {
       socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
     });
     console.log(`✅ MongoDB connected: ${conn.connection.host}`);
+    // Warm the pricing cache so the first price rendered after boot comes from
+    // the database rather than the env fallback.
+    await require('./services/pricingSettings').refresh().catch(() => {});
 
     // Verify the distance-zone bands still tile 0 → the serviceable radius with
     // no gap and no overlap. A bad admin edit then shows up here, on deploy,

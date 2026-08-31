@@ -7,7 +7,7 @@
  * availability response. So standard TLD costs have to live here.
  *
  * These are COST figures (what Spaceship charges us), not what the customer pays.
- * `services/spaceship.js` → `usdToGhs()` applies USD_TO_GHS_RATE and DOMAIN_MARKUP
+ * `services/spaceship.js` → `usdToGhs()` applies the admin-set rate and markup
  * on top, exactly as the Namecheap path did, so the sell price stays consistent.
  *
  * Renewal prices are used rather than first-year promos: we bill the customer every
