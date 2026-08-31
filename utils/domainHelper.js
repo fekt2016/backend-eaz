@@ -38,21 +38,6 @@ const extractSLD = (domain) => {
   return lower.endsWith(tld) ? lower.slice(0, -tld.length) : lower.split('.')[0];
 };
 
-const extractBaseName = (domain) => {
-  if (!domain) return '';
-  const parts = domain.split('.');
-  return parts.length > 1 ? parts.slice(0, -1).join('.') : domain;
-};
-
-// T65: `.gh` was in the default list, so every suggestion set offered a TLD our
-// registrar answers `tldNotSupported` for. Suggestions must only contain domains
-// a customer can actually buy — see config/domainPricing.js UNSUPPORTED_TLDS.
-const generateSuggestions = (baseName, tlds = ['.net', '.org', '.co', '.io', '.online']) => {
-  if (!baseName || baseName.trim().length === 0) return [];
-  const cleanBase = baseName.trim().toLowerCase();
-  return tlds.map(tld => `${cleanBase}${tld}`);
-};
-
 const generateFallbackSuggestions = (query) => {
   if (!query || query.trim().length < 2) return [];
   const cleanQuery = query.trim().toLowerCase();
@@ -75,10 +60,8 @@ const normalizeDomain = (domain) => {
 
 module.exports = {
   validateDomain,
-  extractBaseName,
   extractSLD,
   extractTLD,
-  generateSuggestions,
   generateFallbackSuggestions,
   normalizeDomain,
 };

@@ -146,16 +146,8 @@ async function classifyZone(distanceKm) {
   );
 }
 
-/** The full zone document for a distance (not just its key). */
-async function zoneForDistance(distanceKm) {
-  const key = await classifyZone(distanceKm);
-  const zones = await loadDistanceZones();
-  return zones.find((z) => z.zoneKey === key) || null;
-}
-
 module.exports = {
   classifyZone,
-  zoneForDistance,
   loadDistanceZones,
   checkCoverage,
   assertCoverageAtStartup,

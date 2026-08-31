@@ -234,15 +234,6 @@ async function getAccountStatus(username) {
   };
 }
 
-/** List WHM packages owned by the reseller (WHM `listpkgs`) — for admin/config validation. */
-async function listPackages() {
-  const res = await callWhm('listpkgs', {}, 10000);
-  if (!res.success) return res;
-  const raw = res.data?.pkg || res.data?.package || [];
-  const list = Array.isArray(raw) ? raw : [raw];
-  return { success: true, packages: list.map((p) => p?.name || p).filter(Boolean) };
-}
-
 module.exports = {
   hasConfig,
   createAccount,
@@ -257,5 +248,4 @@ module.exports = {
   terminateAccount,
   changePassword,
   getAccountStatus,
-  listPackages,
 };
