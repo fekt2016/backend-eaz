@@ -46,7 +46,42 @@ const parseXml = promisify(parseString);
 // Live pricing cache. Namecheap's getPricing is a large response and its prices
 // move rarely, so an hour is generous without risking a stale sell price.
 const PRICE_CACHE_TTL_MS = 60 * 60 * 1000;
+
+// A FAILED fetch is cached too, briefly. Without this the TTL short-circuit
+// never engages while Namecheap's pricing is down, so every single domain search
+// re-attempts the whole catalogue behind a 15s timeout — on a 512MB heap, and
+// adding 15s to every customer's search.
+const PRICE_FAIL_TTL_MS = 5 * 60 * 1000;
+
 let priceCache = { data: null, at: 0 };
+
+/**
+ * Keep serving the last good prices if we have them; otherwise remember the
+ * failure for a short while so the next search does not re-fetch immediately.
+ */
+function cacheFailure() {
+  if (priceCache.data) return priceCache.data;
+  priceCache = { data: {}, at: Date.now() - (PRICE_CACHE_TTL_MS - PRICE_FAIL_TTL_MS) };
+  return {};
+}
+
+/**
+ * Refuse a live cost that is wildly below what we believe the TLD costs.
+ *
+ * This is the guard the review asked for after the ICANN-fee bug: reading the
+ * wrong attribute produced $0.18 for every gTLD, which passed a bare `> 0` check
+ * and was then enforced as the sell price at checkout. A schema change should
+ * degrade to the local table, never to a giveaway. Only a FLOOR — a live price
+ * above the local estimate is normal and must be honoured, since the local
+ * figures are deliberately set high.
+ */
+const IMPLAUSIBLE_FRACTION = 0.25;
+
+function isImplausibleCost(tld, usd) {
+  const local = getCostUsd(tld);
+  if (local == null) return false; // nothing to compare against
+  return usd < local * IMPLAUSIBLE_FRACTION;
+}
 
 function hasConfig() {
   return !!(
@@ -56,11 +91,31 @@ function hasConfig() {
   );
 }
 
-function getBaseUrl() {
-  const sandbox =
+function isSandbox() {
+  return (
     process.env.NAMECHEAP_SANDBOX === "true" ||
-    process.env.NAMECHEAP_SANDBOX === "1";
-  return sandbox
+    process.env.NAMECHEAP_SANDBOX === "1"
+  );
+}
+
+/**
+ * Sandbox in production is the worst combination available: the sandbox happily
+ * answers `Registered="true"`, so the webhook marks the order registered, adds
+ * the domain to the customer's account and emails them — for a domain nobody
+ * owns. Real money in, nothing delivered, and nothing in the logs to tell the
+ * difference. Refuse rather than guess.
+ */
+function assertSandboxAllowed() {
+  if (isSandbox() && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "NAMECHEAP_SANDBOX is enabled in production — refusing to call the registrar. Unset it.",
+    );
+  }
+}
+
+function getBaseUrl() {
+  assertSandboxAllowed();
+  return isSandbox()
     ? "https://api.sandbox.namecheap.com/xml.response"
     : "https://api.namecheap.com/xml.response";
 }
@@ -136,12 +191,14 @@ async function refreshCostUsd() {
     const apiResponse = await callApi({
       Command: "namecheap.users.getPricing",
       ProductType: "DOMAIN",
-      ActionName: "REGISTER",
+      // RENEW, not REGISTER. REGISTER returns the first-year promo, and we bill
+      // the customer every year — pricing off the promo sells year 2 below cost.
+      ActionName: "RENEW",
     });
 
     if (apiResponse?.$?.Status !== "OK") {
       logger.warn(`[Namecheap] getPricing failed: ${apiErrorMessage(apiResponse, "non-OK status")}`);
-      return priceCache.data || {};
+      return cacheFailure();
     }
 
     // ProductType → ProductCategory → Product(.Name = tld) → Price(.Duration=1)
@@ -150,26 +207,47 @@ async function refreshCostUsd() {
         ?.ProductType?.[0]?.ProductCategory || [];
 
     const costs = {};
+    let rejected = 0;
     for (const category of categories) {
       for (const product of category?.Product || []) {
         const tld = product?.$?.Name;
         if (!tld) continue;
-        // Renewal price, not the first-year promo: we bill the customer every
-        // year, and a promo cost would leave us short at renewal.
-        const yearly = (product?.Price || []).find((p) => p?.$?.Duration === "1");
-        const usd = parseFloat(yearly?.$?.YourAdditonalCost ?? yearly?.$?.YourPrice ?? "");
-        if (Number.isFinite(usd) && usd > 0) costs[`.${tld.toLowerCase()}`] = usd;
+        const yearly = (product?.Price || []).find(
+          (p) => p?.$?.Duration === "1" && p?.$?.DurationType === "YEAR",
+        );
+        if (!yearly) continue;
+
+        // `YourPrice` is what Namecheap charges US. `YourAdditonalCost` (their
+        // misspelling) is the ICANN fee — about $0.18 — billed ON TOP, not
+        // instead. Reading the fee as the price is exactly the bug that shipped
+        // in review: it cached .com at $0.18 and sold it for GH₵4 against a
+        // ~GH₵169 cost, with the checkout guard enforcing the wrong figure.
+        const price = parseFloat(yearly?.$?.YourPrice ?? yearly?.$?.Price ?? "");
+        const icannFee = parseFloat(yearly?.$?.YourAdditonalCost ?? "0");
+        const usd = price + (Number.isFinite(icannFee) ? icannFee : 0);
+
+        const key = `.${tld.toLowerCase()}`;
+        if (!Number.isFinite(price) || price <= 0) continue;
+        if (isImplausibleCost(key, usd)) { rejected += 1; continue; }
+        costs[key] = usd;
       }
+    }
+
+    if (rejected > 0) {
+      logger.warn(`[Namecheap] getPricing: rejected ${rejected} implausibly low costs — using local fallback for those`);
     }
 
     if (Object.keys(costs).length > 0) {
       priceCache = { data: costs, at: Date.now() };
       logger.info(`[Namecheap] getPricing cached ${Object.keys(costs).length} TLD costs`);
+      return priceCache.data;
     }
-    return priceCache.data || {};
+
+    logger.warn("[Namecheap] getPricing parsed no usable costs — schema may have changed");
+    return cacheFailure();
   } catch (err) {
     logger.warn(`[Namecheap] getPricing error: ${err.message}`);
-    return priceCache.data || {};
+    return cacheFailure();
   }
 }
 
@@ -198,11 +276,45 @@ async function getPricing() {
  * badly.
  */
 function priceFromResult(attrs, tld) {
-  const premiumUsd = parseFloat(attrs?.PremiumRegistrationPrice || "0");
-  if (attrs?.IsPremiumName === "true" && premiumUsd > 0) {
-    return usdToGhs(premiumUsd);
-  }
+  // Premium names are NOT sellable end to end. Search could quote the premium
+  // price, but createDomainPayment validates against the flat TLD price with a
+  // ±5% band (so the quote is always rejected), and domains.create is sent
+  // without IsPremiumDomain/PremiumPrice — so a premium either fails after the
+  // customer paid, or registers and bills us the premium against a flat-rate
+  // sale. Quoting the flat price for a premium is the worse half of that.
+  //
+  // Until the checkout and create paths carry premium params, price it null and
+  // let the caller present it as unavailable.
+  if (attrs?.IsPremiumName === "true") return null;
   return tldPriceGhs(tld);
+}
+
+const PREMIUM_MESSAGE =
+  "This is a premium name and we can't sell it yet. Contact us and we'll quote it for you.";
+
+/**
+ * One place that turns a DomainCheckResult into our result shape, so the single
+ * and bulk paths cannot drift. A name we cannot price is reported as not
+ * available WITH a reason — the same shape unsupported TLDs use — rather than as
+ * available with a blank price, which the storefront would render as "GH₵—" and
+ * checkout would then reject anyway.
+ */
+function resultFromAttrs(attrs, domain) {
+  const tld = extractTLD(domain);
+  const available = attrs?.Available === "true";
+  const price = priceFromResult(attrs, tld);
+
+  if (available && price == null) {
+    return {
+      domain,
+      available: false,
+      price: null,
+      error: attrs?.IsPremiumName === "true"
+        ? PREMIUM_MESSAGE
+        : `We don't have a price for ${tld} yet.`,
+    };
+  }
+  return { domain, available, price };
 }
 
 /**
@@ -265,11 +377,7 @@ async function checkDomain(domain) {
       return { domain: clean, available: false, price: null, error: "Namecheap returned no result" };
     }
 
-    return {
-      domain: (attrs.Domain || clean).trim().toLowerCase(),
-      available: attrs.Available === "true",
-      price: priceFromResult(attrs, extractTLD(attrs.Domain || clean)),
-    };
+    return resultFromAttrs(attrs, (attrs.Domain || clean).trim().toLowerCase());
   } catch (err) {
     return { domain: clean, available: false, price: null, error: err.message || "Namecheap check failed" };
   }
@@ -341,11 +449,7 @@ async function checkMultipleDomains(name, tlds = DEFAULT_SEARCH_TLDS) {
         const attrs = item?.$;
         if (!attrs?.Domain) continue;
         const d = attrs.Domain.trim().toLowerCase();
-        results.push({
-          domain: d,
-          available: attrs.Available === "true",
-          price: priceFromResult(attrs, extractTLD(d)),
-        });
+        results.push(resultFromAttrs(attrs, d));
       }
     } catch (err) {
       const error = err.message || "Namecheap check failed";
@@ -430,6 +534,13 @@ async function registerDomain(domain, years, registrant, options = {}) {
         Years: Math.min(10, Math.max(1, Number(years) || 1)),
         ...contact,
         ...nameserverParams,
+        // WhoisGuard. Namecheap defaults BOTH of these to "no", so omitting them
+        // publishes the buyer's name, phone and street address in public WHOIS —
+        // while /services and the FAQ promise "WHOIS privacy included at no extra
+        // cost". The service this replaced sent privacyProtection at level
+        // "high", so leaving them off was a regression, not a missing feature.
+        AddFreeWhoisguard: "yes",
+        WGEnabled: "yes",
       },
       30000,
     );
@@ -441,6 +552,15 @@ async function registerDomain(domain, years, registrant, options = {}) {
     const result = apiResponse?.CommandResponse?.[0]?.DomainCreateResult?.[0]?.$;
     if (result && result.Registered !== "true") {
       return { success: false, error: "Namecheap did not confirm registration" };
+    }
+
+    // Registration succeeded, so never fail the order here — the customer owns
+    // the domain either way. But privacy not being enabled is a promise broken
+    // to that customer, so it must be loud rather than invisible.
+    if (result && result.WhoisguardEnable !== "true") {
+      logger.error(
+        `[Namecheap] ${clean} REGISTERED WITHOUT WHOIS PRIVACY — registrant PII is public. Enable WhoisGuard manually.`,
+      );
     }
 
     logger.info(`[Namecheap] Registered ${clean}`);

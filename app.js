@@ -191,9 +191,13 @@ app.use('/api/v1/chat',                 makeLimit(15, 60,  'Too many chat messag
 // endpoints.
 app.use('/api/v1/shipping/quote',       makeLimit(15, 30,  'Too many quote requests. Please try again later.'));
 
-// Domain search — calls the paid Namecheap API
-app.use('/api/v1/domain/search',        makeLimit(15, 30,  'Too many domain searches. Please try again later.'));
-app.use('/api/v1/domain/check',         makeLimit(15, 30,  'Too many domain checks. Please try again later.'));
+// Domain search — calls the paid Namecheap API.
+// Mounted on the whole /domain prefix, not on individual paths. `app.use` prefix
+// matching only breaks on `/` or `.`, so a per-path mount on '/api/v1/domain/check'
+// covered '/check/batch' but NOT the sibling '/check-bulk' — which is
+// unauthenticated and accepts 50 domains a call, i.e. the cheapest way to burn
+// through Namecheap's per-key quota and take registration down with it.
+app.use('/api/v1/domain',               makeLimit(15, 30,  'Too many domain requests. Please try again later.'));
 
 // Repair tracking — public endpoint, moderate limit
 app.use('/api/v1/track',                makeLimit(15, 60,  'Too many tracking requests. Please try again later.'));

@@ -141,7 +141,8 @@ There is no root, so there is **no Nginx and no PM2**. The backend is tuned for 
 6. Deploy: *Update from Remote* → *Deploy HEAD Commit*. Each repo's `.cpanel.yml` copies the
    source, installs dependencies, and touches `tmp/restart.txt` to restart Passenger.
 
-Full details, the 5-hostname budget, and the limits this plan imposes are in `docs/HOSTING.md`.
+Full details — DNS, the registrar API, customer provisioning, the cron schedule and the
+open items — are in `docs/HOSTING.md`.
 
 ## License
 

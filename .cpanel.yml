@@ -19,9 +19,17 @@ deployment:
     - /bin/mkdir -p $DEPLOYPATH/tmp
 
     # Application source. .env is deliberately NOT copied — it lives only on the
-    # server, outside git, and is edited through cPanel's Node.js App UI.
+    # server, outside git. NOTE: it must exist as a real file at $DEPLOYPATH/.env,
+    # not only in cPanel's Node.js App UI: those variables are injected into the
+    # Passenger web process and cron inherits none of them. See docs/HOSTING.md.
     - /bin/cp -R app.js server.js package.json package-lock.json $DEPLOYPATH
     - /bin/cp -R config controllers middleware models routes services utils validation $DEPLOYPATH
+
+    # scripts/ is REQUIRED at runtime, not just tooling: cron runs
+    # scripts/runJob.js for all four background jobs. Omitting it made every cron
+    # entry fail with MODULE_NOT_FOUND while the in-process timers were already
+    # disabled — i.e. no background job ran at all.
+    - /bin/cp -R scripts $DEPLOYPATH
 
     # Production dependencies only: the 20 GB quota is shared with every hosted
     # site, and devDependencies (jest, mongodb-memory-server, nodemon) are ~300 MB.

@@ -65,7 +65,9 @@ function resolveMongoUrl() {
 
 async function main() {
   const name = (process.argv[2] || '').trim().toLowerCase();
-  const job = JOBS[name];
+  // hasOwnProperty, not a bare index: `constructor` and `__proto__` are truthy on
+  // any object literal and would sail past the guard into a Mongo connect.
+  const job = Object.prototype.hasOwnProperty.call(JOBS, name) ? JOBS[name] : null;
 
   if (!job) {
     console.error(`Unknown job: ${name || '(none given)'}`);
@@ -73,6 +75,12 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
+  // Fail loudly on run 1 if cron handed us a stripped environment. Variables set
+  // in cPanel's "Setup Node.js App" reach the Passenger web process ONLY — cron
+  // inherits nothing — so without a real .env beside the app this job would
+  // otherwise die on an unhelpful connection error every night, unnoticed.
+  require('../utils/validateEnv').validateEnv();
 
   // A one-shot process needs a much smaller pool than the API's 5, and no
   // reason to wait 30s to discover Mongo is unreachable.

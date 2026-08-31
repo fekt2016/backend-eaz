@@ -4,11 +4,11 @@
 const validateEnv = () => {
   // T85 — NODE_ENV unset is not a neutral state here: `PROD` being false turns
   // OFF the auth cookie's Secure flag and its sameSite=strict, AND turns ON
-  // err.stack in error responses. Both silently, together. ecosystem.config.js
-  // On the reseller plan this comes from cPanel → Setup Node.js App
-  // ("Application mode: Production"), so say so loudly if it is missing — this
-  // is the last chance to notice before the app serves traffic with those
-  // controls off.
+  // err.stack in error responses. Both silently, together.
+  //
+  // On the reseller plan it comes from cPanel → Setup Node.js App ("Application
+  // mode: Production"), so say so loudly if it is missing — this is the last
+  // chance to notice before the app serves traffic with those controls off.
   if (!process.env.NODE_ENV) {
     console.warn('⚠️  NODE_ENV is not set — running in NON-production mode.');
     console.warn('   The auth cookie will NOT be Secure/sameSite=strict, and error');

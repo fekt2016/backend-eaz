@@ -91,6 +91,13 @@ stays on the server only; see `.env.example` for the full list. Set
 `NODE_OPTIONS=--max-old-space-size=512` on the API — `server.js` logs the effective heap
 on boot and warns if the flag did not take.
 
+> ⚠️ **Cron needs a real `.env` file as well.** Variables set in *Setup Node.js App* are
+> injected by Passenger into the **web process only** — a crontab entry inherits none of
+> them. So the same values must also exist as `~/api.eazworld.co/.env`, or every job dies
+> on a missing `MONGO_URL`. `scripts/runJob.js` calls `validateEnv()` before connecting so
+> this fails loudly on the first run rather than quietly at 2am. Keep the two in step:
+> changing a value in the cPanel UI does **not** change the file.
+
 TLS is issued and renewed by cPanel AutoSSL (Let's Encrypt). No certbot, no renewal cron.
 
 ---
@@ -101,8 +108,16 @@ cPanel → **Git Version Control** → clone each repo, then *Update from Remote
 HEAD Commit*. Each repo's `.cpanel.yml` defines what that does: copy source, install
 dependencies, and `touch tmp/restart.txt`, which is how Passenger restarts.
 
-Build the frontend **before** deploying (`npm ci && npm run build`) — building during a
-deploy is slow and a failure would leave a half-copied `.next` on the live site.
+Build the frontend **over SSH, in place** — not locally. `.next/` is gitignored, so a local
+build never reaches the server's checkout; only an in-place build does:
+
+```bash
+ssh <cpanel-user>@<server>.web-hosting.com
+cd ~/repositories/frontend-eaz && npm ci && npm run build
+```
+
+Then deploy. Building during the deploy hook itself is avoided because a failure mid-way
+would leave a half-copied `.next` on the live site.
 
 Credentials are per-account and must never be committed:
 

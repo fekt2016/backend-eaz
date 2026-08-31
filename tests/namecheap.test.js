@@ -142,16 +142,62 @@ describe("toE164 / toNamecheapPhone", () => {
   });
 });
 
+// A `<Price>` element carrying Namecheap's REAL attribute set. `YourPrice` is
+// what they charge us; `YourAdditonalCost` (their misspelling) is the ICANN fee,
+// ~$0.18, billed ON TOP. The first version of this fixture put a full price in
+// the ICANN-fee slot, which made the test agree with a bug that would have sold
+// every .com for GH₵4 against a ~GH₵169 cost. Keep this shaped like the real
+// response, or the test proves nothing.
+function pricingXml(tld, yourPrice, icannFee = "0.18") {
+  return xmlOk(`<UserGetPricingResult><ProductType><ProductCategory>
+      <Product Name="${tld}">
+        <Price Duration="1" DurationType="YEAR" YourPrice="${yourPrice}" YourAdditonalCost="${icannFee}" RegularPrice="13.98" />
+      </Product>
+    </ProductCategory></ProductType></UserGetPricingResult>`);
+}
+
 describe("getPricing", () => {
-  it("prefers live Namecheap cost over the local fallback table", async () => {
+  it("prices from YourPrice plus the ICANN fee, not the fee alone", async () => {
+    axios.get.mockResolvedValueOnce(pricingXml("com", "8.88"));
+    const prices = await namecheap.getPricing();
+    // (8.88 + 0.18) × 15.5 × 1.2 = 168.5 → 169.
+    // Reading YourAdditonalCost alone would give ceil(0.18 × 18.6) = 4.
+    expect(prices[".com"]).toBe(169);
+  });
+
+  it("asks for RENEW pricing, not the first-year REGISTER promo", async () => {
+    axios.get.mockResolvedValueOnce(pricingXml("com", "8.88"));
+    await namecheap.getPricing();
+    // We bill the customer every year; pricing off a promo sells year 2 below cost.
+    expect(axios.get.mock.calls[0][0]).toContain("ActionName=RENEW");
+  });
+
+  it("ignores a live cost implausibly below the local table and keeps the fallback", async () => {
+    // What the ICANN-fee bug actually produced. A schema change must degrade to
+    // the local table, never to a giveaway.
+    axios.get.mockResolvedValueOnce(pricingXml("com", "0.18", "0"));
+    const prices = await namecheap.getPricing();
+    expect(prices[".com"]).toBe(190); // local $10.18, not GH₵4
+  });
+
+  it("honours a live cost above the local estimate", async () => {
+    // The floor is one-directional: local figures are deliberately set high, and
+    // a genuine price rise must not be clamped away.
+    axios.get.mockResolvedValueOnce(pricingXml("com", "20.00", "0"));
+    const prices = await namecheap.getPricing();
+    expect(prices[".com"]).toBe(372);
+  });
+
+  it("skips a Price row that is not a one-year term", async () => {
     axios.get.mockResolvedValueOnce(
       xmlOk(`<UserGetPricingResult><ProductType><ProductCategory>
-        <Product Name="com"><Price Duration="1" YourAdditonalCost="20.00" /></Product>
+        <Product Name="com">
+          <Price Duration="1" DurationType="MONTH" YourPrice="1.00" YourAdditonalCost="0.18" />
+        </Product>
       </ProductCategory></ProductType></UserGetPricingResult>`),
     );
     const prices = await namecheap.getPricing();
-    // 20.00 × 15.5 × 1.2 = 372, not the 190 the local $10.18 would give.
-    expect(prices[".com"]).toBe(372);
+    expect(prices[".com"]).toBe(190); // fell back rather than selling a month as a year
   });
 
   it("falls back to the local cost table when the pricing call fails", async () => {
@@ -189,14 +235,28 @@ describe("checkDomain", () => {
     expect(result).toMatchObject({ domain: "cars.com", available: false });
   });
 
-  it("uses the premium price when the API returns one, not the flat TLD price", async () => {
+  it("refuses to sell a premium name rather than quoting the flat TLD price", async () => {
     pricingUnavailable();
     axios.get.mockResolvedValueOnce(
       xmlOk(checkResult("shop.com", "true", 'IsPremiumName="true" PremiumRegistrationPrice="500.00"')),
     );
     const result = await namecheap.checkDomain("shop.com");
-    // 500 × 15.5 × 1.2 = 9300 — the flat .com price would undercharge badly.
-    expect(result.price).toBe(9300);
+    // Quoting the premium price is useless: checkout validates against the flat
+    // TLD price with a ±5% band and would reject it, and domains.create carries
+    // no premium params — so we would either fail after taking money or buy a
+    // $500 name against a GH₵190 sale. Not sellable until both paths carry it.
+    expect(result.available).toBe(false);
+    expect(result.price).toBeNull();
+    expect(result.error).toMatch(/premium/i);
+  });
+
+  it("does not quote a premium at the ordinary price when no premium price is given", async () => {
+    pricingUnavailable();
+    axios.get.mockResolvedValueOnce(
+      xmlOk(checkResult("shop.com", "true", 'IsPremiumName="true"')),
+    );
+    const result = await namecheap.checkDomain("shop.com");
+    expect(result.price).toBeNull();
   });
 
   it("rejects an unsupported TLD locally without calling the API", async () => {
@@ -343,6 +403,64 @@ describe("registerDomain", () => {
     });
     const sent = decodeURIComponent(axios.get.mock.calls[0][0]);
     expect(sent).toContain("Nameservers=ns1.eazworld.com,ns2.eazworld.com");
+  });
+});
+
+describe("WHOIS privacy", () => {
+  const registrant = {
+    firstName: "Ama", lastName: "Mensah", email: "ama@example.com",
+    phone: "0551234987", address: "1 High St", city: "Accra", country: "GH",
+  };
+
+  it("requests free WhoisGuard on every registration", async () => {
+    axios.get.mockResolvedValueOnce(
+      xmlOk('<DomainCreateResult Domain="mybiz.com" Registered="true" WhoisguardEnable="true" />'),
+    );
+    await namecheap.registerDomain("mybiz.com", 1, registrant);
+
+    // Namecheap defaults BOTH of these to "no". Omitting them publishes the
+    // buyer's name, phone and street address in public WHOIS, while the site
+    // FAQ promises privacy is included at no extra cost.
+    const sent = decodeURIComponent(axios.get.mock.calls[0][0]);
+    expect(sent).toContain("AddFreeWhoisguard=yes");
+    expect(sent).toContain("WGEnabled=yes");
+  });
+
+  it("still succeeds but logs loudly if privacy did not get enabled", async () => {
+    const err = jest.spyOn(require("../utils/logger"), "error").mockImplementation(() => {});
+    axios.get.mockResolvedValueOnce(
+      xmlOk('<DomainCreateResult Domain="mybiz.com" Registered="true" WhoisguardEnable="false" />'),
+    );
+
+    // The customer owns the domain either way, so the order must not fail — but
+    // a broken privacy promise cannot be invisible.
+    const result = await namecheap.registerDomain("mybiz.com", 1, registrant);
+    expect(result).toEqual({ success: true });
+    expect(err).toHaveBeenCalledWith(expect.stringMatching(/WITHOUT WHOIS PRIVACY/));
+  });
+});
+
+describe("sandbox guard", () => {
+  it("refuses to call the registrar when sandbox is on in production", async () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    process.env.NAMECHEAP_SANDBOX = "true";
+    try {
+      // The sandbox answers Registered="true", so the webhook would mark the
+      // order complete and email the customer for a domain nobody owns.
+      const result = await namecheap.checkDomain("mybiz.com");
+      expect(result.error).toMatch(/NAMECHEAP_SANDBOX/);
+      expect(axios.get).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+    }
+  });
+
+  it("allows sandbox outside production", async () => {
+    process.env.NAMECHEAP_SANDBOX = "true";
+    pricingUnavailable();
+    await namecheap.checkDomain("mybiz.com");
+    expect(axios.get.mock.calls[0][0]).toContain("api.sandbox.namecheap.com");
   });
 });
 

@@ -102,7 +102,8 @@ restart is `touch tmp/restart.txt`. Backend is tuned for a 512MB heap — keep q
 A reseller plan (not shared hosting) is deliberate: WHM is what lets customer hosting
 orders auto-provision. **See `docs/HOSTING.md`** for DNS, the registrar API, provisioning
 config, and the open items — chiefly that Passenger idles the app out, which affects the
-in-process background jobs.
+background jobs, which now run from cPanel cron via `scripts/runJob.js` rather than
+`setInterval` (gated by `IN_PROCESS_JOBS`).
 
 ## Working in this repo
 

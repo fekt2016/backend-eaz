@@ -10,6 +10,7 @@ const {
   normalizeDomain,
 } = require("../utils/domainHelper");
 const namecheap = require("../services/namecheap");
+const { DEFAULT_SEARCH_TLDS } = require("../config/domainPricing");
 const { registerDomainOrder } = require("../utils/registerDomainOrder");
 const {
   sanitizeName,
@@ -261,19 +262,34 @@ const createDomainPayment = async (req, res, next) => {
       }
     }
 
-    if (expectedGHS != null) {
-      const submitted = Number(amount);
-      const tolerance = 0.05;
-      if (
-        submitted < expectedGHS * (1 - tolerance) ||
-        submitted > expectedGHS * (1 + tolerance)
-      ) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Invalid payment amount. Please refresh the page and try again.",
-        });
-      }
+    // FAIL CLOSED. This used to be `if (expectedGHS != null)`, so a TLD we could
+    // not price skipped validation entirely and `amount` was taken from the
+    // request body unchecked — the webhook then compared Paystack against that
+    // same stored figure and always agreed. A buyer could name any price for any
+    // TLD outside the local table, and the window was open on every cold process
+    // and for the whole of any Namecheap pricing outage.
+    //
+    // No price, no sale.
+    if (expectedGHS == null) {
+      console.warn(`[domain] refusing payment for ${domain}: no price available for ${tld}`);
+      return res.status(503).json({
+        success: false,
+        error: "We can't price that domain right now. Please try again shortly.",
+      });
+    }
+
+    const submitted = Number(amount);
+    const tolerance = 0.05;
+    if (
+      !Number.isFinite(submitted) ||
+      submitted < expectedGHS * (1 - tolerance) ||
+      submitted > expectedGHS * (1 + tolerance)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Invalid payment amount. Please refresh the page and try again.",
+      });
     }
 
     const price = Number(amount);
@@ -543,19 +559,17 @@ const searchDomain = async (req, res, next) => {
     }
 
     const allPrices = await namecheap.getPricing();
+    // Driven by the shared constant rather than a second hardcoded list: the two
+    // had already drifted, so `.africa` was announced as back on sale in three
+    // docs while never appearing in a single search result.
     const wantedTlds = [
-      ".com",
-      ".net",
-      ".org",
-      ".io",
-      ".co",
-      ".online",
+      ...DEFAULT_SEARCH_TLDS,
       ".tech",
       ".xyz",
       ".info",
       ".biz",
       ".me",
-    ];
+    ].filter((t, i, a) => a.indexOf(t) === i);
     const tlds = wantedTlds.filter((t) => allPrices[t]);
 
     const results = await namecheap.checkMultipleDomains(

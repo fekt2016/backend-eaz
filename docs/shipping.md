@@ -626,7 +626,7 @@ want to see it.
 ## Caching
 
 `services/shipping/shippingCache.js` is an in-process `Map` with a 300 s TTL —
-there is no Redis in this app and it runs as a single PM2 instance. Every admin
+there is no Redis in this app and it runs as a single app instance. Every admin
 write calls `invalidateAll()`, so the TTL is a safety net, not the invalidation
 story.
 
