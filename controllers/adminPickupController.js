@@ -1,4 +1,5 @@
 const PickupLocation = require("../models/PickupLocation");
+const { invalidatePickupCache } = require("./pickupController");
 const { PICKUP_KINDS } = require("../models/PickupLocation");
 const { logFromRequest, ACTIONS } = require("../services/activityLogService");
 
@@ -82,6 +83,7 @@ const createPickup = async (req, res, next) => {
       isActive: isActive !== false,
     });
 
+    invalidatePickupCache();
     await audit(req, {
       action: "PICKUP_LOCATION_CREATED",
       resourceId: pickup._id,
@@ -141,6 +143,7 @@ const updatePickup = async (req, res, next) => {
     }
 
     await existing.save();
+    invalidatePickupCache();
     await audit(req, {
       action: "PICKUP_LOCATION_UPDATED",
       resourceId: existing._id,
@@ -166,6 +169,7 @@ const deletePickup = async (req, res, next) => {
 
     if (req.query.hard === "true") {
       await PickupLocation.findByIdAndDelete(req.params.id);
+      invalidatePickupCache();
       await audit(req, {
         action: "PICKUP_LOCATION_DELETED",
         resourceId: pickup._id,
@@ -177,6 +181,7 @@ const deletePickup = async (req, res, next) => {
 
     pickup.isActive = false;
     await pickup.save();
+    invalidatePickupCache();
     await audit(req, {
       action: "PICKUP_LOCATION_DEACTIVATED",
       resourceId: pickup._id,

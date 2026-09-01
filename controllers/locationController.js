@@ -11,8 +11,20 @@ const Location = require("../models/Location");
 
 // In-process cache, per-process (cleared on restart). Production may swap
 // this for Redis; the call sites stay the same.
+//
+// The TTL is a SAFETY NET, not the invalidation story — same contract as
+// services/shipping/shippingCache.js. Every admin write in
+// adminLocationController calls invalidateLocationCache(), because a 60-second
+// window is not acceptable for a deactivation: a city switched off because we
+// no longer deliver there stayed selectable at checkout until the TTL lapsed,
+// and an admin who added a region saw nothing change and re-added it.
 let cache = { ts: 0, data: null };
 const CACHE_MS = 60 * 1000;
+
+/** Drop the cached taxonomy. Called by every admin write, and by tests. */
+function invalidateLocationCache() {
+  cache = { ts: 0, data: null };
+}
 
 async function loadAllActive() {
   const now = Date.now();
@@ -152,4 +164,5 @@ module.exports = {
   listRegions,
   listCities,
   listNeighborhoods,
+  invalidateLocationCache,
 };

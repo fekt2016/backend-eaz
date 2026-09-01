@@ -625,10 +625,26 @@ want to see it.
 
 ## Caching
 
-`services/shipping/shippingCache.js` is an in-process `Map` with a 300 s TTL —
-there is no Redis in this app and it runs as a single app instance. Every admin
-write calls `invalidateAll()`, so the TTL is a safety net, not the invalidation
-story.
+There are **three** in-process caches in this subsystem, not one. All follow the
+same contract: **the TTL is a safety net, an admin write is the invalidation.**
+
+| Cache | Holds | TTL | Invalidated by |
+|---|---|---|---|
+| `services/shipping/shippingCache.js` | zones, tiers, settings | 300 s | `invalidateAll()` from every admin shipping write |
+| `controllers/locationController.js` | the active region → city → neighbourhood taxonomy | 60 s | `invalidateLocationCache()` from every admin location write |
+| `controllers/pickupController.js` | active pickup rows | 60 s | `invalidatePickupCache()` from every admin pickup write |
+
+The latter two had **no invalidation at all** until T80p. The TTL alone is not
+good enough for a *deactivation*: a city switched off because we stopped
+delivering there stayed selectable at checkout for up to a minute, and a
+retired bus station stayed bookable — so a customer could select, and pay for,
+a handoff point that no longer existed. Both are covered by
+`tests/locationEndpoints.test.js` § "admin writes invalidate the public read
+cache".
+
+All three are **per process**. See `docs/HOSTING.md` § Open items 4: Passenger
+must be pinned to one process, or each instance carries its own copy and an
+admin write invalidates only the one that served it.
 
 > **Cache keys must not collide.** The calculator caches *every* active zone
 > under the bare `zones` key. Anything caching a filtered subset must use its
@@ -703,15 +719,21 @@ matching `zoneCode`, `isActive`.
 ## Tests
 
 ```bash
-npx jest tests/shipping tests/distanceZones.test.js --runInBand
+npx jest tests/shipping tests/locationEndpoints.test.js tests/distanceZones.test.js --runInBand
 ```
 
-`shippingCalculator` (formula units), `shippingEndpoints` (HTTP, validation,
-auth gating), `shippingCheckout` (quote → order, hash tamper-proofing, pickup),
-`shippingSettlement` (courier payout, refunds, admin summary),
-`shippingDistance` (Google distance pricing, fallback, manual overrides),
-`distanceZones` (the A–F rate table, every worked example, band boundaries,
-zone resolution, and the end-to-end far-costs-more-than-near guard).
+`shippingCalculator` (formula units, plus the T80 E2 blocks: same-day cutoff and
+Mon–Sat rules, the Greater-Accra distance formula, the regional pickup formula,
+and fulfilment-method gating), `shippingEndpoints` (HTTP, validation, auth
+gating), `shippingCheckout` (quote → order, hash tamper-proofing including
+`region` + `pickupLocationId`, pickup), `shippingSettlement` (courier payout,
+refunds, admin summary), `shippingDistance` (Google distance pricing, fallback,
+manual overrides), `distanceZones` (the A–F rate table, every worked example,
+band boundaries, zone resolution, and the end-to-end far-costs-more-than-near
+guard), `locationEndpoints` (the public cascade, the pickup selector, admin CRUD,
+the admin-only gate, and cache invalidation), `shippingPickupFulfilment`
+(shipped → `readyForPickupAt` → `pickedUpAt`, both status doors, and what the
+public tracking endpoint does and does not expose).
 
 Run serially — each suite spins up its own `mongodb-memory-server`, and four at
 once can contend enough to flake on a small machine.

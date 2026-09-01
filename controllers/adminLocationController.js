@@ -1,5 +1,6 @@
 const Location = require("../models/Location");
 const { logFromRequest, ACTIONS } = require("../services/activityLogService");
+const { invalidateLocationCache } = require("./locationController");
 
 // T80 E2 — admin CRUD over the Location taxonomy (region → city →
 // neighborhoods). One row per (region, city) pair, neighborhoods are a
@@ -74,6 +75,8 @@ const createLocation = async (req, res, next) => {
       isActive: isActive !== false,
     });
 
+    invalidateLocationCache();
+
     await audit(req, {
       action: "LOCATION_CREATED",
       resourceId: loc._id,
@@ -127,6 +130,8 @@ const updateLocation = async (req, res, next) => {
     }
 
     await existing.save();
+    invalidateLocationCache();
+
     await audit(req, {
       action: "LOCATION_UPDATED",
       resourceId: existing._id,
@@ -159,6 +164,7 @@ const deleteLocation = async (req, res, next) => {
 
     if (req.query.hard === "true") {
       await Location.findByIdAndDelete(req.params.id);
+      invalidateLocationCache();
       await audit(req, {
         action: "LOCATION_DELETED",
         resourceId: loc._id,
@@ -170,6 +176,7 @@ const deleteLocation = async (req, res, next) => {
 
     loc.isActive = false;
     await loc.save();
+    invalidateLocationCache();
     await audit(req, {
       action: "LOCATION_DEACTIVATED",
       resourceId: loc._id,

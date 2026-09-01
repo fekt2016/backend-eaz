@@ -548,7 +548,7 @@
 
 Not defects; product features that don't exist yet. Scope separately before building.
 
-- [ ] **T80 · E2 Shipping Expansion: Region/City/Neighborhood + Bus-Station Pickup + Distance Pricing**
+- [x] **T80 · E2 Shipping Expansion: Region/City/Neighborhood + Bus-Station Pickup + Distance Pricing** — completed 2026-09-01
   - **Scope:** Full expansion of T78 shipping system per `docs/shipping-expansion-plan.md`
   - **Business Rules:**
     - Warehouse: Nima, Greater Accra (configurable)
@@ -570,11 +570,11 @@ Not defects; product features that don't exist yet. Scope separately before buil
     - [x] T80k · Frontend: `src/app/track/order/[trackingNumber]/page.jsx` — show pickup panel when `shippingMethod === 'bus_station_pickup'`
     - [x] T80l · Frontend: `src/app/order-confirmation/[reference]/page.jsx` — show pickup info when applicable
     - [x] T80m · Frontend: `src/hooks/queries/useShippingAdmin.js` — add `useLocations`, `usePickups` hooks + queryKeys
-    - [ ] T80n · Tests: `tests/shippingCalculator.test.js` — same-day cutoff, Mon-Sat, distance formula, regional formula, fulfillment gating
-    - [ ] T80o · Tests: `tests/shippingCheckout.test.js` — quote→order with `region`/`pickupLocationId`, cartHash includes new params
-    - [ ] T80p · Tests: `tests/locationEndpoints.test.js` — region/city/neighborhood + pickup CRUD + gating
-    - [ ] T80q · Tests: `tests/shippingPickupFulfilment.test.js` — ready-for-pickup → delivered flow
-    - [ ] T80r · Docs: Update `docs/shipping.md` with E2 architecture
+    - [x] T80n · Tests: `tests/shippingCalculator.test.js` — same-day cutoff, Mon-Sat, distance formula, regional formula, fulfillment gating — **was already covered**; the four `T80 E2` describe blocks exist (2026-09-01)
+    - [x] T80o · Tests: `tests/shippingCheckout.test.js` — quote→order with `region`/`pickupLocationId`, cartHash includes new params — **was already covered** (2026-09-01)
+    - [x] T80p · Tests: `tests/locationEndpoints.test.js` — region/city/neighborhood + pickup CRUD + gating — 24 tests (2026-09-01). **Found and fixed a bug:** neither `locationController` nor `pickupController` invalidated its 60 s read cache on an admin write, so a deactivated city stayed selectable and a retired bus station stayed bookable for up to a minute. Both now expose an invalidate hook called by all four admin writes; two tests fail against the old code.
+    - [x] T80q · Tests: `tests/shippingPickupFulfilment.test.js` — ready-for-pickup → delivered flow — 8 tests (2026-09-01), covering both status doors (`PATCH /orders/:id` and `POST /orders/:id/tracking`) and what public tracking does/does not expose
+    - [x] T80r · Docs: `docs/shipping.md` was already E2-aware; updated the Caching section (three caches, not one) and the Tests section (2026-09-01)
   - **Verification:** All shipping tests pass (`npx jest tests/shipping* tests/locationEndpoints*`), frontend lint/build clean, manual checkout test for Greater Accra delivery + regional pickup
 
 ---

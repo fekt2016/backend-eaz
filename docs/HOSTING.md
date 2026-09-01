@@ -312,15 +312,22 @@ schedules all four in process.
 4. **Passenger may run more than one process** — pin the process count to 1 in
    cPanel → Setup Node.js App. There is no process-count setting anywhere in this
    repo; it exists only in that UI, so nothing in the codebase can assert or enforce
-   it. The jobs no longer care — cron runs once regardless — but three pieces of
-   module-scoped state do (verified 2026-08-31 by sweeping module-level `Map`/`Set`;
-   everything else found was per-request and safe):
+   it. The jobs no longer care — cron runs once regardless — but five pieces of
+   module-scoped state do:
 
    | State | Where | Effect with N processes |
    |---|---|---|
    | **Rate limiters** (11) | `app.js:151`, `express-rate-limit` default MemoryStore | every limit becomes **N×** its intended value |
    | Shipping cache | `services/shipping/shippingCache.js:18` | stale reads up to the 5-min TTL on instances that did not serve the admin write |
+   | Location taxonomy cache | `controllers/locationController.js:14` | ditto, 60 s — an instance that did not serve the write keeps offering a city we stopped delivering to |
+   | Pickup cache | `controllers/pickupController.js:10` | ditto, 60 s — a retired bus station stays bookable |
    | Namecheap price cache | `services/namecheap.js` | N× the paid pricing API calls per hour |
+
+   > The first sweep (2026-08-31) listed only three, because it grepped for
+   > module-level `Map`/`Set`. The location and pickup caches are plain
+   > `{ ts, data }` objects and were missed; they surfaced during T80p on
+   > 2026-09-01. **Grep for module-scoped `let`/`const` object state too, not
+   > just collections.**
 
    **The rate limiters are the sharper edge, not the cache.** Two matter: the login
    limiter (10 attempts/15 min) is the brute-force guard, and `/api/v1/domain`

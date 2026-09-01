@@ -4,11 +4,22 @@ const PickupLocation = require("../models/PickupLocation");
 // Auth-free; rate-limited via the global /api/ limiter.
 //
 // Cache: short in-process TTL so a customer hitting the cascade doesn't
-// thrash the DB. Admin writes are infrequent and the 60s staleness is
-// acceptable for the storefront.
+// thrash the DB.
+//
+// The TTL is a SAFETY NET, not the invalidation story — same contract as
+// services/shipping/shippingCache.js. Every admin write in
+// adminPickupController calls invalidatePickupCache(). 60 seconds of staleness
+// is NOT acceptable here: a station deactivated because we stopped using it
+// stayed selectable at checkout, so a customer could pay for a handoff point
+// that no longer exists.
 
 let cache = { ts: 0, data: null };
 const CACHE_MS = 60 * 1000;
+
+/** Drop the cached pickup rows. Called by every admin write, and by tests. */
+function invalidatePickupCache() {
+  cache = { ts: 0, data: null };
+}
 
 async function loadActive() {
   const now = Date.now();
@@ -45,4 +56,4 @@ const listPickups = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { listPickups };
+module.exports = { listPickups, invalidatePickupCache };
