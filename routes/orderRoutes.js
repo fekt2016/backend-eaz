@@ -1,5 +1,7 @@
 const express = require('express');
 const { protect, restrictTo } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
+const { createOrderSchema, trackOrderSchema } = require('../validation/orderSchema');
 const {
   createOrder,
   getMyOrders,
@@ -20,8 +22,8 @@ const {
 
 const router = express.Router();
 
-router.post('/', createOrder);
-router.post('/track', trackOrder);
+router.post('/', validate(createOrderSchema), createOrder);
+router.post('/track', validate(trackOrderSchema), trackOrder);
 router.get('/track/:trackingNumber', getOrderTracking); // public — must stay before /:id
 router.get('/mine', protect, getMyOrders); // logged-in customer's own shop orders
 router.get('/mine/:id', protect, getMyOrderById); // a customer's own order detail

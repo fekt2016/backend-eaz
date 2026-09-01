@@ -839,7 +839,7 @@ Not defects; product features that don't exist yet. Scope separately before buil
   mongod-startup errors, so T108's root cause is *not* the per-file mongod churn T120 fixed.
   Something else drops connections late in a long serial run. See T108.
 
-- [~] **T126 · PARTLY APPLIED 2026-08-30 — the two existing schemas are wired; cart/orders/reviews still need schemas WRITTEN** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
+- [x] **T126 · APPLIED 2026-09-01 — schemas written and wired for cart, orders, reviews** (input-sanitisation sweep 2026-08-29) — **CONFIRMED**
   - **Issue:** counted every `router.post|patch|put|delete` against every `validate(` in `routes/`:
     **~119 write endpoints, 5 uses of the Zod middleware** — 2 in `addressRoutes.js`, 2 in
     `shippingRoutes.js`, 1 in `authRoutes.js`. Ten controllers read `req.body` with **zero** calls to
@@ -859,6 +859,56 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Note:** 20 of 40 models declare no `maxlength` on any string field, which is the same gap at
     the schema layer.
   - **Location:** `routes/*.js`; the ten controllers listed above; `validation/`
+
+  ### Implementation Notes (2026-09-01 — applied)
+
+  **Part 2 — the three customer-reachable endpoints.** Part 1 (contactSchema, shippingSchema,
+  domainSchema, authSchema) was already applied 2026-08-30. The remaining customer-reachable write
+  endpoints are `createOrder` (POST /orders), the cart write endpoints (PUT, PATCH /items, PATCH
+  /merge), and product review create/update (POST /:productId/reviews, PATCH /:productId/reviews/mine).
+  `trackOrder` (POST /orders/track) is a simple two-field lookup and got a schema too.
+
+  **Cart (`validation/cartSchema.js`)** — three schemas: `replaceCartSchema` and `mergeCartSchema`
+  (both expect `{ items: CartItem[] }`), `upsertItemSchema` (a single CartItem). The CartItem shape
+  mirrors the Mongoose model: lineId/slug/name/price required; image/category/stock/qty/variant optional.
+  Price is validated as a non-negative integer (pesewas). The controller's existing `if (!lineId ||
+  !slug || !name || price == null)` manual check is now redundant for the Zod path but kept as a
+  belt-and-braces backstop.
+
+  **Orders (`validation/orderSchema.js`)** — `createOrderSchema` uses `.passthrough()` at the top
+  level rather than listing every field: createOrder reads many optional params across three
+  shipping paths (quote, legacy zone, fresh recomputation), and Zod's default behaviour of stripping
+  unknown keys would silently drop a field the controller needs. The schema enforces the invariants
+  the controller actually checks up front (items present, customer name+phone), so a malformed
+  body fails as a clean 400 with field detail — but never strips a valid extra field. The
+  `createOrderSchema` also uses `.passthrough()` on each order-item object for the same reason:
+  items can be a string (legacy `part-<id>` carts) or an object, and the object can carry a
+  `product` field in addition to the documented `slug/qty/variant`. `trackOrderSchema` is a simple
+  required-object: `{ orderNumber, phone }`.
+
+  **Product reviews (`validation/productReviewSchema.js`)** — `submitProductReviewSchema` (required
+  rating 1..5, comment ≥ 10 chars, ≤ 2000) and `updateMyProductReviewSchema` (true partial —
+  either rating or comment can be sent alone, but not both missing). These match the controller's
+  existing bounds exactly, so the Zod layer is a pure short-circuit: a rating of 7 is rejected
+  with a 400 before `submitProductReview` touches the database, not after.
+
+  **Why `updateMyProductReviewSchema` uses `.refine()` rather than requiring both fields:**
+  `updateMyProductReview` is a true partial — the controller accepts only `rating`, only `comment`,
+  or both. Zod's `.object({}).optional()` treats an absent field as undefined; the `.refine()`
+  ensures at least one key is present so an empty `{}` body gets a 400 rather than silently
+  doing nothing.
+
+  **Tests (`tests/validationWiring.test.js`, 11 cases)** — each hits the route it names and asserts
+  the schema rejects a malformed body as 400 with field detail. The verify step (mutation) was run:
+  removing `validate(replaceCartSchema)` from `PUT /cart` causes the "no items array" test to fail
+  (the controller's own check returns 400 but without the `errors[]` field structure); removing
+  `validate(createOrderSchema)` from `POST /orders` causes the "no customer" test to fail (the
+  controller's `customer?.name` check returns 400 with a different error shape). Both were
+  confirmed and restored.
+
+  **All existing tests pass:** cart (24), preorder (5), orderCustomerLimits (10), orderByReference
+  (5), orderTracking (5), productReviews (10), validationWiring (11). ESLint: 0 errors, 0 new
+  warnings.
 
 - [x] **T118 · APPLIED 2026-08-30 — `webhook.test.js` brought onto T90's reason-string contract** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** T90 changed `amountMismatch()` from returning a boolean to returning a reason string

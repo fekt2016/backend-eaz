@@ -1,5 +1,10 @@
 const express = require('express');
 const { protect, restrictTo } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
+const {
+  submitProductReviewSchema,
+  updateMyProductReviewSchema,
+} = require('../validation/productReviewSchema');
 const {
   getProducts,
   recordProductView,
@@ -34,10 +39,10 @@ router.patch('/:id', protect, restrictTo('admin', 'staff'), updateProduct);
 router.delete('/:id', protect, restrictTo('admin', 'staff'), deleteProduct);
 
 // Product reviews — parallel system to the service Review (see PRODUCT_REVIEW_TASK.md)
-router.post('/:productId/reviews', protect, submitProductReview);
+router.post('/:productId/reviews', protect, validate(submitProductReviewSchema), submitProductReview);
 router.get('/:productId/reviews/mine', protect, getMyProductReview);
 router.get('/:productId/reviews/eligibility', protect, getReviewEligibility);
-router.patch('/:productId/reviews/mine', protect, updateMyProductReview);
+router.patch('/:productId/reviews/mine', protect, validate(updateMyProductReviewSchema), updateMyProductReview);
 router.get('/:productId/reviews', getProductReviews);
 
 router.get('/:slug', getProductBySlug);
