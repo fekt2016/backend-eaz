@@ -40,11 +40,15 @@
   - **Fix:** Add `client_max_body_size 6m;` to the `server` block (a little above the app limit so the
     app owns the error message).
   - **Location:** `nginx.conf` (repo root) — no `client_max_body_size` anywhere
-  - **Acceptance:**
-    - [ ] A 4 MB image upload succeeds end to end in a production-like deploy
-    - [ ] A 10 MB upload is refused by the app with a readable error, not a bare proxy 413
-    - [ ] Existing upload functionality still works
-    - [ ] The proxy limit is documented next to the app limit so the two stay in step
+  - **Acceptance — N/A since the cPanel migration (reconciled 2026-09-01):** `deploy/nginx.conf`
+    was deleted in `0097e7b`; there is no proxy to configure and no `nginx -t` to run. The
+    underlying question — "can a 4 MB photo actually be uploaded, and does a 10 MB one get a
+    readable error?" — was re-checked against the code on 2026-09-01 and the answer is yes:
+    `express.json`/`urlencoded` cap at 5mb (`app.js:105`), multer at 5MB
+    (`uploadController.js:15`, `accountController.js:23`) and 8MB for POS job photos
+    (`posRoutes.js:24`), and every upload route is behind `protect` with `maxCount: 1`. The app
+    owns the error message because nothing sits in front of it any more. Full write-up in
+    `docs/HOSTING.md` § Open items 5.
 
 - [x] **T82 · APPLIED 2026-08-30 — real domain, dead webhook block removed** (audit ref EZ-002)
   - **Issue:** `server_name yourdomain.com www.yourdomain.com;` (line 2, 8) and
@@ -57,11 +61,12 @@
   - **Fix:** Parameterise (or commit) the real domain, point cert paths at the issued certificate,
     delete the dead webhook block, and confirm the Paystack dashboard URL is `/api/webhooks/paystack`.
   - **Location:** `nginx.conf:2,8,11-12,33-37` (repo root)
-  - **Acceptance:**
-    - [ ] `nginx -t` passes on the production host
-    - [ ] HTTPS serves the frontend and `/api/` reaches the backend
-    - [ ] Paystack webhook deliveries arrive and verify
-    - [ ] No proxy rules remain for routes that do not exist
+  - **Acceptance — mostly N/A since the cPanel migration (reconciled 2026-09-01):** no Nginx, so
+    `nginx -t` and the proxy-rule criteria no longer apply; LiteSpeed + Passenger serve the app and
+    AutoSSL issues the certificate. The one criterion that survives is **"Paystack webhook
+    deliveries arrive and verify"**, which is not a code question — see T3b. The signature path
+    itself is verified: `webhookController.js:122` reads `PAYSTACK_SECRET` (set), and the blank
+    `PAYSTACK_WEBHOOK_SECRET` is a dead variable nothing reads.
 
 ---
 
@@ -80,18 +85,35 @@
         amount/currency mismatch rejected, `refund.processed`/`refund.failed` update order status.
       - **To complete live:** configure `POST /api/webhooks/paystack` as the webhook URL in the Paystack dashboard,
         then make a sandbox test payment and confirm the event appears. This is a deployment step, not a code change.
-    - [~] T3c · WHM/CyberPanel hosting provisioning + suspend/terminate/renew/cpanel-login — **PARTIALLY BLOCKED** 2026-08-20
-      - Credentials are present (`WHM_HOST`/`WHM_USER`/`WHM_TOKEN`) but this dev machine cannot open a
-        TCP connection to `WHM_HOST:2087` at all (connect times out / resets after ~8s) — the WHM
-        server's firewall only allows specific IPs, and this machine's current egress IP isn't one of
-        them. Not a credentials or code issue.
+    - [~] T3c · WHM hosting provisioning + suspend/terminate/renew/cpanel-login — **BLOCKED ON CONFIG,
+      not connectivity** (re-diagnosed 2026-08-31; CyberPanel dropped)
+      - **The 2026-08-20 diagnosis below is superseded.** `WHM_HOST` then pointed at
+        `18.133.107.249`, the decommissioned pre-migration EC2 box — which is why nothing answered on
+        2087. It was never a firewall allow-list problem.
+      - **Today `WHM_HOST` / `WHM_USER` / `WHM_TOKEN` are all BLANK**, so `whm.hasConfig()` is false
+        and `utils/provisionHosting.js:41` marks every paid shared/wordpress order `skipped`. The
+        customer pays and no cPanel account is created.
+      - **To unblock:** generate a WHM API token on the Namecheap reseller server (WHM →
+        Development → Manage API Tokens), fill the three vars, create the seven packages, then run
+        `npm run check:whm` — it validates the config, authenticates, and names any missing package
+        *before* a customer pays. See `docs/HOSTING.md` § Customer hosting provisioning.
+      - **Historical note (2026-08-20, superseded):** this dev machine could not open a TCP
+        connection to the then-configured `WHM_HOST:2087`; read at the time as a firewall
+        allow-list issue.
       - **Not attempted:** account creation/suspend/terminate — these mutate a real hosting account on
         a live server and need explicit sign-off regardless of connectivity; out of scope for an
         unattended check even once reachable.
       - **To unblock:** allow-list this machine's current public IP in the WHM server's firewall
         (e.g. ConfigServer/CSF `csf -a <ip>` or equivalent), or run the check from a host that's
         already allow-listed (e.g. the production server itself).
-    - [~] T3d · Namecheap domain search + registration + retry — **PARTIALLY BLOCKED** 2026-08-20
+    - [~] T3d · Namecheap domain search + registration + retry — **STILL UNVERIFIED END TO END**
+      (re-checked 2026-09-01). Namecheap is the settled registrar (`services/namecheap.js`;
+      `services/spaceship.js` is deleted) and, unlike the previous registrar, it has a **sandbox**
+      (`NAMECHEAP_SANDBOX=true`) — so the round-trip is finally provable without spending money.
+      Two things to confirm before selling a domain: that `NAMECHEAP_CLIENT_IP` is allow-listed on
+      the Namecheap API key, and that the glue records for `ns1`/`ns2.eazworld.co` exist.
+      ⚠️ `tests/setup.js` blanks the `NAMECHEAP_*` vars so a test run can never reach the sandbox —
+      do not remove that.
   - **Location:** `services/*`, `controllers/*` charge/upload handlers
   - **Source:** AUDIT.md §13, §19, §28, §29 P1 (all 🟣 rows in §4)
 
@@ -541,20 +563,38 @@
     `add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;`. Introduce
     HSTS with a **short** max-age first and extend only once HTTPS is stable on every subdomain.
   - **Location:** `nginx.conf:7-12` (repo root)
-  - **Acceptance:**
-    - [ ] TLS 1.2+ only
+  - **Acceptance — N/A since the cPanel migration (reconciled 2026-09-01):** the cipher/OCSP policy
+    went with `deploy/nginx.conf` and now belongs to LiteSpeed, which is not ours to configure on a
+    reseller plan. **HSTS did NOT go with it** — `app.js:82` sets it via helmet in production
+    (`max-age=31536000; includeSubDomains; preload`), so the header this task was really about is
+    still served. What is genuinely lost is only the explicit protocol/cipher pinning and OCSP
+    stapling. Tracked in `docs/HOSTING.md` § Open items 5.
+    - [ ] TLS 1.2+ only ← not verifiable from this repo; ask Namecheap or test the live host
     - [ ] HSTS present on HTTPS responses
     - [ ] `nginx -t` passes and the site still serves
     - [ ] No mixed-content or subdomain breakage
 
-- [ ] **T96 · Background jobs would double-run if the API is ever scaled out** (audit ref EZ-020)
-  - **Issue:** Renewal, reminder, scheduled-publish and refund-reconcile run via in-process
-    `setInterval` (`server.js:105-141`). Correct at `instances: 1` (`ecosystem.config.js:8`) and wrong
-    the moment the API scales — nothing elects a leader.
-  - **Impact:** In cluster mode every instance runs every job: duplicate renewal charges, duplicate
-    reminder emails, duplicate publishes. It appears only after a scaling change, when least expected.
-  - **Fix:** Either document `instances: 1` as a hard constraint with a comment in
-    `ecosystem.config.js`, or add a lock (a Mongo doc with a TTL and an atomic claim).
+- [~] **T96 · SUPERSEDED 2026-09-01 — premise no longer holds; the surviving risk moved** (audit ref EZ-020)
+  - **Original issue:** renewal, reminder, scheduled-publish and refund-reconcile ran via in-process
+    `setInterval`, correct only at PM2 `instances: 1` and wrong the moment the API scaled.
+  - **What changed:** PM2 and `deploy/ecosystem.config.js` were deleted in `0097e7b`. The jobs moved
+    to cPanel cron via `scripts/runJob.js`, and `server.js:113` gates the in-process timers behind
+    `IN_PROCESS_JOBS` (default on, so local dev is unchanged; the cPanel host sets it to `false`).
+    Cron runs a job once regardless of how many web processes Passenger spawns, so the
+    duplicate-charge scenario this task described is closed.
+  - **⚠️ What replaced it, and it is NOT hypothetical:**
+    1. **`IN_PROCESS_JOBS` is absent from `.env`** — it exists only in `.env.example`. The default is
+       `true`. If the production env does not explicitly set `IN_PROCESS_JOBS=false` while cron is
+       also configured, **every reminder and reconciliation runs twice** — the exact failure this
+       task was filed about, arriving by a different door. *Verify on the server; not checkable
+       from this repo.*
+    2. **Five pieces of module-scoped state assume one process** — the 11 rate limiters
+       (`app.js:151`, per-process MemoryStore, so every limit becomes N×), the shipping cache, the
+       location cache, the pickup cache, and the Namecheap price cache. Passenger must be pinned to
+       one process in cPanel → Setup Node.js App. Full table in `docs/HOSTING.md` § Open items 4.
+  - **Fix:** (1) confirm `IN_PROCESS_JOBS=false` on the production host; (2) pin the Passenger
+    process count to 1. Both are host configuration, not code. A leader-election lock is only
+    needed if the app is ever genuinely scaled out, at which point the rate limiters need Redis too.
   - **Location:** `server.js:105-141`; `ecosystem.config.js:8` (repo root)
   - **Acceptance:**
     - [ ] Jobs run once per interval with >1 instance, or the single-instance constraint is documented
@@ -1390,6 +1430,33 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
       `tests/adminProductById.test.js`, along with the `/products/id` slug-collision edge case
   - **Done:** 10 backend tests (`tests/adminProductById.test.js`), 29 passing across the four
     product suites; frontend build clean, 389 vitest tests passing.
+
+---
+
+## Reconciliation with the cPanel migration (2026-09-01)
+
+Moving to the Namecheap cPanel reseller plan deleted `deploy/nginx.conf` and
+`deploy/ecosystem.config.js` (commit `0097e7b`), and several tasks still described the world as
+it was before. **A task list that overstates what is outstanding is as misleading as one that
+understates it** — a reader cannot tell which of the open items are real. Reconciled:
+
+| Task | Was | Now |
+|---|---|---|
+| T81 | acceptance needed a production-like Nginx deploy | **N/A** — no proxy; the app owns its own 5MB/8MB limits and the error message |
+| T82 | acceptance needed `nginx -t` | **mostly N/A** — only "webhook deliveries arrive" survives, and that is T3b |
+| T95 | acceptance needed TLS/cipher config | **N/A** — belongs to LiteSpeed now. **HSTS was NOT lost** — `app.js:82` sets it via helmet |
+| T96 | `setInterval` + PM2 `instances: 1` | **superseded** — cron drives the jobs; two *new* single-process assumptions replace it, one of them live |
+| T3c | WHM unreachable, read as a firewall block | **re-diagnosed** — the host pointed at a decommissioned EC2 box; the vars are now simply blank |
+| T3d | registrar churn | **settled on Namecheap**, which has a sandbox, so the round-trip is finally provable |
+
+Also true of the *closed* items: T80n/T80o and four of T92's five controls were already covered by
+tests written after those tasks were filed, and were ticked on 2026-09-01 after checking each one
+rather than writing duplicates.
+
+**The one thing that got worse, not better:** T96's replacement risk #1. `IN_PROCESS_JOBS` is
+absent from `.env` and defaults to `true`, so if the production host has cron configured without
+setting it to `false`, every reminder and reconciliation runs twice. That is the original T96
+failure arriving through a different door, and it is not checkable from this repo.
 
 ---
 
