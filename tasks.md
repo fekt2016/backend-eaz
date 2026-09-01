@@ -1347,7 +1347,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     - [ ] `.lean()` plus a field projection
     - [ ] Marketplace still renders correctly against the paginated response
 
-- [ ] **T108 · RE-OPENED 2026-08-30 · connection-level flake in the full serial run — an unexplained 426 and "socket hang up"** (found during T83 verification, 2026-08-29)
+- [~] **T108 · CONNECTION FLAKE — root cause never reproduced; classification tool shipped 2026-09-01 · RE-OPENED 2026-08-30 · connection-level flake in the full serial run — an unexplained 426 and "socket hang up"** (found during T83 verification, 2026-08-29)
   - **Issue:** in `npx jest --runInBand`, "Paystack webhook — refund.processed / refund.failed ›
     completes a processing refund on refund.processed" (`tests/refunds.test.js:175`) gets
     **426 Upgrade Required** where it expects 200. Run on its own the file is **19/19 green**, on
@@ -1513,6 +1513,42 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   this time the first non-flake in a while was a genuine committed regression that hid because
   it had been assumed to be T108. Run 2's two failures were not captured before run 3; treat
   "which tests" as unreliable memory and rely on the next full run's output.
+
+  ### 2026-09-01 investigation — three hardware theories falsified; classifier shipped
+
+  The reinvestigation explicitly measured the three standing hardware hypotheses and ruled
+  each one out with mechanics, not vibes:
+
+  - **fd/descriptor exhaustion — RULED OUT.** `ulimit -n` is 1,048,576; 200 sequential
+    supertest requests leaked **0** fds (`/dev/fd` 17 → 17). No accumulation.
+  - **Ephemeral-port recycling — RULED OUT.** supertest's per-request `listen(0)` resolved to
+    **30 distinct ports over 30 sequential bind/close cycles with zero repeats** (`max
+    repeats: 1`). The OS does not hand the same port straight back, so a
+    recycled-port-collision race cannot be the mechanism on this host.
+  - **keep-alive — RULED OUT** (already, 2026-08-30): superagent uses `agent: false` (one-off
+    socket per request), never `globalAgent`; the same 426 reproduces with keep-alive off.
+  - **426 provenance — NONE in the stack.** `grep 426` across `express/`, `supertest/`,
+    `superagent/`, `send/`, `finalhandler/` returns nothing; express has no upgrade handler
+    and no socket.io is mounted in tests (`server.js` only, never truthy in supertest). A
+    426 therefore cannot be produced by anything loaded in a supertest request — it is
+    surfaced by superagent when the HTTP parser misreads a status line off a desynchronised
+    connection, which is the true connection-level signature, not an app response.
+  - **posSale disconnect is NOT the cause for early victims.** `posSale.test.js` disconnects
+    the shared mongoose to run its replset (pos: 53 of ~100) and reconnects after. Victims
+    appear **before and after** it (cart@12, hosting@31, refunds@64, seedCatalog@74,
+    usersPagination@93) and the exact posSale→seedCatalog→usersPagination interleave ran
+    3/3 clean. No single-file culprit explains the earliest victims.
+
+  Verdict: every *concrete, mechanically-checkable* theory is now exhausted; what remains is
+  an order/load-dependent connection flake whose victim is essentially random and which
+  cannot be provoked in isolation. No app defect has ever been shown to cause it. **This is
+  not an app bug to chase further** — it is a gate-reliability problem to route around.
+
+  **Shipped: `npm run test:ci` → `scripts/classifyTestFlakes.js`.** Runs the full suite, then
+  independently re-runs each failing file ALONE and prints `FLAKE` vs `FAIL`. Exit 0 only
+  when every initial failure is green in isolation. This is the 10-minute manual verdict
+  (the recurring cost from 2026-08-30) reduced to one command: a red full run now tells you
+  in seconds whether to investigate or release. Log new flaked suites here as they appear.
 
 - [x] **T109 · Product edit page pulls the whole catalogue to render one product** (found during T107, 2026-08-29; fixed 2026-09-01)
   - **Issue:** `frontend-eaz/src/app/dashboard/commerce/products/[id]/edit/page.jsx` uses

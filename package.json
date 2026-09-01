@@ -32,6 +32,7 @@
     "check:whm": "node scripts/checkWhm.js",
     "test": "jest --runInBand",
     "test:watch": "jest --runInBand --watch",
+    "test:ci": "node scripts/classifyTestFlakes.js",
     "lint": "eslint .",
     "seed:zones": "node src/seedDistanceZones.js",
     "seed:neighborhoods": "node src/seedNeighborhoods.js",
