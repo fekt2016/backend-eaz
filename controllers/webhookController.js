@@ -601,7 +601,7 @@ const handlePaystackWebhook = async (req, res) => {
     }
 
     // ── Service order (web design deposit) ──────────────────────────
-    const serviceOrder = await ServiceOrder.findOne({ paystackReference: reference });
+    let serviceOrder = await ServiceOrder.findOne({ paystackReference: reference });
     if (serviceOrder) {
       // depositAmount is major GHS (T44, intentional); depositAmountPesewas
       // is the precomputed pesewas value — fall back to deriving it for
@@ -621,15 +621,26 @@ const handlePaystackWebhook = async (req, res) => {
         return res.status(400).json({ error: 'Amount mismatch', reason: failure });
       }
 
-      if (serviceOrder.status === 'paid') {
+      // T121 — atomic pending→paid claim, matching the hosting, domain, part
+      // and repair branches. This used a read-then-check-then-write: read the
+      // order, test `status === 'paid'`, only then write. Two overlapping
+      // Paystack retries could both pass the check before either wrote, and
+      // both would go on to trigger the deposit's follow-up work. The filter
+      // keeps the field binding in the claim so exactly one caller wins.
+      const claimedService = await ServiceOrder.findOneAndUpdate(
+        { _id: serviceOrder._id, status: { $ne: 'paid' } },
+        { $set: { status: 'paid', paidAt: new Date() } },
+        { new: true },
+      );
+
+      if (!claimedService) {
         console.log(
           `[webhook] Duplicate webhook for already-paid service order ${serviceOrder._id} — skipping`
         );
         return res.status(200).json({ received: true });
       }
-      serviceOrder.status = 'paid';
-      serviceOrder.paidAt = new Date();
-      await serviceOrder.save({ validateBeforeSave: false });
+      // Continue on the claimed document — the pre-claim copy is stale.
+      serviceOrder = claimedService;
       await log({
         action: ACTIONS.PAYMENT_VERIFIED,
         resourceType: RESOURCES.PAYMENT,

@@ -120,15 +120,15 @@ Here's exactly who can do what inside the repair shop (POS). ✅ = yes, ❌ = no
 |--------------------------------------|:-----:|:-----:|:----------:|
 | See the dashboard & reports          |   ✅  |   ❌   |    ❌      |
 | Scan a barcode / look something up   |   ✅  |   ✅   |    ❌      |
-| Add & edit customers                 |   ✅  |   ❌   |    ❌ |
+| Add & edit customers                 |   ✅  |   ✅²  |    ❌ |
 | Create & update repair jobs          |   ✅  |   ✅   |    ✅ | 
 | Add photos to a job                  |   ✅  |   ✅   |    ✅ |
 | Delete a job photo                   |   ❌  |   ✅   |    ❌ |
-| Take a payment on a job              |   ❌  |   ✅   |    ❌ |
-| Take a Mobile Money payment          |   ❌  |   ✅   |    ❌ |
+| Take a payment on a job              |   ✅  |   ✅   |    ❌ |
+| Take a Mobile Money payment          |   ✅  |   ✅   |    ❌ |
 | Ring up a sale                       |   ❌  |   ✅   |    ❌ |
 | **Cancel (void) a sale**             |   ❌  |   ❌   |    ❌ |
-| Look up stock                        |   ✅  |   ❌   |    ❌|
+| Look up stock                        |   ✅  |   ✅   |    ❌|
 | Add / edit stock                     |   ✅  |   ❌   |    ❌ |
 | Delete stock                         |   ✅  |   ❌   |    ❌ |
 | See suppliers                        |   ✅  |   ❌   |    ❌ |
@@ -136,13 +136,15 @@ Here's exactly who can do what inside the repair shop (POS). ✅ = yes, ❌ = no
 | See expenses                         |   ✅¹ |   ✅¹  |    ❌ |
 | Record an expense                    |   ✅  |   ✅   |    ❌ |
 | Edit / delete an expense             |   ✅  |   ❌   |    ❌ |
-| See jobs waiting to be collected     |   ✅  |   ✅   |    ✅ |
-| Send collection reminders            |   ❌  |   ✅   |    ❌ |
+| See jobs waiting to be collected     |   ✅  |   ✅   |    ❌ |
+| Send collection reminders            |   ✅  |   ✅   |    ❌ |
 | Track warranty claims                |   ✅  |   ❌   |    ❌ |
 | Create staff accounts                |   ✅  |   ❌   |    ❌ |    
 
-> The rows marked ❌ for everyone (cancel a sale, manage suppliers, record expenses, create staff) are the
-> **owner-only** powers — only a **superadmin** can do them.
+> Rows ❌ for **everyone** (cancel a voidable sale, add/edit/delete suppliers) are the **owner-only**
+> powers — only a **superadmin** can do them. Admin **can** create staff accounts, edit customers,
+> take payments and record an expense (backstopping the till); the one row where admin *loses* to
+> staff is "delete a job photo" (deliberate, T83 — admin owns the audit trail).
 
 ---
 
@@ -182,22 +184,30 @@ A few things worth being aware of:
    Editing and deleting stay with admin and superadmin — and only within what they can see, so an
    admin cannot revise a superadmin's expense.
 
-0. **Staff are the counter; admin manages** (T83, 2026-08-29). Reports, suppliers and warranty
-   tracking are superadmin + admin only — staff no longer see them in the sidebar *or* reach them
-   directly. Staff keep their own scoped dashboard ("My dashboard"), sales, repair jobs and
-   payments. Warranty also *gained* admin, who had been excluded despite this table saying
+0. **Staff are the counter; admin manages** (T83/T105, 2026-08-29/09-01). Reports, suppliers and
+   warranty tracking are superadmin + admin only — staff no longer see them in the sidebar *or*
+   reach them directly. Staff keep their own scoped dashboard ("My dashboard"), sales, repair jobs
+   and payments. Warranty also *gained* admin, who had been excluded despite this table saying
    otherwise. **Side effect worth knowing:** the supplier dropdown when adding or editing stock
    now comes back empty for staff, so staff can add stock but cannot attach a supplier to it.
 
-1. **Technician separation is now enforced, not just hidden** (T83, 2026-08-29). Sales, customers, stock lookup
-   and barcode scanning used to be reachable by a technician who went straight to the address, even though the
-   menu hid them. They now return "no permission". Ringing up a sale is the till's job — **superadmin and staff
-   only; admin cannot** — matching how job payments and expenses already worked. That rule is enforced inside
-   `createSale` as well as on the route, so it holds even if the routing changes.
+1. **Technician separation is now enforced, not just hidden** (T83/T105, 2026-08-29/09-01). Sales,
+   stock lookup, barcode scanning and the customer list used to be reachable by a technician who
+   went straight to the address, even though the menu hid them. They now return "no permission" —
+   as does "jobs waiting to be collected", since collection follow-up is counter staff work, not
+   bench work. Ringing up a sale is the till's job — **superadmin and staff only; admin cannot**.
+   That rule is enforced inside `createSale` as well as on the route, so it holds even if the
+   routing changes.
 
-2. **Admin doesn't take money at the counter.** That's intentional in the current setup — payments, expenses,
-   and warranty are shop-floor jobs. If your admin also works the counter, they may feel limited; worth
-   confirming this matches how you actually run things.
+2. **Customers, payments and staff accounts — clarified 2026-09-01 (T105):**
+   - ² **Staff create customers, admin edits.** Job intake silently creates a walk-in customer
+     when booking a repair, so staff keep that write; existing records are admin's to change.
+   - **Admin does take money at the counter.** T83 had left that open; confirmed now — admin
+     records job payments, takes MoMo/card charges and records expenses, backstopping the till.
+     Admin still *cannot ring up a retail sale* (that stays superadmin + staff).
+   - **Reminders:** both admin and staff may send collection reminders (the till follows up on
+     devices ready for collection).
+   - **Staff accounts:** admin may create staff accounts, not just superadmin.
 
 3. **Theme is per-device, not per-person.** Choosing dark or light mode is remembered on that browser/computer,
    not saved to the account — so it won't follow someone from the shop tablet to their phone.

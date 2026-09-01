@@ -117,7 +117,7 @@
   - **Location:** `services/*`, `controllers/*` charge/upload handlers
   - **Source:** AUDIT.md §13, §19, §28, §29 P1 (all 🟣 rows in §4)
 
-- [~] **T83 · A technician can ring up a sale — POS roles are not enforced server-side** (audit ref EZ-003)
+- [x] **T83 · A technician can ring up a sale — POS roles are not enforced server-side** (audit ref EZ-003)
   - **Issue:** POS routes sit behind one blanket gate — `protect` then
     `restrictTo('superadmin','admin','staff','technician')` (`routes/posRoutes.js:34-35`) — and several
     add no further check: `/customers` (`:57`), `/sales` (`:76`), `/inventory` (`:83`).
@@ -136,7 +136,7 @@
     (`:175, :272, :522`) — this is an inconsistency, not a blanket absence.
   - **Location:** `routes/posRoutes.js:34-35,57,76,83`; `controllers/pos/salesController.js`
   - **Acceptance:**
-    - [ ] Each POS route's allowed roles match `roles.md`  ← technician column matches; ~11 admin/staff rows still diverge, see T105
+    - [x] Each POS route's allowed roles match `roles.md`  ← technician column shipped with T83; the ~11 admin/staff rows were resolved by owner decision in T105 (2026-09-01), matrix test added
     - [x] A technician gets 403 on sales, customer writes and inventory reads
     - [x] Staff/admin/superadmin keep their current access  ← unchanged, except admin loses POST /sales by explicit owner decision
     - [x] Negative tests per role (see T92)
@@ -189,9 +189,37 @@
     other**: `roles.md` grants staff and admin *less* than the code does on ~11 further rows.
     Applying the matrix literally would have removed working access for staff and admin. The
     technician column now matches `roles.md` exactly — that is the security hole, and it is
-    closed. The remaining divergences are a product question, logged as **T105**.
+    closed. The remaining divergences are a product question, logged as **T105** — since resolved
+    (2026-09-01): the 12 rows walked with the owner, `roles.md` matches the routes, and the matrix
+    is enforced by a test in `tests/posTechnicianRoleGuard.test.js` (see the T105 entry).
 
-- [~] **T84 · An account can claim another customer's guest orders via an unverified phone** (audit ref EZ-004)
+### Close-out (2026-09-01 — verified, security close-out)
+
+  - The full serial suite was run for the close-out. `posTechnicianRoleGuard` + the six related
+    suites (`posSale`, `reportsAnalytics`, `expensesRoleModel`, `technicianHostingDomainAccess`,
+    `updateJobMoneyGuard`, `activityLog`) + `phoneChangeOtp` = **103/103 green**; ESLint 0 errors
+    (touched files clean). The role-matrix test is enforced (see the T105 entry).
+  - The two other failures the full runs surfaced were **unrelated to this task**: (a) the six
+    `variants.test.js` cases were a committed T126 regression (order schema rejected
+    `deliveryZoneId: null`) — fixed under **T137**, added below; (b) `usersPagination` +
+    `seedCatalog` fail only in the long serial run and pass green in isolation — the
+    pre-existing **T108** connection flake, unchanged.
+
+## Ad-hoc fixes (found during work, outside the original audit)
+
+- [x] **T137 · APPLIED 2026-09-01 — order schema rejects `null` for optional fields, breaking order creation with variants** (found during the T83/T84 security close-out)
+  - **Issue:** `validation/orderSchema.js` `optionalString()` is `z.string().trim().max(n).optional().default("")`.
+    Zod rejects `null`, and the shop's order payloads send `deliveryZoneId: null` (legacy/quote
+    path) — a faithful payload from `tests/variants.test.js` 400'd with "Validation failed".
+    Regression shipped with the T126 schema wiring — the controller itself treats `null`/""/absent
+    identically (`if (deliveryZoneId)`, `req.body.pickupLocationId || null`, …).
+  - **Fix:** `optionalString()` is now `z.union([z.string().trim().max(n), z.null()]).optional().default("")`
+    — `null` passes through and reaches the controller exactly as before T126; only genuinely
+    missing values default to `""`. The `.passthrough()`/default semantics elsewhere are unchanged.
+  - **Verified:** `variants.test.js` 27/27 (6 previously failing), `validationWiring.test.js` 5/5;
+    full suite back to only the pre-existing T108 serial-run flake.
+
+- [x] **T84 · An account can claim another customer's guest orders via an unverified phone** (audit ref EZ-004)
   - **Issue:** Shop orders are guest checkouts with no `user` ref, so they are matched to an account by
     `customer.email` / `customer.phoneDigits` (`controllers/orderController.js:882-899`, `getMyOrders`).
     `updateProfile` (`controllers/authController.js:571-593`) lets any logged-in user set `phone` to any
@@ -237,6 +265,14 @@
     it asserted the phone applied immediately, which is the behaviour this replaces.
   - Acceptance: #1 ✅ · #2 deferred by decision · #3 ✅ (unchanged for existing customers) · #4
     ✅ for the claim attempt at the profile layer; the order-linkage half goes with #2.
+
+  ### Close-out (2026-09-01 — verified, security close-out)
+
+  - Verified in the working tree: `phoneChangeOtp.test.js` 10/10 green in the close-out run
+    (its acceptance list above stands). T84 is closed as decided — OTP-backed phone changes,
+    vector closed for all future changes, existing-customer order matching deliberately
+    untouched (owner decision, 2026-08-29). The order-linkage acceptance criterion remains the
+    recorded deferred decision, not open work.
 
 - [~] **T85 · PARTLY APPLIED 2026-08-30 — backend warning committed; ecosystem.config.js fix is UNVERSIONED (T122)** (audit ref EZ-005)
   - **Issue:** `ecosystem.config.js:11-14` defines `NODE_ENV` only under `env_production`, which PM2
@@ -1055,6 +1091,14 @@ Not defects; product features that don't exist yet. Scope separately before buil
   - **Fix:** make it a conditional update like the shop path, e.g.
     `findOneAndUpdate({ _id, status: { $ne: 'paid' } }, …)` and act only if a document comes back.
   - **Location:** `controllers/webhookController.js:186-196`; compare `utils/fulfilShopOrder.js:57`
+  - **2026-09-01 — service-order branch finished.** The hosting and domain branches were made
+    atomic on 2026-08-30; the **service order** branch (`messageServiceOrderPaid`, the deposit
+    path) still did the plain read-then-check-then-write — read the order, test
+    `status === 'paid'`, only then `save()`. Two overlapping Paystack retries could both pass
+    the check and both trigger the deposit's follow-up work. It now claims with the same
+    `findOneAndUpdate({ _id, status: { $ne: 'paid' } }, …)` and continues on the claimed
+    document. The part and repair branches were already atomic. Verified: 34/34 across all four
+    webhook suites, eslint clean.
 
 - [x] **T122 · APPLIED 2026-08-30 — deployment config moved into `backend-eaz/deploy/`** (final re-audit 2026-08-29) — **CONFIRMED**
   - **Issue:** `nginx.conf` and `ecosystem.config.js` live at the workspace root
@@ -1234,7 +1278,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   Rewritten to pin the real decision (no self-report view here; staff use /dashboard/pos), and the
   stale `isOwnReport: false` fixtures were dropped so the mocks match the real response.
 
-- [ ] **T105 · `roles.md` and the POS routes disagree on ~11 rows for admin and staff** (found during T83, 2026-08-29)
+- [x] **T105 · `roles.md` and the POS routes disagree on ~11 rows for admin and staff** (found during T83, 2026-08-29; resolved 2026-09-01)
   - **Issue:** T83 closed the technician holes, and the technician column now matches `roles.md`
     exactly. The **admin** and **staff** columns still diverge — in both directions:
 
@@ -1263,14 +1307,24 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     places: T5 (2026-08-26) and T83 (2026-08-29) both overrode it after asking the owner.
   - **Repro:** compare the table in `roles.md` §"The repair shop, side by side" against the
     `restrictTo(...)` calls in `routes/posRoutes.js`.
-  - **Fix:** walk the 12 rows with the product owner, decide each, then make `roles.md` the
-    single source of truth and align the routes to it. Add a role-matrix test per row so the two
-    cannot drift again (overlaps T92).
+  - **Fix (owner decisions, 2026-09-01):** team + product-owner round resolved each row:
+    - **customers:** staff *search + create* (job intake silently creates a walk-in customer),
+      only **admin edits** existing records → `PATCH /customers/:id` now
+      `restrictTo('superadmin', 'admin')`; reads/writes stay staff-open via `denyRoles('technician')`.
+    - **job payments / MoMo / card:** admin keeps them (admin backstops the till) → `roles.md` admin ❌ → ✅; routes already allowed admin.
+    - **look up stock:** staff keep the read (they look items up while serving) → `roles.md` staff ❌ → ✅.
+    - **see jobs waiting to be collected:** technician stays denied → `roles.md` technician ✅ → ❌.
+    - **send collection reminders:** staff may trigger → `POST /reminders/trigger` now
+      `restrictTo('superadmin', 'admin', 'staff')`.
+    - **create staff accounts:** admin may create → `GET`/`POST /staff` now
+      `restrictTo('superadmin', 'admin')`.
+    - **see dashboard & reports / add-edit stock / suppliers / expenses / warranty:** closes under the T5/T83 long since applied (routes, not `roles.md`, were the stale side) — `roles.md` aligned and confirmed.
   - **Location:** `roles.md` §"The repair shop, side by side"; `routes/posRoutes.js`
   - **Acceptance:**
-    - [ ] Each of the 12 rows has an explicit owner decision
-    - [ ] `roles.md` matches the routes exactly
-    - [ ] A test asserts the matrix per role, so drift fails CI
+    - [x] Each of the 12 rows has an explicit owner decision
+    - [x] `roles.md` matches the routes exactly
+    - [x] A test asserts the matrix per role, so drift fails CI — extended
+          `tests/posTechnicianRoleGuard.test.js` with a T105 block (29 tests, all green)
 
 - [x] **T107 · `GET /products/all` loads the entire catalogue unpaginated and un-`lean`** (found 2026-08-29, alongside T106)
   - **Issue:** `getAdminProducts` is `Product.find({}).sort({ createdAt: -1 })`
@@ -1442,6 +1496,23 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   - **Next step:** capture whether the Express server or the supertest agent closes first —
     an unhandled rejection or an exhausted ephemeral-port range are both consistent with the
     symptom.
+
+  ### 2026-09-01 (during the T83/T84 security close-out) — two more faces
+
+  Three full serial runs (each ~18 min, nothing else on the machine):
+
+  | Run | Result | Cause |
+  |---|---|---|
+  | 1 | **6 failed** — `variants.test.js` all rejected | **not a flake** — a real T126 regression (order schema rejected `deliveryZoneId: null`); fixed and logged as **T137** |
+  | 2 | **2 failed** — suite unknown, noted below | flake |
+  | 3 | **2 failed** — `usersPagination` + `seedCatalog` | flake — both 16/16 green in isolation |
+
+  `usersPagination` ("walks pages without repeating or dropping anyone", *socket hang up*) and
+  `seedCatalog` ("seeds idempotently…") join the victim list — the eighth and ninth distinct
+  suites. The important lesson from run 1 stands: **read the failure, don't assume flake** —
+  this time the first non-flake in a while was a genuine committed regression that hid because
+  it had been assumed to be T108. Run 2's two failures were not captured before run 3; treat
+  "which tests" as unreliable memory and rely on the next full run's output.
 
 - [x] **T109 · Product edit page pulls the whole catalogue to render one product** (found during T107, 2026-08-29; fixed 2026-09-01)
   - **Issue:** `frontend-eaz/src/app/dashboard/commerce/products/[id]/edit/page.jsx` uses

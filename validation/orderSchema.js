@@ -16,7 +16,13 @@ const { z } = require("zod");
  * another code path needs.
  */
 
-const optionalString = (max) => z.string().trim().max(max).optional().default("");
+// Optional fields arrive as "" (missing), undefined, or `null` — the
+// controller treats all three as "not provided" (`if (deliveryZoneId)`,
+// `req.body.pickupLocationId || null`, …). Accept all three so a legacy
+// client's `null` is not rejected (see the order-creation-with-variants
+// payloads, which send `deliveryZoneId: null`).
+const optionalString = (max) =>
+  z.union([z.string().trim().max(max), z.null()]).optional().default("");
 
 // A single order line. The controller accepts a bare string (legacy
 // `part-<id>` carts) OR an object `{ slug, qty, variant? }`.

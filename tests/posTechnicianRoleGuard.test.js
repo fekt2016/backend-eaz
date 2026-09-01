@@ -225,3 +225,80 @@ describe("POS role enforcement — management surfaces are superadmin + admin (T
     expect(res.status).not.toBe(403);
   });
 });
+
+// T105 (owner, 2026-09-01): roles.md and routes divergence resolved row by row.
+//  - customers: staff SEARCH + CREATE (job intake creates a walk-in), admin EDITS
+//  - reminders trigger: staff may send collection reminders
+//  - staff accounts: admin may create, not just superadmin
+//  - admin keeps job payments / MoMo / card charges
+describe("POS role enforcement — T105 divergence resolutions", () => {
+  it("lets a staff member create a customer (walk-in intake)", async () => {
+    const token = await makeUser("staff");
+    const res = await request(app)
+      .post(`${BASE}/customers`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Walk-in", phone: "0555555555" });
+    expect(res.status).not.toBe(403);
+  });
+
+  it("403s a staff member editing an existing customer (admin-only)", async () => {
+    const token = await makeUser("staff");
+    const res = await request(app)
+      .patch(`${BASE}/customers/6a92b23768140217f2cde966`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Nope" });
+    expect(res.status).toBe(403);
+  });
+
+  for (const role of ["admin", "superadmin"]) {
+    it(`lets a ${role} edit an existing customer`, async () => {
+      const token = await makeUser(role);
+      const res = await request(app)
+        .patch(`${BASE}/customers/6a92b23768140217f2cde966`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "Rename" });
+      expect({ role, status: res.status }).toEqual({ role, status: 404 });
+    });
+  }
+
+  for (const role of ["staff", "admin", "superadmin"]) {
+    it(`lets a ${role} trigger collection reminders`, async () => {
+      const token = await makeUser(role);
+      const res = await request(app)
+        .post(`${BASE}/reminders/trigger`)
+        .set("Authorization", `Bearer ${token}`);
+      expect({ role, forbidden: res.status === 403 }).toEqual({ role, forbidden: false });
+    });
+  }
+
+  it("lets admin and superadmin create staff accounts", async () => {
+    for (const role of ["admin", "superadmin"]) {
+      const token = await makeUser(role);
+      const res = await request(app)
+        .post(`${BASE}/staff`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "Hired", email: `t105-${role}-${Date.now()}@t.com`, password: "Password123!", role: "technician" });
+      expect({ role, status: res.status }).toEqual({ role, status: 201 });
+    }
+  });
+
+  it("403s a staff member from creating staff accounts", async () => {
+    const token = await makeUser("staff");
+    const res = await request(app)
+      .post(`${BASE}/staff`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Hired", email: "nope@t.com", password: "Password123!", role: "technician" });
+    expect(res.status).toBe(403);
+  });
+
+  for (const role of ["admin", "superadmin"]) {
+    it(`still lets a ${role} take a job payment`, async () => {
+      const token = await makeUser(role);
+      const res = await request(app)
+        .post(`${BASE}/jobs/6a92b23768140217f2cde966/payments`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ paymentMethod: "cash", amountPaid: 500 });
+      expect({ role, status: res.status }).toEqual({ role, status: 404 });
+    });
+  }
+});

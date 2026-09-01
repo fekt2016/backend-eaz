@@ -57,12 +57,16 @@ router.patch('/repair-orders/:id', restrictTo('superadmin', 'admin', 'staff'), u
 // `restrictTo` so staff/admin access is unchanged.
 router.get('/scan/:code', denyRoles('technician'), scanLookup);
 
-// ── Customers (technician excluded) ──────────────────────────────────────────
+// ── Customers ────────────────────────────────────────────────────────────────
 // T83: the blanket gate let a technician read the whole customer list and edit
 // records. roles.md marks customers ❌ for technicians.
+// T105 (owner, 2026-09-01): staff may SEARCH and CREATE customers — job intake
+// silently creates a walk-in customer when booking a repair — but only admin may
+// EDIT an existing record. Bigger granularity than T83's blanket rule, and the
+// route comment here is the authority; roles.md has been updated to match.
 router.use('/customers', denyRoles('technician'));
 router.route('/customers').get(getCustomers).post(createCustomer);
-router.route('/customers/:id').get(getCustomer).patch(updateCustomer);
+router.route('/customers/:id').get(getCustomer).patch(restrictTo('superadmin', 'admin'), updateCustomer);
 
 // ── Repair jobs (all POS roles) ──────────────────────────────────────────────
 router.route('/jobs').get(getJobs).post(createJob);
@@ -82,9 +86,10 @@ router.get( '/jobs/:id/card-charge/:reference', restrictTo('superadmin', 'staff'
 // ── Sales — technician has no access; ringing up is superadmin + staff ───────
 // T83: this was the real hole — `createSale` performed no role check of its own,
 // so the blanket gate let a technician record a sale, moving stock and money.
-// Admin keeps the reads (CAN_SEE_ALL_SALES covers admin) but does not take money
-// at the counter, matching job payments and expenses. Confirmed with the product
-// owner 2026-08-29; `roles.md` updated to match.
+// Admin keeps the reads (CAN_SEE_ALL_SALES covers admin) but does not ring up
+// retail sales at the register (that's superadmin + staff). Job payments and
+// expenses are separate routes where admin DOES take money (see below — T105
+// confirmed admin backstops the till). Confirmed with the product owner.
 router.use('/sales', denyRoles('technician'));
 router.route('/sales')
   .get(getSales)
@@ -130,9 +135,11 @@ router.post('/expenses',    restrictTo('superadmin', 'admin', 'staff'), createEx
 router.patch('/expenses/:id', restrictTo('superadmin', 'admin'), updateExpense);
 router.delete('/expenses/:id', restrictTo('superadmin', 'admin'), deleteExpense);
 
-// ── Uncollected reminders (superadmin + admin) ───────────────────────────────
+// ── Uncollected reminders (superadmin + admin; staff may trigger) ────────────
 router.get('/reminders/uncollected',  restrictTo('superadmin', 'admin', 'staff'), getUncollectedJobs);
-router.post('/reminders/trigger',     restrictTo('superadmin', 'admin'), triggerReminders);
+// T105 (owner, 2026-09-01): staff may send collection reminders — the till follows
+// up on devices ready for collection, as roles.md always said.
+router.post('/reminders/trigger',     restrictTo('superadmin', 'admin', 'staff'), triggerReminders);
 
 // ── Warranty tracking (superadmin + admin) ───────────────────────────────────
 // T83 (owner, 2026-08-29): staff no longer track warranty claims. Note this also
@@ -140,9 +147,11 @@ router.post('/reminders/trigger',     restrictTo('superadmin', 'admin'), trigger
 // them — the row was wrong in both directions.
 router.get('/warranty', restrictTo('superadmin', 'admin'), getWarrantyJobs);
 
-// ── Staff management (superadmin only) ──────────────────────────────────────
-router.get('/staff',  restrictTo('superadmin'), getStaff);
-router.post('/staff', restrictTo('superadmin'), createStaff);
+// ── Staff management (superadmin + admin) ───────────────────────────────────
+// T105 (owner, 2026-09-01): admin may create staff — the shop manager hires and
+// manages the floor, matching roles.md ("Create staff accounts" admin ✅).
+router.get('/staff',  restrictTo('superadmin', 'admin'), getStaff);
+router.post('/staff', restrictTo('superadmin', 'admin'), createStaff);
 
 // ── Technicians list (all POS roles) — for assigning jobs ────────────────────
 router.get('/technicians', getTechnicians);
