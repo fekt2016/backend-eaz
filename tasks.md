@@ -458,7 +458,7 @@
   item schema, so a line with neither is legal data. The first version recorded those as
   `insufficient_stock` — false data in the order record. They are skipped now.
 
-- [ ] **T92 · Missing authorization + pagination tests** (audit ref EZ-015)
+- [x] **T92 · Missing authorization + pagination tests** (audit ref EZ-015) — closed 2026-09-01
   - **Issue:** 927 tests pass, but none assert the controls behind T83, T84, T86, T87 or T88.
     `tests/posSale.test.js` and `salesScoping.test.js` cover mechanics, not authorization; `grep -rn
     "technician" tests/` finds no case asserting a technician is refused a sale.
@@ -469,10 +469,30 @@
     oversized `limit` clamped.
   - **Location:** `tests/` (new cases)
   - **Acceptance:**
-    - [ ] One negative test per control above
-    - [ ] Each fails against today's code and passes after the corresponding fix
-    - [ ] Full suite still passes
-    - [ ] Tests name the role/actor explicitly so intent is readable
+    - [x] One negative test per control above
+    - [x] Each fails if its control is removed (verified by reverting the control, not assumed)
+    - [x] Full suite still passes
+    - [x] Tests name the role/actor explicitly so intent is readable
+
+  ### Audit of the five controls (2026-09-01) — four were already covered
+
+  The task predates the tests that closed T83/T86/T87. Checked one by one:
+
+  | Control | State |
+  |---|---|
+  | Technician refused on POS sales/customers/inventory | ✅ `tests/posTechnicianRoleGuard.test.js` — 5 describes incl. "does not create a sale for a technician" |
+  | Phone-change claim returns no foreign orders | ✅ at the profile layer — `tests/phoneChangeOtp.test.js`, 10 tests. **The order-linkage half stays deliberately untested because it was deferred by owner decision** (see T87 Part 2): matching guest orders only to verified contact points would cut existing customers off from their own history. A test asserting it would encode a behaviour the owner declined |
+  | `by-reference` carries no address/phone/email | ✅ `tests/orderByReferenceRedaction.test.js` |
+  | Unverified user refused by `protect` | ❌ **was the real gap — now `tests/protectUnverifiedGate.test.js`, 6 tests** |
+  | Oversized `limit` clamped | ✅ `tests/paginationClamp.test.js` |
+
+  **Why the one gap mattered.** The predicate is `isVerified === false && Boolean(verifyPin)`, not
+  `!isVerified` — accounts predating the PIN system have `isVerified: false` and no `verifyPin`, and
+  login has always admitted them. So the gate has two break modes and only one looks like a bug in
+  review: dropping it lets an unverified signup roam the API, and *tightening* it to `!isVerified`
+  locks every legacy customer out of every endpoint while still letting them log in. Both are now
+  covered — verified by making each change and re-running (3 failures and 1 failure respectively),
+  then restoring.
 
 - [x] **T93 · APPLIED 2026-08-30 — escapeRegex applied; swept every other `$regex` site** (audit ref EZ-016)
   - **Issue:** `filter.to = { $regex: q.trim(), $options: 'i' }` (`routes/adminRoutes.js:17`) passes the
