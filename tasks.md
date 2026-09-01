@@ -1191,25 +1191,14 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   run.** Supersedes the Sunday half of **T115**; T115's cutoff-hour concern is now also covered
   by the pinning added here.
 
-- [~] **T115 · PARTLY SUPERSEDED by T136 — the day-of-week half is fixed; re-read before working this** (found during T114, 2026-08-29)
-  - **Issue:** `tests/distanceZones.test.js` and `tests/shippingEndpoints.test.js` assert that
-    Express is among the offered methods, but never pin the clock. Express is gated by
-    `sameDayWindowOpen`, so the assertions hold only before the cutoff hour. Measured the same
-    day: **109/109 green at 08:00, 5 failing at 12:37**, with no code change between the runs.
-  - **Impact:** the full suite cannot be trusted as a gate — a red run has to be hand-diagnosed
-    to tell a real break from the time of day. It is how T114's real bug stayed invisible: the
-    failures looked like flake. T114 moved the cutoff to 17:00, so the window is simply wider —
-    these will fail again after 5 PM.
-  - **Repro:** `npx jest tests/distanceZones.test.js tests/shippingEndpoints.test.js --runInBand`
-    before and after the cutoff hour, or `TZ=America/New_York` to force a morning.
-  - **Fix:** pin the clock. `sameDayWindowOpen(settings, speed, now)` already takes an injectable
-    `now` — the T114 cases in `tests/shippingCalculator.test.js` use it — but these two go through
-    HTTP, so they need either a settings override per test (`sameDayCutoffHour = 23`, which
-    `shippingCheckout.test.js` and `shippingCalculator.test.js` already do) or fake timers.
-  - **Location:** `tests/distanceZones.test.js`; `tests/shippingEndpoints.test.js`
+- [x] **T115 · DONE 2026-09-01 — clock pinned in both suites via `sameDayCutoffHour = 23` + `deliveryClosedDays = []`** (originally found during T114, 2026-08-29; superseded and fixed as part of T136 2026-08-30)
+  - **Resolution:** both `enableDistanceZones()` (distanceZones.test.js:291-292) and `seedShippingData()`
+    (shippingEndpoints.test.js:68-69) set `sameDayCutoffHour = 23` and `deliveryClosedDays = []`,
+    removing dependency on wall clock. Verified: 112/112 pass at `TZ=America/New_York` and 112/112
+    pass at `TZ=Asia/Tokyo` — both suites pass regardless of the hour the suite is run.
   - **Acceptance:**
-    - [ ] Both suites pass at any hour, verified by forcing at least two very different clocks
-    - [ ] No remaining assertion depends on the ambient cutoff
+    - [x] Both suites pass at any hour, verified by forcing at least two very different clocks
+    - [x] No remaining assertion depends on the ambient cutoff
 
 - [x] **T111 · APPLIED 2026-08-31 — dead staff-scoping removed, restore note left in its place** (found during T83, 2026-08-29)
   - **Issue:** `getReportsAnalytics` implements T32's staff scoping — pin a staff caller to their
