@@ -220,6 +220,40 @@ const recordProductView = async (req, res, next) => {
 // parts/products merge one collection holds bench stock and shop stock, so it
 // only grows, and a 512MB heap will not carry it. Clamped with the same
 // default/min/max pattern as `getProducts` above.
+/**
+ * GET /api/v1/products/id/:id  (admin/staff)
+ *
+ * One product by _id, regardless of `isActive` / `sellOnline`.
+ *
+ * T109: the product edit page used to call `getAdminProducts` and hunt for its
+ * record inside the returned array. `/all` is paginated (200 max), so editing
+ * anything past the 200th newest silently found nothing and the form came up
+ * empty — and rendering one form fetched up to 200 documents. The merged
+ * collection carries bench parts *and* shop stock, so 200 is reachable.
+ *
+ * Mounted under `/id/` rather than `/:id` so it cannot shadow the public
+ * `/:slug` route. The public route must stay unable to serve an archived
+ * product; this one deliberately can, because archiving is exactly when an
+ * admin still needs to open the record.
+ */
+const getProductById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ success: false, error: "Product not found" });
+    }
+
+    const product = await Product.findById(id).lean();
+    if (!product) {
+      return res.status(404).json({ success: false, error: "Product not found" });
+    }
+
+    return res.status(200).json({ success: true, data: product });
+  } catch (err) {
+    next(err);
+  }
+};
+
 const getAdminProducts = async (req, res, next) => {
   try {
     const page  = Math.max(parseInt(req.query.page, 10) || 1, 1);
@@ -383,6 +417,7 @@ module.exports = {
   recordProductView,
   getProductBySlug,
   getAdminProducts,
+  getProductById,
   createProduct,
   updateProduct,
   deleteProduct,

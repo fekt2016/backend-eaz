@@ -1344,7 +1344,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
     an unhandled rejection or an exhausted ephemeral-port range are both consistent with the
     symptom.
 
-- [ ] **T109 · Product edit page pulls the whole catalogue to render one product** (found during T107, 2026-08-29)
+- [x] **T109 · Product edit page pulls the whole catalogue to render one product** (found during T107, 2026-08-29; fixed 2026-09-01)
   - **Issue:** `frontend-eaz/src/app/dashboard/commerce/products/[id]/edit/page.jsx` uses
     `useAdminProducts()` and finds its record inside the returned array. There is no admin
     get-by-id route — `routes/productRoutes.js` exposes only `GET /:slug` (public, by slug) and
@@ -1360,10 +1360,16 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   - **Location:** `controllers/productController.js`; `routes/productRoutes.js:38`;
     `frontend-eaz/src/hooks/queries/useProducts.js:57`; the edit page
   - **Acceptance:**
-    - [ ] Admin get-by-id route exists and is role-gated
-    - [ ] Edit page fetches one product, not a list
-    - [ ] `useAdminProducts` no longer needs `limit=200`
-    - [ ] Archived products remain unreachable from the public `/:slug` route
+    - [x] Admin get-by-id route exists and is role-gated — `GET /products/id/:id`, `protect` + `restrictTo('admin','staff')`
+    - [x] Edit page fetches one product, not a list — new `useAdminProduct(id)` hook
+    - [x] `useAdminProducts` — **removed, not just un-pinned.** The edit page was its only
+      caller, and `/all` defaults to 10 per page, so a hook named "all products" left behind
+      would quietly have returned ten. Same rot as the dead `useContacts.js` in T129. Bring it
+      back with an explicit page/limit signature when a real list view needs one.
+    - [x] Archived products remain unreachable from the public `/:slug` route — asserted in
+      `tests/adminProductById.test.js`, along with the `/products/id` slug-collision edge case
+  - **Done:** 10 backend tests (`tests/adminProductById.test.js`), 29 passing across the four
+    product suites; frontend build clean, 389 vitest tests passing.
 
 ---
 

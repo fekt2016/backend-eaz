@@ -5,6 +5,7 @@ const {
   recordProductView,
   getProductBySlug,
   getAdminProducts,
+  getProductById,
   createProduct,
   updateProduct,
   deleteProduct
@@ -21,6 +22,10 @@ const router = express.Router();
 
 router.get('/', getProducts);
 router.get('/all', protect, restrictTo('admin', 'staff'), getAdminProducts);
+// T109 — one product by _id for the admin edit form, archived included. Under
+// `/id/` so it cannot shadow the public `/:slug` route below, which must stay
+// unable to serve an archived product.
+router.get('/id/:id', protect, restrictTo('admin', 'staff'), getProductById);
 router.post('/', protect, restrictTo('admin', 'staff'), createProduct);
 router.put('/:id', protect, restrictTo('admin', 'staff'), updateProduct);
 // The admin UI and hooks send PATCH for product updates (useUpdateProduct,
