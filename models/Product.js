@@ -100,6 +100,22 @@ const productSchema = new mongoose.Schema(
               message: "Variant price must be a whole number in pesewas",
             },
           },
+          // Per-variant pre-order (independent of the product-level one). When a
+          // specific variant runs out of stock — while another size/colour still
+          // has stock — checkout should offer a pre-order for THAT variant alone
+          // rather than gate the whole product on a single boolean. `enabled`
+          // defaults to null: null/false means "not a pre-order variant", and a
+          // product-level preorder (if any) still applies. When set, its fields
+          // override the product-level note/date/max for this variant.
+          preorder: {
+            enabled: { type: Boolean, default: null },
+            // Expected availability, shown on the storefront. Null = no date.
+            availableFrom: { type: Date, default: null },
+            // Free text, e.g. "ships from abroad, ~3 weeks".
+            note: { type: String, trim: true, default: "", maxlength: [200, "Pre-order note cannot exceed 200 characters"] },
+            // Per-line cap for constrained supply. Null = uncapped.
+            maxQty: { type: Number, default: null, min: [1, "Pre-order cap must be at least 1"] },
+          },
         },
       ],
       default: [],

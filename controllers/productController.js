@@ -5,6 +5,7 @@ const { logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogS
 const { escapeRegex } = require("../utils/regex");
 const { formatGhs } = require("../utils/money");
 const { getRatingSummary } = require("./productReviewController");
+const { nextProductSku, nextVariantSku } = require("../services/skuGenerator");
 
 // Shape a retail Part like a shop product so it flows through the same
 // product-detail page, metadata, JSON-LD and cart/checkout. Mirrors the part
@@ -19,7 +20,7 @@ function slugify(value) {
 
 const getProducts = async (req, res, next) => {
   try {
-    const { category, q, sort, kind } = req.query;
+    const { category, q, sort, kind, preorder } = req.query;
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(
       Math.max(parseInt(req.query.limit, 10) || 10, 1),
@@ -36,6 +37,20 @@ const getProducts = async (req, res, next) => {
 
     if (category) {
       query.category = category;
+    }
+
+    // `preorder=true` narrows the grid to items that can currently be
+    // pre-ordered. Variant-aware: a product qualifies via its own pre-order flag
+    // OR when any of its variants is a pre-order variant (a 0-stock size among
+    // stocked ones, the per-variant case). Both flags default off, so only
+    // explicitly-enabled items are matched.
+    if (preorder === "true") {
+      and.push({
+        $or: [
+          { "preorder.enabled": true },
+          { "variants.preorder.enabled": true },
+        ],
+      });
     }
 
     // `kind=product` keeps its meaning: ordinary shop stock only, no repair
@@ -78,7 +93,7 @@ const getProducts = async (req, res, next) => {
         $project: {
           _id: 1, slug: 1, name: 1, description: 1, price: 1, category: 1,
           stock: 1, sku: 1, variants: 1, isActive: 1, images: 1,
-          partCategory: 1, createdAt: 1, updatedAt: 1,
+          partCategory: 1, createdAt: 1, updatedAt: 1, preorder: 1,
           // T48 popularity counters. This list is an aggregation with an explicit
           // $project, so a new schema field does NOT reach the client until it is
           // named here. $ifNull because documents created before T48 have no such
@@ -94,6 +109,19 @@ const getProducts = async (req, res, next) => {
         $addFields: {
           kind: { $cond: [{ $ifNull: ["$partCategory", false] }, "part", "product"] },
           partId: { $cond: [{ $ifNull: ["$partCategory", false] }, "$_id", null] },
+          // A variant product's real sellable stock lives on the variants —
+          // fulfilment decrements `variants.$.stock`, never the top-level
+          // `stock` field (a separate seed value that would otherwise read as
+          // "in stock" forever). Report the aggregate so the storefront badge
+          // reflects what is actually sellable. Non-variant products keep the
+          // top-level stock.
+          stock: {
+            $cond: [
+              { $and: [{ $isArray: "$variants" }, { $gt: [{ $size: "$variants" }, 0] }] },
+              { $sum: { $map: { input: "$variants", as: "v", in: { $ifNull: ["$$v.stock", 0] } } } },
+              { $ifNull: ["$stock", 0] },
+            ],
+          },
         },
       },
       { $sort: sortStage },
@@ -289,6 +317,25 @@ const getAdminProducts = async (req, res, next) => {
   }
 };
 
+const generateSku = async (req, res, next) => {
+  try {
+    const { mode, prefix, parentSku, suffix } = req.body || {};
+    if (mode === 'variant') {
+      if (!parentSku || !suffix) {
+        return res.status(400).json({ success: false, error: 'A parent SKU and an attribute suffix are required for a variant SKU' });
+      }
+    } else if (!prefix) {
+      return res.status(400).json({ success: false, error: 'A SKU prefix is required' });
+    }
+    const sku = mode === 'variant'
+      ? await nextVariantSku(parentSku, suffix)
+      : await nextProductSku(prefix);
+    res.status(200).json({ success: true, data: { sku } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const createProduct = async (req, res, next) => {
   try {
     const { name, slug, description, shortDescription, price, images, category, stock, sku, variants, gallery, isActive } = req.body;
@@ -335,6 +382,13 @@ const createProduct = async (req, res, next) => {
     res.status(201).json({ success: true, data: product });
   } catch (error) {
     if (error.code === 11000) {
+      const dupKey = error.keyPattern ? Object.keys(error.keyPattern)[0] : null;
+      if (dupKey === "sku") {
+        return res.status(400).json({
+          success: false,
+          error: "That SKU is already in use. Use a different SKU or regenerate one.",
+        });
+      }
       return res.status(400).json({
         success: false,
         error: "A product with that slug already exists",
@@ -377,6 +431,13 @@ const updateProduct = async (req, res, next) => {
     res.status(200).json({ success: true, data: product });
   } catch (error) {
     if (error.code === 11000) {
+      const dupKey = error.keyPattern ? Object.keys(error.keyPattern)[0] : null;
+      if (dupKey === "sku") {
+        return res.status(400).json({
+          success: false,
+          error: "That SKU is already in use. Use a different SKU or regenerate one.",
+        });
+      }
       return res.status(400).json({
         success: false,
         error: "A product with that slug already exists",
@@ -418,6 +479,7 @@ module.exports = {
   getProductBySlug,
   getAdminProducts,
   getProductById,
+  generateSku,
   createProduct,
   updateProduct,
   deleteProduct,

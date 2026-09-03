@@ -134,3 +134,63 @@ describe("GET /pos/inventory?kind= (T110)", () => {
     expect(names(res)).toEqual(["Bench Lanyard"]);
   });
 });
+
+describe("GET /pos/inventory?lowStock=true is variant-aware", () => {
+  it("flags a variant product by the sum of its variants, not the stale top-level stock", async () => {
+    const token = await adminToken();
+    await Product.create([
+      // Top-level stock says 10 (stale) but the only live variant has 0 → low.
+      {
+        name: "Variant Low Phone", slug: "vlow", price: 10000, category: "Phones",
+        stock: 10, lowStockThreshold: 3,
+        variants: [
+          { sku: "v1", attributes: { storage: "128GB" }, stock: 0 },
+          { sku: "v2", attributes: { storage: "256GB" }, stock: 0 },
+        ],
+      },
+      // Total across variants is 4 > threshold 3 → NOT low, despite a 0-stock variant.
+      {
+        name: "Variant Healthy Phone", slug: "vok", price: 10000, category: "Phones",
+        stock: 0, lowStockThreshold: 3,
+        variants: [
+          { sku: "h1", attributes: { storage: "128GB" }, stock: 1 },
+          { sku: "h2", attributes: { storage: "256GB" }, stock: 3 },
+        ],
+      },
+      // Non-variant product still uses its own stock.
+      { name: "Plain Part", slug: "pp", price: 5000, category: "Other", partCategory: "Battery",
+        stock: 2, lowStockThreshold: 3 },
+    ]);
+
+    const res = await request(app)
+      .get(`${BASE}?lowStock=true`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(res.body.data.map((d) => [d.name, d]));
+    expect(Object.keys(byName).sort())
+      .toEqual(["Plain Part", "Variant Low Phone"].sort());
+    expect(byName["Variant Low Phone"].quantity).toBe(0);
+    expect(byName["Plain Part"].quantity).toBe(2);
+    expect(byName["Variant Healthy Phone"]).toBeUndefined();
+  });
+
+  it("reports the uncapped total for the sidebar badge", async () => {
+    const token = await adminToken();
+    await Product.create([
+      { name: "L1", slug: "l1", price: 100, category: "Parts", stock: 0, lowStockThreshold: 3 },
+      { name: "L2", slug: "l2", price: 100, category: "Parts", stock: 1, lowStockThreshold: 3 },
+      { name: "L3", slug: "l3", price: 100, category: "Parts", stock: 2, lowStockThreshold: 3 },
+      { name: "OK", slug: "ok", price: 100, category: "Parts", stock: 9, lowStockThreshold: 3 },
+    ]);
+
+    // limit=1 still returns the real count via `total`.
+    const res = await request(app)
+      .get(`${BASE}?lowStock=true&limit=1`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.total).toBe(3);
+  });
+});

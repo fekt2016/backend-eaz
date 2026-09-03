@@ -41,9 +41,6 @@ const getParts = async (req, res, next) => {
     if (category) and.push({ $or: [{ partCategory: category }, { category }] });
     // Only what the counter may sell.
     if (retail === 'true') query.sellInStore = true;
-    // Applies to everything now — products had no threshold field before the
-    // merge, so shop stock could never show up in a low-stock check.
-    if (lowStock === 'true') query.$expr = { $lte: ['$stock', '$lowStockThreshold'] };
     if (and.length) query.$and = and;
     if (q) query.$or = [
       { name:    { $regex: escapeRegex(q), $options: 'i' } },
@@ -52,15 +49,52 @@ const getParts = async (req, res, next) => {
       { barcode: { $regex: escapeRegex(q), $options: 'i' } },
     ];
 
-    const [items, total] = await Promise.all([
-      Product.find(query)
+    let items, total;
+    if (lowStock === 'true') {
+      // Low-stock must be variant-aware: a variant product is low when the SUM of
+      // its variants' stock is at or below its threshold, not when the possibly
+      // stale top-level `stock` field is. Non-variant products fall back to their
+      // own `stock`. `_effectiveStock` is projected onto `stock` so the returned
+      // `quantity` reflects the live variant total too.
+      const effectiveStock = {
+        $cond: [
+          { $gt: [{ $size: { $ifNull: ['$variants', []] } }, 0] },
+          { $reduce: {
+              input: { $ifNull: ['$variants', []] },
+              initialValue: 0,
+              in: { $add: ['$$value', { $ifNull: ['$$this.stock', 0] }] },
+            } },
+          { $ifNull: ['$stock', 0] },
+        ],
+      };
+      const lowMatch = { $expr: { $lte: ['$_effectiveStock', { $ifNull: ['$lowStockThreshold', 0] }] } };
+      const filtered = [
+        { $match: query },
+        { $addFields: { _effectiveStock: effectiveStock } },
+        { $match: lowMatch },
+      ];
+      const page = [
+        ...filtered,
+        { $sort: { name: 1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $addFields: { stock: '$_effectiveStock' } },
+      ];
+      const [countRes, data] = await Promise.all([
+        Product.aggregate(filtered).count('n'),
+        Product.aggregate(page),
+      ]);
+      total = countRes[0]?.n || 0;
+      items = data;
+    } else {
+      items = await Product.find(query)
         .sort({ name: 1 })
         .skip(skip)
         .limit(limit)
         .populate('supplier', 'name phone')
-        .lean(),
-      Product.countDocuments(query),
-    ]);
+        .lean();
+      total = await Product.countDocuments(query);
+    }
 
     res.json({ success: true, data: items.map(asInventoryItem), total });
   } catch (err) { next(err); }

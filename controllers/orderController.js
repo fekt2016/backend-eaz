@@ -37,6 +37,41 @@ function generateOrderNumber() {
 }
 
 /**
+ * Resolve whether a variant line is a pre-order, and with what fields.
+ *
+ * Pre-order can live at two levels: on the product (`product.preorder`) and,
+ * per variant, on the variant itself (`variant.preorder`). A variant that has
+ * opted into pre-order supports it even when another variant of the same
+ * product is in stock — the whole product is no longer a single on/off switch.
+ *
+ * Resolution rule: the variant's own flag wins (null = unset → fall through to
+ * the product). Conversely a variant can be explicitly switched OFF (false)
+ * even if the product-level flag is on. Returns `null` when the line cannot be
+ * a pre-order at all.
+ */
+function resolveVariantPreorder(product, variant) {
+  const variantPre = variant?.preorder;
+  if (variantPre && typeof variantPre.enabled === "boolean") {
+    if (!variantPre.enabled) return null;
+    return {
+      enabled: true,
+      availableFrom: variantPre.availableFrom ?? null,
+      note: variantPre.note || "",
+      maxQty: variantPre.maxQty ?? null,
+    };
+  }
+  if (product.preorder?.enabled) {
+    return {
+      enabled: true,
+      availableFrom: product.preorder.availableFrom ?? null,
+      note: product.preorder.note || "",
+      maxQty: product.preorder.maxQty ?? null,
+    };
+  }
+  return null;
+}
+
+/**
  * POST /api/v1/orders
  * Guest checkout — no auth required. Totals are always computed
  * server-side from the DB; client-submitted prices are never trusted.

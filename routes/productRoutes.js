@@ -11,6 +11,7 @@ const {
   getProductBySlug,
   getAdminProducts,
   getProductById,
+  generateSku,
   createProduct,
   updateProduct,
   deleteProduct
@@ -32,6 +33,9 @@ router.get('/all', protect, restrictTo('admin', 'staff'), getAdminProducts);
 // unable to serve an archived product.
 router.get('/id/:id', protect, restrictTo('admin', 'staff'), getProductById);
 router.post('/', protect, restrictTo('admin', 'staff'), createProduct);
+// One-click SKU generator for the admin form. Must not collide with `/` — it
+// is a single-segment POST, and `/:slug` is GET, so ordering is safe here.
+router.post('/generate-sku', protect, restrictTo('admin', 'staff'), generateSku);
 router.put('/:id', protect, restrictTo('admin', 'staff'), updateProduct);
 // The admin UI and hooks send PATCH for product updates (useUpdateProduct,
 // useRestoreProduct, inventory archive toggle). PUT is kept for API parity.

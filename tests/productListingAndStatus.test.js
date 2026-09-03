@@ -184,3 +184,47 @@ describe("PATCH /api/v1/orders/:id (status flow)", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("GET /api/v1/products?preorder=true (pre-order filter)", () => {
+  it("returns only products that are pre-orderable (product or any variant)", async () => {
+    await Product.create([
+      // Product-level pre-order on
+      {
+        name: "Preorder Phone", slug: "po-phone", price: 90000, category: "Phones",
+        stock: 0, isActive: true, preorder: { enabled: true, note: "ships in 3 weeks" },
+      },
+      // Variant-level pre-order on (one 0-stock variant while another is stocked)
+      {
+        name: "Variant Preorder", slug: "po-var", price: 50000, category: "Phones",
+        stock: 0, isActive: true,
+        variants: [
+          { sku: "v1", attributes: { storage: "128GB" }, stock: 0, preorder: { enabled: true } },
+          { sku: "v2", attributes: { storage: "256GB" }, stock: 3 },
+        ],
+      },
+      // Not a pre-order (flag off)
+      { name: "Plain Phone", slug: "plain", price: 10000, category: "Phones", stock: 4, isActive: true },
+    ]);
+
+    const res = await request(app).get("/api/v1/products?preorder=true&limit=50");
+
+    expect(res.status).toBe(200);
+    const names = res.body.data.map((d) => d.name).sort();
+    expect(names).toEqual(["Preorder Phone", "Variant Preorder"]);
+    expect(names).not.toContain("Plain Phone");
+    // The projection must carry pre-order flags through to the card, or the
+    // "Pre-order" badge cannot render.
+    const byName = Object.fromEntries(res.body.data.map((d) => [d.name, d]));
+    expect(byName["Preorder Phone"].preorder.enabled).toBe(true);
+    expect(byName["Variant Preorder"].variants.some((v) => v.preorder.enabled)).toBe(true);
+  });
+
+  it("returns everything when preorder is not set", async () => {
+    await Product.create({
+      name: "Any Phone", slug: "any", price: 10000, category: "Phones", stock: 4, isActive: true,
+    });
+    const res = await request(app).get("/api/v1/products?limit=50");
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((d) => d.name)).toContain("Any Phone");
+  });
+});
