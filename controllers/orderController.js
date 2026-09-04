@@ -177,6 +177,12 @@ const createOrder = async (req, res, next) => {
       }
 
       let variantInfo = null;
+      // The stored variant document, kept alongside the stripped snapshot below.
+      // `variantInfo` is only what gets written onto the order — {sku, attributes} —
+      // so it carries neither the stock nor the variant's own pre-order flag.
+      // Reading the flag off it meant a variant-level pre-order resolved to null
+      // and checkout rejected the line as out of stock.
+      let matchedVariant = null;
       let resolvedPrice = product.price;
       if (item.variant && item.variant.sku) {
         const variant = (product.variants || []).find(
@@ -195,6 +201,7 @@ const createOrder = async (req, res, next) => {
             error: `${product.name}${label ? ` (${label})` : ""} only has ${variant.stock} in stock.`,
           });
         }
+        matchedVariant = variant;
         variantInfo = {
           sku: variant.sku,
           attributes:
@@ -205,11 +212,9 @@ const createOrder = async (req, res, next) => {
         resolvedPrice = variant.price != null ? variant.price : product.price;
       }
 
-      const availableStock = variantInfo
-        ? (product.variants || []).find((v) => v.sku === variantInfo.sku)?.stock ?? 0
-        : product.stock;
+      const availableStock = matchedVariant ? matchedVariant.stock ?? 0 : product.stock;
 
-      const resolvedPreorder = resolveVariantPreorder(product, variantInfo);
+      const resolvedPreorder = resolveVariantPreorder(product, matchedVariant);
       const isPreorder = availableStock < qty && Boolean(resolvedPreorder);
 
       if (availableStock < qty && !isPreorder) {

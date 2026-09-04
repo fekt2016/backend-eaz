@@ -69,6 +69,99 @@ async function makePaidPreorder(product, qty = 1) {
   return order;
 }
 
+const checkoutVariant = (slug, sku, qty = 1) =>
+  request(app).post("/api/v1/orders").send({
+    items: [{ slug, qty, variant: { sku } }],
+    customer: { name: "Ama", phone: "0244000000", email: "ama@example.com" },
+  });
+
+// A pre-order that lives on ONE variant. The whole product is not a single
+// on/off switch: a 0-stock colour can be pre-ordered while its siblings sell
+// normally, and a variant can opt out of a product-level pre-order.
+describe("Per-variant pre-order at checkout", () => {
+  const variants = (over = {}) => [
+    { sku: "PH-BLK", attributes: { color: "Black" }, stock: 0, ...over },
+    { sku: "PH-BLU", attributes: { color: "Blue" }, stock: 4 },
+  ];
+
+  it("accepts a 0-stock variant that is itself flagged, product flag off", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: false },
+      variants: variants({ preorder: { enabled: true } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(200);
+    const order = await Order.findOne({ "items.product": product._id });
+    expect(order.items[0].variant.sku).toBe("PH-BLK");
+    expect(order.items[0].isPreorder).toBe(true);
+  });
+
+  it("still refuses a 0-stock variant nobody flagged", async () => {
+    const product = await makeProduct({ stock: 4, variants: variants() });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/in stock/i);
+  });
+
+  it("lets a product-level pre-order reach a variant that is unset", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true },
+      variants: variants(),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(200);
+    const order = await Order.findOne({ "items.product": product._id });
+    expect(order.items[0].isPreorder).toBe(true);
+  });
+
+  it("lets a variant opt OUT of a product-level pre-order", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true },
+      variants: variants({ preorder: { enabled: false } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("enforces the variant's own cap, not the product's", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true, maxQty: 10 },
+      variants: variants({ preorder: { enabled: true, maxQty: 2 } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK", 3);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/limited to 2 per pre-order/i);
+  });
+
+  it("leaves an in-stock sibling variant an ordinary sale", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true },
+      variants: variants({ preorder: { enabled: true } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLU", 2);
+
+    expect(res.status).toBe(200);
+    const order = await Order.findOne({ "items.product": product._id });
+    expect(order.items[0].isPreorder).toBeFalsy();
+  });
+});
+
 describe("Pre-order checkout (T45)", () => {
   it("refuses an out-of-stock product that is not marked for pre-order", async () => {
     const product = await makeProduct({ stock: 0 });
