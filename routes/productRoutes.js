@@ -12,6 +12,7 @@ const {
   getAdminProducts,
   getProductById,
   generateSku,
+  getCategories,
   createProduct,
   updateProduct,
   deleteProduct
@@ -27,6 +28,9 @@ const {
 const router = express.Router();
 
 router.get('/', getProducts);
+// Public: the shop's browse bar is built from the categories actually in use,
+// not a hardcoded list. Above `/:slug` so it cannot be read as a product slug.
+router.get('/categories', getCategories);
 router.get('/all', protect, restrictTo('admin', 'staff'), getAdminProducts);
 // T109 — one product by _id for the admin edit form, archived included. Under
 // `/id/` so it cannot shadow the public `/:slug` route below, which must stay

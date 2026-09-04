@@ -137,3 +137,62 @@ describe("PATCH /products/:id with itemType=part", () => {
     expect(doc.price).toBe(23000);
   });
 });
+
+// One item type (owner request, 2026-09-04). The product/part distinction is
+// gone from the UI: everything created through /products is sold online AND in
+// store, and carries the fields that used to reach the model only via
+// /pos/inventory. Those fields were dropped silently by createProduct's
+// whitelist before, which is the failure this pins down.
+describe("POST /products — one item type, all channels", () => {
+  it("keeps the formerly bench-only fields a product payload used to lose", async () => {
+    const token = await tokenFor("admin");
+    const res = await request(app)
+      .post(BASE)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Wooden Dining Table",
+        price: 25000,
+        category: "Furniture",
+        costPrice: 15000,
+        barcode: "555000111",
+        lowStockThreshold: 3,
+        compatibleWith: ["iPhone 13"],
+        notes: "back room, shelf 2",
+      });
+
+    expect(res.status).toBe(201);
+    const doc = await Product.findById(res.body.data._id);
+    expect(doc.costPrice).toBe(15000);
+    expect(doc.barcode).toBe("555000111");
+    expect(doc.lowStockThreshold).toBe(3);
+    expect(doc.compatibleWith).toEqual(["iPhone 13"]);
+    expect(doc.notes).toBe("back room, shelf 2");
+  });
+
+  it("sells every new item online and in store", async () => {
+    const token = await tokenFor("admin");
+    const res = await request(app)
+      .post(BASE)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Power Bank 20k", price: 30000, category: "Power Banks" });
+
+    const doc = await Product.findById(res.body.data._id);
+    expect(doc.sellOnline).toBe(true);
+    expect(doc.sellInStore).toBe(true);
+  });
+
+  it("defaults useInRepairs on, and honours it when set false", async () => {
+    const token = await tokenFor("admin");
+    const on = await request(app)
+      .post(BASE)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "iPhone 14 Screen", price: 40000, category: "Screen" });
+    expect((await Product.findById(on.body.data._id)).useInRepairs).toBe(true);
+
+    const off = await request(app)
+      .post(BASE)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Gift Card", price: 5000, category: "Other", useInRepairs: false });
+    expect((await Product.findById(off.body.data._id)).useInRepairs).toBe(false);
+  });
+});

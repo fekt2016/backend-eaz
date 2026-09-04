@@ -181,6 +181,50 @@ const getProducts = async (req, res, next) => {
   }
 };
 
+/*
+ * Categories actually in use, for the shop's browse bar.
+ *
+ * The bar used to be a hardcoded list of six names in ShopGrid, so a category
+ * typed into the item form had no button unless it happened to match one of
+ * them — the owner types categories freely, so the list has to come from the
+ * data instead (owner request, 2026-09-04).
+ *
+ * Ordered by how many items carry each, so the busy categories stay at the
+ * front and a one-off typo sinks to the back rather than sitting between two
+ * real ones. Only sellable stock counts, matching what the grid itself shows.
+ *
+ * Cached briefly: this changes when stock is added, not per request, and the
+ * shop page asks for it on every visit. Module-scoped, so it is per-process —
+ * fine while Passenger is pinned to one process (see docs/HOSTING.md), and a
+ * stale minute costs nothing worse than a late button. Writes through the API
+ * clear it immediately; a direct database write (scripts/publishPartsToShop.js)
+ * does not, so a freshly published category appears within the minute.
+ */
+const CATEGORY_TTL_MS = 60 * 1000;
+let categoryCache = { at: 0, data: null };
+
+const getCategories = async (req, res, next) => {
+  try {
+    if (categoryCache.data && Date.now() - categoryCache.at < CATEGORY_TTL_MS) {
+      return res.json({ success: true, data: categoryCache.data });
+    }
+    const rows = await Product.aggregate([
+      { $match: { sellOnline: true, category: { $nin: [null, ""] } } },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 60 },
+      { $project: { _id: 0, category: "$_id", count: 1 } },
+    ]);
+    categoryCache = { at: Date.now(), data: rows };
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** Drop the cached category list — call after stock is created or edited. */
+const clearCategoryCache = () => { categoryCache = { at: 0, data: null }; };
+
 const getProductBySlug = async (req, res, next) => {
   try {
     const slug = req.params.slug;
@@ -373,7 +417,8 @@ const createProduct = async (req, res, next) => {
       if (denyIfCannotManageParts(req, res)) return;
       return createPart(req, res, next);
     }
-    const { name, slug, description, shortDescription, price, images, category, stock, sku, variants, gallery, isActive } = req.body;
+    const { name, slug, description, shortDescription, price, images, category, stock, sku, variants, gallery, isActive,
+            costPrice, barcode, supplier, compatibleWith, lowStockThreshold, notes, useInRepairs } = req.body;
 
     if (!name || price == null || !category) {
       return res.status(400).json({
@@ -403,7 +448,22 @@ const createProduct = async (req, res, next) => {
       // The shop reads sellOnline; isActive is the switch the admin UI writes.
       // Keep them in step so turning a product off still hides it.
       sellOnline: isActive !== undefined ? Boolean(isActive) : true,
+      // One item type (owner request, 2026-09-04): everything is sold in both
+      // channels. These were reachable only through POST /pos/inventory before,
+      // so the whitelist dropped them silently — the model always had the
+      // fields (costPrice exists precisely because counter-sold PRODUCTS were
+      // invisible to COGS; barcode because a cashier could not scan one).
+      sellInStore: true,
+      useInRepairs: useInRepairs !== undefined ? Boolean(useInRepairs) : true,
+      costPrice: costPrice == null ? 0 : Math.round(Number(costPrice)) || 0,
+      barcode: barcode ? String(barcode).trim() : "",
+      supplier: supplier || undefined,
+      compatibleWith: Array.isArray(compatibleWith) ? compatibleWith.filter(Boolean) : [],
+      lowStockThreshold: lowStockThreshold == null ? 0 : Math.max(0, Number(lowStockThreshold) || 0),
+      notes: notes ? String(notes).trim() : "",
     });
+
+    clearCategoryCache();
 
     await logFromRequest(req, {
       action: ACTIONS.PRODUCT_CREATED,
@@ -460,6 +520,8 @@ const updateProduct = async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Product not found" });
     }
 
+    clearCategoryCache();
+
     await logFromRequest(req, {
       action: ACTIONS.PRODUCT_UPDATED,
       resourceType: RESOURCES.PRODUCT,
@@ -500,6 +562,8 @@ const deleteProduct = async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Product not found" });
     }
 
+    clearCategoryCache();
+
     await logFromRequest(req, {
       action: ACTIONS.PRODUCT_DELETED,
       resourceType: RESOURCES.PRODUCT,
@@ -521,6 +585,8 @@ module.exports = {
   getAdminProducts,
   getProductById,
   generateSku,
+  getCategories,
+  clearCategoryCache,
   createProduct,
   updateProduct,
   deleteProduct,
