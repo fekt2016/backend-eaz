@@ -6,6 +6,37 @@ const { escapeRegex } = require("../utils/regex");
 const { formatGhs } = require("../utils/money");
 const { getRatingSummary } = require("./productReviewController");
 const { nextProductSku, nextVariantSku } = require("../services/skuGenerator");
+const { createPart, updatePart } = require("./pos/inventoryController");
+
+/*
+ * One endpoint for both kinds of stock (owner request, 2026-09-04).
+ *
+ * The Marketplace form already covered shop products and bench parts; only the
+ * destination was split. Both now POST/PATCH /products and say which they are
+ * via `itemType`, and a part is handed to the POS handler that already knows
+ * how to build one.
+ *
+ * Delegating rather than inlining is deliberate — createPart owns the bench
+ * defaults (sellOnline:false, isActive:false, useInRepairs:true), the POS
+ * vocabulary (quantity→stock, sellingPrice→price), sanitisation, the
+ * INVENTORY_* audit action and the inventory-shaped response. Reimplementing
+ * any of that here would drift from /pos/inventory, which other POS screens
+ * still call.
+ *
+ * ⚠️ The two routes were NOT guarded alike: /products allows staff,
+ * /pos/inventory is admin+superadmin only. Unifying the URL must not hand staff
+ * a permission they never had, so part payloads re-assert the stricter rule.
+ */
+const PART_ROLES = ["superadmin", "admin"];
+const isPartPayload = (req) => req.body?.itemType === "part";
+const denyIfCannotManageParts = (req, res) => {
+  if (PART_ROLES.includes(req.user?.role)) return false;
+  res.status(403).json({
+    success: false,
+    error: "You do not have permission to manage bench parts.",
+  });
+  return true;
+};
 
 // Shape a retail Part like a shop product so it flows through the same
 // product-detail page, metadata, JSON-LD and cart/checkout. Mirrors the part
@@ -338,6 +369,10 @@ const generateSku = async (req, res, next) => {
 
 const createProduct = async (req, res, next) => {
   try {
+    if (isPartPayload(req)) {
+      if (denyIfCannotManageParts(req, res)) return;
+      return createPart(req, res, next);
+    }
     const { name, slug, description, shortDescription, price, images, category, stock, sku, variants, gallery, isActive } = req.body;
 
     if (!name || price == null || !category) {
@@ -400,7 +435,13 @@ const createProduct = async (req, res, next) => {
 
 const updateProduct = async (req, res, next) => {
   try {
+    if (isPartPayload(req)) {
+      if (denyIfCannotManageParts(req, res)) return;
+      return updatePart(req, res, next);
+    }
     const update = { ...req.body };
+    // Routing hint for the shared Marketplace form, not a Product field.
+    delete update.itemType;
     if (update.price != null) update.price = Number(update.price);
     if (update.stock != null) update.stock = Number(update.stock);
     if (update.isActive !== undefined) {
