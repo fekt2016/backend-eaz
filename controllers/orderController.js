@@ -187,7 +187,7 @@ const createOrder = async (req, res, next) => {
             error: `Variant "${item.variant.sku}" not found for ${product.name}.`,
           });
         }
-        if (variant.stock < qty && !product.preorder?.enabled) {
+        if (variant.stock < qty && !resolveVariantPreorder(product, variant)) {
           const label = Object.values(variant.attributes || {}).join(" ");
           return res.status(400).json({
             success: false,
@@ -208,13 +208,14 @@ const createOrder = async (req, res, next) => {
         ? (product.variants || []).find((v) => v.sku === variantInfo.sku)?.stock ?? 0
         : product.stock;
 
-      const isPreorder = availableStock < qty && Boolean(product.preorder?.enabled);
+      const resolvedPreorder = resolveVariantPreorder(product, variantInfo);
+      const isPreorder = availableStock < qty && Boolean(resolvedPreorder);
 
       if (availableStock < qty && !isPreorder) {
         return res.status(400).json({ success: false, error: `${product.name} only has ${availableStock} in stock.` });
       }
 
-      const cap = product.preorder?.maxQty;
+      const cap = resolvedPreorder?.maxQty;
       if (isPreorder && cap != null && qty > cap) {
         return res.status(400).json({
           success: false,

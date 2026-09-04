@@ -9,7 +9,7 @@ const getParts = async (req, res, next) => {
     // one collection now, so every search already spans both. It used to give
     // products only what was left of `limit` after the parts, so a search
     // matching a full page of parts returned no products at all.
-    const { q, category, kind, lowStock, retail } = req.query;
+    const { q, category, kind, lowStock, depletedVariant, retail } = req.query;
     // T87 — clamped: an unbounded limit pulls the whole collection into a 512MB heap.
     const { page, limit, skip } = paginate(req.query);
     const query = {};
@@ -49,31 +49,45 @@ const getParts = async (req, res, next) => {
       { barcode: { $regex: escapeRegex(q), $options: 'i' } },
     ];
 
+    // Both lowStock and depletedVariant require variant-aware aggregation to
+    // compute live effective stock (sum of variant stocks, not the stale
+    // top-level `stock` field). These are separate toggles — lowStock finds
+    // items at/below threshold; depletedVariant finds items with any variant
+    // at zero.
+    const effectiveStock = {
+      $cond: [
+        { $gt: [{ $size: { $ifNull: ['$variants', []] } }, 0] },
+        { $reduce: {
+            input: { $ifNull: ['$variants', []] },
+            initialValue: 0,
+            in: { $add: ['$$value', { $ifNull: ['$$this.stock', 0] }] },
+          } },
+        { $ifNull: ['$stock', 0] },
+      ],
+    };
+    const hasDepletedVariant = {
+      $gt: [
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$variants', []] },
+              cond: { $lte: ['$$this.stock', 0] },
+            },
+          },
+        },
+        0,
+      ],
+    };
+    const matchStages = [
+      { $match: query },
+      { $addFields: { _effectiveStock: effectiveStock, _hasDepletedVariant: hasDepletedVariant } },
+    ];
+
     let items, total;
     if (lowStock === 'true') {
-      // Low-stock must be variant-aware: a variant product is low when the SUM of
-      // its variants' stock is at or below its threshold, not when the possibly
-      // stale top-level `stock` field is. Non-variant products fall back to their
-      // own `stock`. `_effectiveStock` is projected onto `stock` so the returned
-      // `quantity` reflects the live variant total too.
-      const effectiveStock = {
-        $cond: [
-          { $gt: [{ $size: { $ifNull: ['$variants', []] } }, 0] },
-          { $reduce: {
-              input: { $ifNull: ['$variants', []] },
-              initialValue: 0,
-              in: { $add: ['$$value', { $ifNull: ['$$this.stock', 0] }] },
-            } },
-          { $ifNull: ['$stock', 0] },
-        ],
-      };
       const lowMatch = { $expr: { $lte: ['$_effectiveStock', { $ifNull: ['$lowStockThreshold', 0] }] } };
-      const filtered = [
-        { $match: query },
-        { $addFields: { _effectiveStock: effectiveStock } },
-        { $match: lowMatch },
-      ];
-      const page = [
+      const filtered = [...matchStages, { $match: lowMatch }];
+      const pagePipeline = [
         ...filtered,
         { $sort: { name: 1 } },
         { $skip: skip },
@@ -82,18 +96,73 @@ const getParts = async (req, res, next) => {
       ];
       const [countRes, data] = await Promise.all([
         Product.aggregate(filtered).count('n'),
-        Product.aggregate(page),
+        Product.aggregate(pagePipeline),
+      ]);
+      total = countRes[0]?.n || 0;
+      items = data;
+    } else if (depletedVariant === 'true') {
+      const depletedMatch = { $match: { _hasDepletedVariant: true } };
+      const depletedLabels = {
+        $addFields: {
+          depletedVariantLabels: {
+            $map: {
+              input: {
+                $filter: {
+                  input: { $ifNull: ['$variants', []] },
+                  cond: { $lte: ['$$this.stock', 0] },
+                },
+              },
+              as: 'v',
+              in: {
+                $reduce: {
+                  input: { $objectToArray: '$$v.attributes' },
+                  initialValue: '',
+                  in: {
+                    $cond: [
+                      { $eq: ['$$value', ''] },
+                      '$$this.v',
+                      { $concat: ['$$value', ' ', '$$this.v'] },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+      const filtered = [...matchStages, depletedMatch];
+      const pagePipeline = [
+        ...filtered,
+        depletedLabels,
+        { $sort: { name: 1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $addFields: { stock: '$_effectiveStock' } },
+      ];
+      const countPipeline = [...filtered, { $count: 'n' }];
+      const [countRes, data] = await Promise.all([
+        Product.aggregate(countPipeline),
+        Product.aggregate(pagePipeline),
       ]);
       total = countRes[0]?.n || 0;
       items = data;
     } else {
-      items = await Product.find(query)
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('supplier', 'name phone')
-        .lean();
-      total = await Product.countDocuments(query);
+      // Default path — now also uses aggregation to compute live stock and
+      // depleted-variant status so the frontend gets accurate data.
+      const pagePipeline = [
+        ...matchStages,
+        { $sort: { name: 1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $addFields: { stock: '$_effectiveStock' } },
+      ];
+      const countPipeline = [...matchStages, { $count: 'n' }];
+      const [countRes, data] = await Promise.all([
+        Product.aggregate(countPipeline),
+        Product.aggregate(pagePipeline),
+      ]);
+      total = countRes[0]?.n || 0;
+      items = data;
     }
 
     res.json({ success: true, data: items.map(asInventoryItem), total });

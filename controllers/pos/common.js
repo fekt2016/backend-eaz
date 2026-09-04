@@ -191,14 +191,22 @@ async function findTechnicianToAssign() {
 function asInventoryItem(doc) {
   const item = doc && typeof doc.toObject === 'function' ? doc.toObject() : doc;
   if (!item) return item;
+  // When aggregation computes `_effectiveStock` (variant-aware total), use it
+  // instead of the possibly-stale top-level `stock` field. Non-aggregation
+  // paths won't have this field, so `item.stock` is the fallback.
+  const effectiveStock = item._effectiveStock != null
+    ? Number(item._effectiveStock) || 0
+    : Number(item.stock) || 0;
   return {
     ...item,
-    _kind:              'product',
-    sellingPrice:       Number(item.price) || 0,
-    quantity:           Number(item.stock) || 0,
-    category:           item.partCategory || item.category || 'Other',
-    lowStockThreshold:  Number(item.lowStockThreshold) || 0,
-    allowNegativeStock: Boolean(item.allowNegativeStock),
+    _kind:                   'product',
+    sellingPrice:            Number(item.price) || 0,
+    quantity:                effectiveStock,
+    category:                item.partCategory || item.category || 'Other',
+    lowStockThreshold:       Number(item.lowStockThreshold) || 0,
+    allowNegativeStock:      Boolean(item.allowNegativeStock),
+    hasDepletedVariant:      Boolean(item._hasDepletedVariant),
+    depletedVariantLabels:   item.depletedVariantLabels || [],
   };
 }
 

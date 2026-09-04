@@ -194,3 +194,64 @@ describe("GET /pos/inventory?lowStock=true is variant-aware", () => {
     expect(res.body.total).toBe(3);
   });
 });
+
+describe("GET /pos/inventory?depletedVariant=true", () => {
+  it("returns only products with at least one variant at zero stock", async () => {
+    const token = await adminToken();
+    await Product.create([
+      // One depleted variant, one healthy — should match
+      {
+        name: "Mixed Stock Phone", slug: "dmix", price: 10000, category: "Phones",
+        variants: [
+          { sku: "dm1", attributes: { color: "Lavender", storage: "128GB" }, stock: 0 },
+          { sku: "dm2", attributes: { color: "Black", storage: "256GB" }, stock: 5 },
+        ],
+      },
+      // All variants healthy — should NOT match
+      {
+        name: "Healthy Phone", slug: "dhok", price: 10000, category: "Phones",
+        variants: [
+          { sku: "dh1", attributes: { storage: "128GB" }, stock: 2 },
+          { sku: "dh2", attributes: { storage: "256GB" }, stock: 3 },
+        ],
+      },
+      // Non-variant product — should NOT match
+      { name: "Plain Cable", slug: "dpc", price: 5000, category: "Chargers & Cables", stock: 10 },
+    ]);
+
+    const res = await request(app)
+      .get(`${BASE}?depletedVariant=true`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].name).toBe("Mixed Stock Phone");
+    expect(res.body.data[0].hasDepletedVariant).toBe(true);
+    expect(res.body.data[0].depletedVariantLabels).toEqual(["Lavender 128GB"]);
+    expect(res.body.data[0].quantity).toBe(5);
+  });
+
+  it("does not overlap with the lowStock filter", async () => {
+    const token = await adminToken();
+    await Product.create([
+      // Depleted variant BUT total across variants > threshold → not low stock
+      {
+        name: "Depleted But Not Low", slug: "dbnl", price: 10000, category: "Phones",
+        lowStockThreshold: 2,
+        variants: [
+          { sku: "db1", attributes: { color: "White" }, stock: 0 },
+          { sku: "db2", attributes: { color: "Black" }, stock: 5 },
+        ],
+      },
+    ]);
+
+    const [depleted, low] = await Promise.all([
+      request(app).get(`${BASE}?depletedVariant=true`).set("Authorization", `Bearer ${token}`),
+      request(app).get(`${BASE}?lowStock=true`).set("Authorization", `Bearer ${token}`),
+    ]);
+
+    expect(depleted.body.data).toHaveLength(1);
+    expect(depleted.body.data[0].name).toBe("Depleted But Not Low");
+    expect(low.body.data).toHaveLength(0); // total 5 > threshold 2
+  });
+});
