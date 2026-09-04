@@ -16,7 +16,7 @@ const { normalizePhone } = require("../utils/phone");
 const { buildCustomerOrderFilter } = require("../utils/customerOrderMatch");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
 const { sendPreorderReadyEmail, sendShopStatusEmail } = require("../utils/email");
-const { CUSTOMER_STAGES } = require("../models/Shipment");
+const { CUSTOMER_STAGES, customerStageHistory } = require("../models/Shipment");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -613,7 +613,7 @@ const getOrderTracking = async (req, res, next) => {
 
     const order = await Order.findOne({ trackingNumber })
       .populate('deliveryZone', 'name')
-      .populate('items.shipment', 'stage expectedArrival')
+      .populate('items.shipment', 'stage expectedArrival origin stageHistory')
       .lean();
     if (!order) {
       return res.status(404).json({ success: false, error: 'Tracking number not found' });
@@ -625,14 +625,24 @@ const getOrderTracking = async (req, res, next) => {
     // rest of this payload is deliberately minimal for the same reason.
     const waiting = (order.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
     const withShipment = waiting.find((i) => i.shipment?.stage);
+    const shipment = withShipment?.shipment || null;
     const preorder = waiting.length
       ? {
           items: waiting.map((i) => ({ name: i.name, qty: i.qty })),
-          stage: withShipment ? CUSTOMER_STAGES[withShipment.shipment.stage]?.key || null : null,
-          label: withShipment
-            ? CUSTOMER_STAGES[withShipment.shipment.stage]?.label || null
+          stage: shipment ? CUSTOMER_STAGES[shipment.stage]?.key || null : null,
+          label: shipment
+            ? CUSTOMER_STAGES[shipment.stage]?.label || null
             : 'Confirmed — awaiting shipment',
-          expectedArrival: withShipment ? withShipment.shipment.expectedArrival || null : null,
+          expectedArrival: shipment ? shipment.expectedArrival || null : null,
+          // Where the goods are coming from. The journey starts at the supplier,
+          // so saying "China" is the difference between a customer knowing their
+          // item is being made abroad and assuming we are sitting on it.
+          origin: shipment?.origin || 'China',
+          // The dated journey so far — a position alone cannot tell someone
+          // whether it has been at sea for a week or a month. Collapsed to the
+          // four customer stages, earliest date per stage, internal notes and
+          // staff names dropped in the model.
+          history: shipment ? customerStageHistory(shipment.stageHistory) : [],
         }
       : null;
 

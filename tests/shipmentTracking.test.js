@@ -190,6 +190,73 @@ describe("What the customer sees on their tracking page (T45)", () => {
     expect(res.body.data.preorder.stage).toBeNull();
   });
 
+  it("names the origin so the customer knows the goods are still abroad", async () => {
+    const { tracking } = await attachedOrder("production");
+
+    const res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+
+    expect(res.body.data.preorder.origin).toBe("China");
+  });
+
+  it("says China even before a batch exists to say it", async () => {
+    // Someone who has just paid for goods being made abroad should not read
+    // "awaiting shipment" and assume we are sitting on their item.
+    const tracking = `EZWTRK-ORIGIN${Date.now()}`;
+    await makePreorder(tracking);
+
+    const res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+
+    expect(res.body.data.preorder.origin).toBe("China");
+    expect(res.body.data.preorder.history).toEqual([]);
+  });
+
+  it("gives the journey so far with a date against each stage", async () => {
+    const token = await tokenFor();
+    const tracking = `EZWTRK-HIST${Date.now()}`;
+    const { order } = await makePreorder(tracking);
+    const { body } = await createShipment(token);
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+
+    // A real batch: three supplier stages, then it sails. Dates are the caller's
+    // to set, because a stage is often entered after the fact.
+    for (const [stage, date] of [
+      ["production", "2026-07-10T00:00:00Z"],
+      ["ready_supplier", "2026-07-28T00:00:00Z"],
+      ["in_transit", "2026-08-15T00:00:00Z"],
+    ]) {
+      await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+        .set("Authorization", `Bearer ${token}`).send({ stage, date });
+    }
+
+    const res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+    const history = res.body.data.preorder.history;
+
+    // Four staff stages, but only two customer ones: "ordered", "production" and
+    // "ready_supplier" all mean "preparing".
+    expect(history.map((h) => h.stage)).toEqual(["preparing", "on_the_way"]);
+    expect(new Date(history[1].date).toISOString()).toBe("2026-08-15T00:00:00.000Z");
+    // The EARLIEST of the three, not the first recorded. "ordered" is stamped
+    // when the batch row is created, which is often after the supplier actually
+    // started — here that stamp is today, later than the backdated sailing date.
+    // Taking the minimum is what keeps the timeline from reading out of order.
+    expect(new Date(history[0].date).toISOString()).toBe("2026-07-10T00:00:00.000Z");
+  });
+
+  it("keeps internal notes and staff names out of the history", async () => {
+    const { tracking } = await attachedOrder("in_transit");
+
+    const res = await request(app).get(`/api/v1/orders/track/${tracking}`);
+
+    for (const entry of res.body.data.preorder.history) {
+      expect(entry).toEqual({
+        stage: expect.any(String),
+        label: expect.any(String),
+        date: expect.any(String),
+      });
+    }
+  });
+
   it("leaves an ordinary order's tracking exactly as it was", async () => {
     const tracking = `EZWTRK-PLAIN${Date.now()}`;
     await Order.create({

@@ -51,6 +51,36 @@ const CUSTOMER_STAGES = {
   at_shop:        { key: 'at_shop',    label: 'At our shop — preparing your order' },
 };
 
+// The four customer stages in order, so a position is comparable to a step index
+// and a history can be sorted by where it sits on the journey rather than by the
+// eight-stage detail behind it.
+const CUSTOMER_STAGE_ORDER = ['preparing', 'on_the_way', 'in_ghana', 'at_shop'];
+
+/**
+ * The dated journey a customer may see, built from the staff `stageHistory`.
+ *
+ * Three staff stages collapse into "preparing", two into "in_ghana", so a batch
+ * that moved ordered → production → ready_supplier reached "preparing" ONCE, on
+ * the first of those dates. Keeping the earliest is what makes the date honest:
+ * the later ones are internal detail about a stage the customer already saw.
+ *
+ * Notes and `updatedBy` are dropped rather than filtered later — supplier names,
+ * container numbers and staff identities must not leave the building, and the
+ * safest place to enforce that is where the collapse happens.
+ */
+function customerStageHistory(stageHistory = []) {
+  const earliest = new Map();
+  for (const entry of stageHistory || []) {
+    const mapped = CUSTOMER_STAGES[entry?.stage];
+    if (!mapped || !entry.date) continue;
+    const seen = earliest.get(mapped.key);
+    if (!seen || new Date(entry.date) < new Date(seen.date)) {
+      earliest.set(mapped.key, { stage: mapped.key, label: mapped.label, date: entry.date });
+    }
+  }
+  return CUSTOMER_STAGE_ORDER.filter((key) => earliest.has(key)).map((key) => earliest.get(key));
+}
+
 const shipmentSchema = new mongoose.Schema(
   {
     reference: { type: String, unique: true },
@@ -110,3 +140,5 @@ module.exports = Shipment;
 module.exports.SHIPMENT_STAGES = SHIPMENT_STAGES;
 module.exports.STAGE_LABELS = STAGE_LABELS;
 module.exports.CUSTOMER_STAGES = CUSTOMER_STAGES;
+module.exports.CUSTOMER_STAGE_ORDER = CUSTOMER_STAGE_ORDER;
+module.exports.customerStageHistory = customerStageHistory;
