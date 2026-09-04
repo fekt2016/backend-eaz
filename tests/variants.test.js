@@ -254,7 +254,7 @@ describe("Admin product create/update (Phase 1/2 wiring)", () => {
 
 // ── fulfilShopOrder decrements variant stock, not top-level ──
 describe("Fulfilment with variants (Phase 3)", () => {
-  it("decrements the purchased variant's stock and leaves top-level stock alone", async () => {
+  it("decrements the purchased variant's stock and keeps top-level stock in step", async () => {
     const product = await makeVariantProduct();
     const order = await Order.create({
       orderNumber: `EZW-${Date.now()}`,
@@ -274,6 +274,9 @@ describe("Fulfilment with variants (Phase 3)", () => {
     const fresh = await Product.findById(product._id);
     expect(fresh.variants.find((v) => v.sku === "SPG-BLK").stock).toBe(58);
     expect(fresh.variants.find((v) => v.sku === "SPG-BLU").stock).toBe(50);
-    expect(fresh.stock).toBe(150);
+    // Top-level stock follows the variants (58 + 50). It used to be left at its
+    // seed value, which drifted further with every sale and reached the admin
+    // edit form and the product page as more stock than existed.
+    expect(fresh.stock).toBe(108);
   });
 });

@@ -10,6 +10,7 @@ const { buildCartHash } = require("../models/ShippingQuote");
 const { fulfilShopOrder, restockOrderItems } = require("../utils/fulfilShopOrder");
 const { generateTrackingNumber } = require("../utils/trackingNumber");
 const { formatGhs } = require("../utils/money");
+const { syncVariantStock } = require("../utils/syncVariantStock");
 const { log, logFromRequest, ACTIONS, RESOURCES } = require("../services/activityLogService");
 const { normalizePhone } = require("../utils/phone");
 const { buildCustomerOrderFilter } = require("../utils/customerOrderMatch");
@@ -953,6 +954,9 @@ const releasePreorder = async (req, res, next) => {
         short.push(item.name);
         continue;
       }
+      // Releasing moves variant stock the same way fulfilment does, so the
+      // top-level field needs the same correction.
+      if (item.variant?.sku) await syncVariantStock(item.product);
       item.preorderReleasedAt = new Date();
       released.push(item);
     }

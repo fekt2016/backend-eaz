@@ -83,12 +83,52 @@ const getParts = async (req, res, next) => {
       { $addFields: { _effectiveStock: effectiveStock, _hasDepletedVariant: hasDepletedVariant } },
     ];
 
+    /*
+     * Which variants are actually out — "128GB", "Natural Titanium 128GB".
+     *
+     * This used to be computed only when the depleted-variant FILTER was on, so
+     * on the ordinary list every row said `_hasDepletedVariant: true` with an
+     * empty label array, and the admin's warning rendered as a bare "—". The
+     * list is where someone finds out a size has run out, so it belongs on every
+     * page pipeline, not just the filtered one. Page pipelines only — a count
+     * does not need the strings.
+     */
+    const depletedLabels = {
+      $addFields: {
+        depletedVariantLabels: {
+          $map: {
+            input: {
+              $filter: {
+                input: { $ifNull: ['$variants', []] },
+                cond: { $lte: ['$$this.stock', 0] },
+              },
+            },
+            as: 'v',
+            in: {
+              $reduce: {
+                input: { $objectToArray: '$$v.attributes' },
+                initialValue: '',
+                in: {
+                  $cond: [
+                    { $eq: ['$$value', ''] },
+                    '$$this.v',
+                    { $concat: ['$$value', ' ', '$$this.v'] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
     let items, total;
     if (lowStock === 'true') {
       const lowMatch = { $expr: { $lte: ['$_effectiveStock', { $ifNull: ['$lowStockThreshold', 0] }] } };
       const filtered = [...matchStages, { $match: lowMatch }];
       const pagePipeline = [
         ...filtered,
+        depletedLabels,
         { $sort: { name: 1 } },
         { $skip: skip },
         { $limit: limit },
@@ -102,34 +142,6 @@ const getParts = async (req, res, next) => {
       items = data;
     } else if (depletedVariant === 'true') {
       const depletedMatch = { $match: { _hasDepletedVariant: true } };
-      const depletedLabels = {
-        $addFields: {
-          depletedVariantLabels: {
-            $map: {
-              input: {
-                $filter: {
-                  input: { $ifNull: ['$variants', []] },
-                  cond: { $lte: ['$$this.stock', 0] },
-                },
-              },
-              as: 'v',
-              in: {
-                $reduce: {
-                  input: { $objectToArray: '$$v.attributes' },
-                  initialValue: '',
-                  in: {
-                    $cond: [
-                      { $eq: ['$$value', ''] },
-                      '$$this.v',
-                      { $concat: ['$$value', ' ', '$$this.v'] },
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        },
-      };
       const filtered = [...matchStages, depletedMatch];
       const pagePipeline = [
         ...filtered,
@@ -151,6 +163,7 @@ const getParts = async (req, res, next) => {
       // depleted-variant status so the frontend gets accurate data.
       const pagePipeline = [
         ...matchStages,
+        depletedLabels,
         { $sort: { name: 1 } },
         { $skip: skip },
         { $limit: limit },
