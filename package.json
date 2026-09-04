@@ -43,7 +43,8 @@
     "migrate:resanitize-posts": "node scripts/resanitizePostContent.js",
     "seed:role-accounts": "node scripts/seedRoleAccounts.js",
     "user:set-role": "node scripts/setUserAdmin.js",
-    "user:verify": "node scripts/verifyUser.js"
+    "user:verify": "node scripts/verifyUser.js",
+    "catalogue:replace": "node scripts/replaceCatalogue.js"
   },
   "keywords": [],
   "author": "",

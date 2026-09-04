@@ -41,6 +41,7 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const Product = require("../models/Product");
 const { logDbTarget } = require("../utils/dbTarget");
+const { requireMongoUrl } = require("../utils/mongoUrl");
 
 dotenv.config({ path: "./.env" });
 
@@ -101,7 +102,7 @@ async function run() {
   const apply = process.argv.includes("--apply");
   const withImagesOnly = process.argv.includes("--with-images-only");
 
-  await mongoose.connect(process.env.MONGO_URI);
+  await mongoose.connect(requireMongoUrl());
   logDbTarget();
 
   const plan = await planPublish({ withImagesOnly });
