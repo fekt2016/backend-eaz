@@ -571,6 +571,42 @@ function orderCustomerEmail(customer) {
  * when the submitted phone matches customer.phone — this prevents order
  * enumeration by guessing order numbers alone.
  */
+/**
+ * The pre-order block shown on every public view of an order, or null when the
+ * order has no line still waiting on stock.
+ *
+ * Shared deliberately: the customer reaches their order three ways — the
+ * order-number-and-phone lookup, the tracking-number page, and the confirmation
+ * link — and a pre-order that appears on one but not the others reads as though
+ * something went wrong. `order.items.shipment` must be populated by the caller.
+ *
+ * What crosses this line is only ever the derived block. The shipment document
+ * behind it carries the supplier, the container number and staff notes, so no
+ * caller may return it — see the strip in trackOrder.
+ */
+function buildPreorderTracking(order) {
+  const waiting = (order?.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
+  if (!waiting.length) return null;
+
+  const shipment = waiting.find((i) => i.shipment?.stage)?.shipment || null;
+  return {
+    items: waiting.map((i) => ({ name: i.name, qty: i.qty })),
+    stage: shipment ? CUSTOMER_STAGES[shipment.stage]?.key || null : null,
+    label: shipment
+      ? CUSTOMER_STAGES[shipment.stage]?.label || null
+      : 'Confirmed — awaiting shipment',
+    expectedArrival: shipment ? shipment.expectedArrival || null : null,
+    // Where the goods are coming from. The journey starts at the supplier, so
+    // saying "China" is the difference between a customer knowing their item is
+    // being made abroad and assuming we are sitting on it.
+    origin: shipment?.origin || 'China',
+    // The dated journey so far — a position alone cannot tell someone whether it
+    // has been at sea for a week or a month. Collapsed to the four customer
+    // stages, earliest date per stage, internal notes dropped in the model.
+    history: shipment ? customerStageHistory(shipment.stageHistory) : [],
+  };
+}
+
 const trackOrder = async (req, res, next) => {
   try {
     const { orderNumber, phone } = req.body;
@@ -591,7 +627,19 @@ const trackOrder = async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Phone number does not match this order' });
     }
 
-    res.status(200).json({ success: true, data: order });
+    // This is the tracking page reached from the site, so it needs the pre-order
+    // position too — without it a customer who paid for goods still in China saw
+    // a plain "Paid" and nothing about where their item is.
+    await order.populate({ path: 'items.shipment', select: 'stage expectedArrival origin stageHistory' });
+    const preorder = buildPreorderTracking(order);
+
+    // The populated shipment must not ride along: its stageHistory carries
+    // internal notes and the staff who entered them. Only the derived block goes.
+    const data = order.toObject();
+    data.items = (data.items || []).map(({ shipment, ...line }) => line);
+    data.preorder = preorder;
+
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -623,28 +671,7 @@ const getOrderTracking = async (req, res, next) => {
     // stages collapse to four the customer can act on, and nothing identifying
     // the supplier, the container or any internal note crosses this line — the
     // rest of this payload is deliberately minimal for the same reason.
-    const waiting = (order.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
-    const withShipment = waiting.find((i) => i.shipment?.stage);
-    const shipment = withShipment?.shipment || null;
-    const preorder = waiting.length
-      ? {
-          items: waiting.map((i) => ({ name: i.name, qty: i.qty })),
-          stage: shipment ? CUSTOMER_STAGES[shipment.stage]?.key || null : null,
-          label: shipment
-            ? CUSTOMER_STAGES[shipment.stage]?.label || null
-            : 'Confirmed — awaiting shipment',
-          expectedArrival: shipment ? shipment.expectedArrival || null : null,
-          // Where the goods are coming from. The journey starts at the supplier,
-          // so saying "China" is the difference between a customer knowing their
-          // item is being made abroad and assuming we are sitting on it.
-          origin: shipment?.origin || 'China',
-          // The dated journey so far — a position alone cannot tell someone
-          // whether it has been at sea for a week or a month. Collapsed to the
-          // four customer stages, earliest date per stage, internal notes and
-          // staff names dropped in the model.
-          history: shipment ? customerStageHistory(shipment.stageHistory) : [],
-        }
-      : null;
+    const preorder = buildPreorderTracking(order);
 
     const history = (order.trackingHistory || [])
       .map((e) => ({
@@ -748,6 +775,11 @@ function publicOrderView(order) {
       name: maskName(order.customer?.name),
       phone: maskPhone(order.customer?.phone),
     },
+
+    // The confirmation page is where someone lands seconds after paying, which
+    // for a pre-order is exactly when "where is my money going" is loudest.
+    // Null for an ordinary order, so nothing changes for one.
+    preorder: buildPreorderTracking(order),
   };
 }
 
@@ -757,7 +789,8 @@ function publicOrderView(order) {
  */
 const getOrderByReference = async (req, res, next) => {
   try {
-    const order = await Order.findOne({ paystackReference: req.params.reference });
+    const order = await Order.findOne({ paystackReference: req.params.reference })
+      .populate('items.shipment', 'stage expectedArrival origin stageHistory');
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }

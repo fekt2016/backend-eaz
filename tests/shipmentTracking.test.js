@@ -257,6 +257,72 @@ describe("What the customer sees on their tracking page (T45)", () => {
     }
   });
 
+  // The order-number-and-phone lookup is the tracking page reached from the site.
+  // It is a different endpoint from the tracking-number page, and it used to
+  // return a bare "Paid" for goods that were still being made in China.
+  it("shows the pre-order position on the order-number lookup too", async () => {
+    const token = await tokenFor();
+    const tracking = `EZWTRK-LOOKUP${Date.now()}`;
+    const { order } = await makePreorder(tracking);
+    const { body } = await createShipment(token, { expectedArrival: "2026-10-12T00:00:00Z" });
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ stage: "in_transit", note: "Internal: supplier delayed us a week" });
+
+    const res = await request(app).post("/api/v1/orders/track")
+      .send({ orderNumber: order.orderNumber, phone: "0244000000" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder.stage).toBe("on_the_way");
+    expect(res.body.data.preorder.origin).toBe("China");
+    expect(res.body.data.preorder.history.length).toBeGreaterThan(0);
+  });
+
+  // This endpoint returns the whole order, so populating the shipment to derive
+  // the position would have carried the container number and the staff note out
+  // with it. Only the derived block may cross.
+  it("never leaks the shipment behind that lookup", async () => {
+    const token = await tokenFor();
+    const { order } = await makePreorder(`EZWTRK-LEAK${Date.now()}`);
+    const { body } = await createShipment(token);
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ stage: "in_transit", note: "Internal: supplier delayed us a week" });
+
+    const res = await request(app).post("/api/v1/orders/track")
+      .send({ orderNumber: order.orderNumber, phone: "0244000000" });
+
+    const raw = JSON.stringify(res.body);
+    expect(raw).not.toMatch(/CMAU1234567/);
+    expect(raw).not.toMatch(/supplier delayed/i);
+    expect(raw).not.toMatch(/March iPhone batch/);
+    // The line keeps its own pre-order flag; it is the shipment that is stripped.
+    expect(res.body.data.items[0].isPreorder).toBe(true);
+    expect(res.body.data.items[0].shipment).toBeUndefined();
+  });
+
+  it("leaves an ordinary order's lookup untouched", async () => {
+    const orderNumber = `EZW-${Date.now()}-plainlookup`;
+    await Order.create({
+      orderNumber,
+      items: [{ name: "Case", price: 5000, qty: 1 }],
+      subtotal: 5000, total: 5000,
+      customer: { name: "Kofi", phone: "0244000002" },
+      status: "paid",
+    });
+
+    const res = await request(app).post("/api/v1/orders/track")
+      .send({ orderNumber, phone: "0244000002" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder).toBeNull();
+    expect(res.body.data.items[0].name).toBe("Case");
+  });
+
   it("leaves an ordinary order's tracking exactly as it was", async () => {
     const tracking = `EZWTRK-PLAIN${Date.now()}`;
     await Order.create({
