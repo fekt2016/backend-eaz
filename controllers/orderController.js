@@ -819,20 +819,62 @@ function canTransition(from, to) {
   return (STATUS_RANK[to] ?? -1) > (STATUS_RANK[from] ?? -1);     // forward only
 }
 
+/**
+ * Pre-order lines waiting on stock. The same shape /orders/preorders returns,
+ * expressed as a filter so the release queue can be a view of the one order
+ * list rather than a second page listing orders its own way.
+ *
+ * Unpaid orders are excluded deliberately: nothing is owed until the money has
+ * landed, and releasing one would move stock for an order that may never be paid.
+ */
+const PENDING_PREORDER = {
+  status: { $in: ['paid', 'processing'] },
+  items: { $elemMatch: { isPreorder: true, preorderReleasedAt: null } },
+};
+
 const getOrders = async (req, res, next) => {
   try {
-    const { status } = req.query;
+    const { status, preorder } = req.query;
     const query = {};
     if (status && ORDER_STATUSES.includes(status)) {
       query.status = status;
     }
+
+    // `preorder=pending` is the release queue; `preorder=any` is every order
+    // that has ever carried a pre-order line, released or not.
+    let sort = { createdAt: -1 };
+    if (preorder === 'pending') {
+      Object.assign(query, PENDING_PREORDER);
+      // Oldest first: the customer who has waited longest is the one to serve.
+      // Newest-first is right for browsing and wrong for a queue.
+      sort = { createdAt: 1 };
+    } else if (preorder === 'any') {
+      query['items.isPreorder'] = true;
+    }
+
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const orders = await Order.find(query)
       .populate('deliveryZone')
-      .sort({ createdAt: -1 })
+      .sort(sort)
       .limit(limit)
       .lean();
     res.status(200).json({ success: true, count: orders.length, data: orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/orders/preorders/count — how many orders are waiting on stock.
+ *
+ * Feeds the badge on the Orders nav item. A queue nobody remembers to open is a
+ * customer who paid weeks ago and heard nothing, so the count has to come to
+ * staff rather than waiting to be looked for.
+ */
+const getPreorderCount = async (req, res, next) => {
+  try {
+    const count = await Order.countDocuments(PENDING_PREORDER);
+    res.status(200).json({ success: true, data: { count } });
   } catch (error) {
     next(error);
   }
@@ -1519,6 +1561,7 @@ const changeOrderAddress = async (req, res, next) => {
 module.exports = {
   createOrder,
   getPreorders,
+  getPreorderCount,
   releasePreorder,
   getMyOrders,
   getMyOrderById,

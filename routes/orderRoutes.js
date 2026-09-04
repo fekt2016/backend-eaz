@@ -11,6 +11,7 @@ const {
   getOrderTracking,
   getOrders,
   getPreorders,
+  getPreorderCount,
   releasePreorder,
   getOrder,
   updateOrderStatus,
@@ -31,6 +32,8 @@ router.get('/', protect, restrictTo('admin', 'staff'), getOrders);
 // T45 — pre-order release queue. Must precede '/:id', or Express reads
 // "preorders" as an order id.
 router.get('/preorders', protect, restrictTo('admin', 'staff'), getPreorders);
+// Feeds the badge on the Orders nav item. Above `/:id` for the same reason.
+router.get('/preorders/count', protect, restrictTo('admin', 'staff'), getPreorderCount);
 router.patch('/:id/preorder-release', protect, restrictTo('admin', 'staff'), releasePreorder);
 router.get('/by-reference/:reference', getOrderByReference);
 router.post('/:id/tracking', protect, restrictTo('admin', 'staff'), addTrackingEvent);
