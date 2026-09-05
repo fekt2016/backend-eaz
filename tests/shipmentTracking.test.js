@@ -350,6 +350,58 @@ describe("What the customer sees on their tracking page (T45)", () => {
     expect(res.body.data.items[0].shipment).toBeUndefined();
   });
 
+  // Opening your own pre-order and seeing a status and a price, with nothing
+  // about where the goods are, is what sent us looking in the first place.
+  it("shows the position on the customer's own order detail", async () => {
+    const token = await tokenFor();
+    const { order } = await makePreorder(`EZWTRK-MINE${Date.now()}`);
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { 'customer.email': 'ama@example.com', 'customer.phoneDigits': '244000000' } },
+    );
+    const customer = await User.create({
+      name: "Ama", email: "ama@example.com", password: "Password123!", isVerified: true,
+    });
+    const customerToken = jwt.sign({ id: customer._id.toString() }, process.env.JWT_SECRET);
+
+    const { body } = await createShipment(token);
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ stage: "in_transit", note: "Internal: supplier delayed us a week" });
+
+    const res = await request(app).get(`/api/v1/orders/mine/${order._id}`)
+      .set("Authorization", `Bearer ${customerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder.stage).toBe("on_the_way");
+    expect(res.body.data.preorder.origin).toBe("China");
+    // The customer's own order is still not a route for internal detail.
+    const raw = JSON.stringify(res.body);
+    expect(raw).not.toMatch(/CMAU1234567/);
+    expect(raw).not.toMatch(/supplier delayed/i);
+    expect(res.body.data.preorder.batch).toBeUndefined();
+  });
+
+  it("gives staff the batch the order is riding on", async () => {
+    const token = await tokenFor("admin");
+    const { order } = await makePreorder(`EZWTRK-STAFF${Date.now()}`);
+    const { body } = await createShipment(token);
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "in_transit" });
+
+    const res = await request(app).get(`/api/v1/orders/${order._id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder.stage).toBe("on_the_way");
+    expect(res.body.data.preorder.batch.name).toBe("March iPhone batch");
+    expect(res.body.data.preorder.batch.reference).toMatch(/^SHP-/);
+  });
+
   it("leaves an ordinary order's lookup untouched", async () => {
     const orderNumber = `EZW-${Date.now()}-plainlookup`;
     await Order.create({

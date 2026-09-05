@@ -584,12 +584,18 @@ function orderCustomerEmail(customer) {
  * behind it carries the supplier, the container number and staff notes, so no
  * caller may return it — see the strip in trackOrder.
  */
-function buildPreorderTracking(order) {
+function buildPreorderTracking(order, { includeBatch = false } = {}) {
   const waiting = (order?.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
   if (!waiting.length) return null;
 
   const shipment = waiting.find((i) => i.shipment?.stage)?.shipment || null;
   return {
+    // Staff-only, and opt-in: which batch this is riding on is the first thing
+    // support needs and the last thing a customer may see. The customer-facing
+    // callers do not even SELECT these fields, so there is nothing to leak.
+    ...(includeBatch && shipment
+      ? { batch: { reference: shipment.reference || '', name: shipment.name || '' } }
+      : {}),
     items: waiting.map((i) => ({ name: i.name, qty: i.qty })),
     stage: shipment ? CUSTOMER_STAGES[shipment.stage]?.key || null : null,
     label: shipment
@@ -1049,11 +1055,23 @@ const releasePreorder = async (req, res, next) => {
 
 const getOrder = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('deliveryZone');
+    const order = await Order.findById(req.params.id)
+      .populate('deliveryZone')
+      .populate('items.shipment', 'stage expectedArrival origin stageHistory reference name');
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
-    res.status(200).json({ success: true, data: order });
+
+    // Staff see the batch identity too — it is the first thing support reaches
+    // for when a customer asks where their pre-order is.
+    const data = order.toObject();
+    data.preorder = buildPreorderTracking(order, { includeBatch: true });
+    data.items = (data.items || []).map((line) => ({
+      ...line,
+      shipment: line.shipment?._id || line.shipment || null,
+    }));
+
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -1082,11 +1100,21 @@ const getMyOrderById = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
 
-    const order = await Order.findOne({ _id: req.params.id, $or: or }).populate('deliveryZone');
+    const order = await Order.findOne({ _id: req.params.id, $or: or })
+      .populate('deliveryZone')
+      .populate('items.shipment', 'stage expectedArrival origin stageHistory');
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
-    res.status(200).json({ success: true, data: order });
+
+    // Same block the tracking pages show. Without it a customer opening their own
+    // pre-order saw a status and a price and nothing about where the goods are.
+    const data = order.toObject();
+    data.preorder = buildPreorderTracking(order);
+    // stageHistory carries internal notes; only the derived block crosses.
+    data.items = (data.items || []).map(({ shipment, ...line }) => line);
+
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
