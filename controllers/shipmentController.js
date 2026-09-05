@@ -124,6 +124,21 @@ const advanceShipmentStage = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'The shipment is already at that stage.' });
     }
 
+    // Moving BACK is a correction, not a move: someone clicked one stage too far,
+    // or the goods genuinely turned around. The customer's dated journey reads
+    // straight off this array, so entries beyond the corrected position have to
+    // go — otherwise their tracking page keeps claiming the batch reached Ghana.
+    // The activity log below retains the full audit trail either way.
+    const from = SHIPMENT_STAGES.indexOf(shipment.stage);
+    const to = SHIPMENT_STAGES.indexOf(stage);
+    if (to < from) {
+      // `<= to` rather than `< to`: an earlier genuine visit to this stage keeps
+      // its original date, which is the one the customer should see.
+      shipment.stageHistory = shipment.stageHistory.filter(
+        (e) => SHIPMENT_STAGES.indexOf(e.stage) <= to,
+      );
+    }
+
     shipment.stage = stage;
     shipment.stageHistory.push({
       stage,

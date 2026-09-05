@@ -74,6 +74,51 @@ describe("Shipments (T45 tracking)", () => {
     expect(res.body.data.stageHistory[1].note).toMatch(/Sailed 12 Sep/);
   });
 
+  it("treats a move backwards as a correction, dropping what was undone", async () => {
+    // Staff click one stage too far. The customer's journey reads off stageHistory,
+    // so leaving "arrived_port" in it would keep telling them the goods are in
+    // Ghana after the mistake was fixed.
+    const token = await tokenFor();
+    const { body } = await createShipment(token);
+    const id = body.data._id;
+    for (const stage of ["production", "in_transit", "arrived_port"]) {
+      await request(app).patch(`/api/v1/shipments/${id}/stage`)
+        .set("Authorization", `Bearer ${token}`).send({ stage });
+    }
+
+    const res = await request(app).patch(`/api/v1/shipments/${id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "in_transit" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.stage).toBe("in_transit");
+    const stages = res.body.data.stageHistory.map((e) => e.stage);
+    expect(stages).not.toContain("arrived_port");
+    // The stages it genuinely passed through are untouched.
+    expect(stages).toContain("ordered");
+    expect(stages).toContain("production");
+  });
+
+  it("keeps the original date when a corrected stage was genuinely reached before", async () => {
+    const token = await tokenFor();
+    const { body } = await createShipment(token);
+    const id = body.data._id;
+    await request(app).patch(`/api/v1/shipments/${id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "in_transit", date: "2026-08-15T00:00:00Z" });
+    await request(app).patch(`/api/v1/shipments/${id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "arrived_port" });
+    await request(app).patch(`/api/v1/shipments/${id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "in_transit" });
+
+    const dates = body.data && (await request(app).get(`/api/v1/shipments/${id}`)
+      .set("Authorization", `Bearer ${token}`)).body.data.shipment.stageHistory
+      .filter((e) => e.stage === "in_transit")
+      .map((e) => new Date(e.date).toISOString());
+
+    // The real sailing date survives the correction — it is the earliest, and
+    // the earliest is what the customer's timeline shows.
+    expect(dates).toContain("2026-08-15T00:00:00.000Z");
+  });
+
   it("refuses a stage it does not recognise", async () => {
     const token = await tokenFor();
     const { body } = await createShipment(token);
