@@ -92,7 +92,8 @@ const getCustomers = async (req, res, next) => {
         ]}
       : {};
     const [customers, total] = await Promise.all([
-      PosCustomer.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      // `_id` breaks ties — see productController's list for why.
+      PosCustomer.find(query).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit),
       PosCustomer.countDocuments(query),
     ]);
     res.json({ success: true, data: customers, total });

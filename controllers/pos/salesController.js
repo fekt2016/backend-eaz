@@ -206,7 +206,9 @@ const getSales = async (req, res, next) => {
       { customerName:  { $regex: escapeRegex(q), $options: 'i' } },
     ];
     const [sales, total] = await Promise.all([
-      Sale.find(query).sort({ createdAt: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum)
+      // `_id` breaks ties — several sales can share a createdAt on a busy till,
+      // and an unstable sort repeats one sale across pages while hiding another.
+      Sale.find(query).sort({ createdAt: -1, _id: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum)
         .populate('cashier', 'name').populate('customer', 'name phone'),
       Sale.countDocuments(query),
     ]);

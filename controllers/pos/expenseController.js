@@ -48,7 +48,10 @@ const getExpenses = async (req, res, next) => {
 
     const [expenses, total, summary] = await Promise.all([
       Expense.find(query)
-        .sort({ date: -1 })
+        // `date` is a DAY for most expenses, so ties are the rule here rather
+        // than the exception — without `_id` a page boundary reshuffles on every
+        // request and an expense can vanish from the list entirely.
+        .sort({ date: -1, _id: -1 })
         .skip(skip)
         .limit(limit)
         .populate('createdBy', 'name'),

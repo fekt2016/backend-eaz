@@ -632,7 +632,11 @@ const getAllUsers = async (req, res, next) => {
     // header shows "N registered · M blocked", and computing M from one page
     // would quietly report a different number on every page.
     const [users, total, blockedTotal] = await Promise.all([
-      User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      // `_id` breaks ties: `createdAt` is not unique — users registered in the
+      // same millisecond (a seed, an import, a busy minute) share a timestamp,
+      // and without a total order skip/limit serves the same user on two pages
+      // and drops another entirely. Same fix as productController's list.
+      User.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
       User.countDocuments(filter),
       User.countDocuments({ ...filter, isBlocked: true }),
     ]);

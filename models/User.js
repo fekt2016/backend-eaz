@@ -275,9 +275,21 @@ userSchema.pre("validate", function (next) {
   next();
 });
 
+// Cost 12 is the production figure and does not move: it is what makes a stolen
+// hash expensive to attack, and it is baked into every password already stored.
+//
+// Under test it is the single largest cost in the suite. One hash takes ~377ms,
+// and the suites create users in loops — usersPagination alone creates 31 in one
+// test, which is 11.7 SECONDS of hashing on an idle machine and comfortably past
+// the 30s timeout once workers compete for CPU. That test failed in every full
+// run for this reason, then dragged the two after it down with the state it left
+// behind. Cost 4 hashes in ~2ms and exercises exactly the same code path —
+// nothing in the suite asserts the work factor, only that a password round-trips.
+const BCRYPT_COST = process.env.NODE_ENV === "test" ? 4 : 12;
+
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 12);
+  this.password = await bcrypt.hash(this.password, BCRYPT_COST);
   next();
 });
 

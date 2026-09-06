@@ -154,7 +154,9 @@ const getProductReviews = async (req, res, next) => {
 
     const [reviews, total] = await Promise.all([
       ProductReview.find({ product: item._id, approved: true })
-        .sort({ createdAt: -1 })
+        // `_id` breaks ties — reviews left in the same second would otherwise
+        // repeat across pages and hide others. Same fix as the product list.
+        .sort({ createdAt: -1, _id: -1 })
         .skip(skip)
         .limit(limit)
         .populate("user", "name"),
