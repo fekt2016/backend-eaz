@@ -685,6 +685,9 @@ const getOrderTracking = async (req, res, next) => {
         note: e.note || '',
         location: e.location || '',
         timestamp: e.timestamp,
+        // Which entries are the batch's journey rather than a fulfilment event,
+        // so the timeline can mark them. `updatedBy` still never crosses.
+        preorderStage: e.preorderStage || '',
       }))
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
@@ -886,6 +889,41 @@ const PENDING_PREORDER = {
   status: { $in: ['paid', 'processing'] },
   items: { $elemMatch: { isPreorder: true, preorderReleasedAt: null } },
 };
+
+/**
+ * T45 — fulfilment stages an order may not reach while a pre-order line on it is
+ * still waiting on stock.
+ *
+ * `paid` and `cancelled` are deliberately absent. Money lands long before the
+ * goods do — that is what a pre-order IS — and a customer must be able to walk
+ * away while the container is still at sea. Everything after that describes work
+ * on physical stock the shop does not have yet.
+ */
+const PREORDER_HELD_STATUSES = ['processing', 'shipped', 'delivered'];
+
+/** The lines on this order still waiting for their batch to land. */
+function pendingPreorderItems(order) {
+  return (order?.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
+}
+
+/**
+ * Why this status move is refused, or null if it is allowed.
+ *
+ * Both staff doors — PATCH /:id and POST /:id/tracking — call this, because a
+ * guard on one is not a guard at all: the tracking endpoint moves status too.
+ * Releasing is what lifts the hold, and release itself checks stock, so "the
+ * goods are here" is proved once, in one place.
+ */
+function preorderHold(order, status) {
+  if (!status || status === order.status) return null;
+  if (!PREORDER_HELD_STATUSES.includes(status)) return null;
+
+  const waiting = pendingPreorderItems(order);
+  if (!waiting.length) return null;
+
+  return `This order is waiting on pre-order stock: ${waiting.map((i) => i.name).join(', ')}. `
+    + `Release the pre-order once the batch has reached the shop, then set it to "${status}".`;
+}
 
 const getOrders = async (req, res, next) => {
   try {
@@ -1142,6 +1180,11 @@ const updateOrderStatus = async (req, res, next) => {
       });
     }
 
+    const held = preorderHold(order, status);
+    if (held) {
+      return res.status(400).json({ success: false, error: held });
+    }
+
     const prevStatus = order.status;
     order.status = status;
     if (status === 'paid' && !order.paidAt) {
@@ -1234,6 +1277,14 @@ const addTrackingEvent = async (req, res, next) => {
         success: false,
         error: `Cannot change order from "${order.status}" to "${status}".`,
       });
+    }
+
+    // A note-only event stays open on purpose: "customer called about the ETA"
+    // is the most useful thing staff can record during the months a pre-order
+    // spends waiting, and it moves nothing.
+    const held = preorderHold(order, status);
+    if (held) {
+      return res.status(400).json({ success: false, error: held });
     }
 
     const prevStatus = order.status;

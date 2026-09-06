@@ -363,3 +363,122 @@ describe("Pre-order release (T45)", () => {
     expect(res.status).toBe(403);
   });
 });
+
+// Staff must not be able to walk an order through packing and delivery while the
+// goods are still on a container. Release is the gate: it is the one place that
+// proves the stock is physically here, so every fulfilment stage waits behind it.
+describe("Pre-order holds internal tracking (T45)", () => {
+  const patchStatus = (id, token, status) =>
+    request(app).patch(`/api/v1/orders/${id}`)
+      .set("Authorization", `Bearer ${token}`).send({ status });
+
+  const trackingEvent = (id, token, body) =>
+    request(app).post(`/api/v1/orders/${id}/tracking`)
+      .set("Authorization", `Bearer ${token}`).send(body);
+
+  it("refuses to move an unreleased pre-order to processing", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchStatus(order._id, token, "processing");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/waiting on pre-order stock/i);
+    expect(res.body.error).toContain(product.name);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.status).toBe("paid");
+  });
+
+  it("closes the tracking endpoint's status door too", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await trackingEvent(order._id, token, { status: "shipped", note: "Off to the courier" });
+
+    expect(res.status).toBe(400);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.status).toBe("paid");
+    // The note must not slip into the history on a refused move.
+    expect(fresh.trackingHistory).toHaveLength(0);
+  });
+
+  it("still lets staff cancel an order that is waiting", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchStatus(order._id, token, "cancelled");
+
+    expect(res.status).toBe(200);
+    expect((await Order.findById(order._id)).status).toBe("cancelled");
+  });
+
+  it("still accepts a note-only tracking event while waiting", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await trackingEvent(order._id, token, { note: "Customer called about the ETA" });
+
+    expect(res.status).toBe(200);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.status).toBe("paid");
+    expect(fresh.trackingHistory.at(-1).note).toBe("Customer called about the ETA");
+  });
+
+  it("lifts the hold once the pre-order is released", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 5, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const release = await request(app)
+      .patch(`/api/v1/orders/${order._id}/preorder-release`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(release.status).toBe(200);
+
+    const res = await patchStatus(order._id, token, "shipped");
+
+    expect(res.status).toBe(200);
+    expect((await Order.findById(order._id)).status).toBe("shipped");
+  });
+
+  it("holds a mixed order until its last pre-order line is released", async () => {
+    const token = await staffToken();
+    const inStock = await makeProduct({ stock: 3 });
+    const incoming = await makeProduct({ name: "Imported Case", stock: 0, preorder: { enabled: true } });
+    const order = await Order.create({
+      orderNumber: `EZW-${Date.now()}-mix`,
+      items: [
+        { product: inStock._id, name: inStock.name, price: inStock.price, qty: 1 },
+        { product: incoming._id, name: incoming.name, price: incoming.price, qty: 1, isPreorder: true },
+      ],
+      subtotal: inStock.price + incoming.price, total: inStock.price + incoming.price,
+      customer: { name: "Ama", phone: "0244000000", email: "ama@example.com" },
+      status: "paid", stockDeducted: true,
+    });
+
+    const res = await patchStatus(order._id, token, "processing");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Imported Case");
+    expect(res.body.error).not.toContain(inStock.name);
+  });
+
+  it("leaves an ordinary order alone", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 4 });
+    const order = await Order.create({
+      orderNumber: `EZW-${Date.now()}-plain`,
+      items: [{ product: product._id, name: product.name, price: product.price, qty: 1 }],
+      subtotal: product.price, total: product.price,
+      customer: { name: "Ama", phone: "0244000000", email: "ama@example.com" },
+      status: "paid", stockDeducted: true,
+    });
+
+    const res = await patchStatus(order._id, token, "delivered");
+
+    expect(res.status).toBe(200);
+  });
+});

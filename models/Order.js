@@ -321,6 +321,18 @@ const orderSchema = new mongoose.Schema({
     timestamp: {
       type: Date,
       default: Date.now
+    },
+    // T45 — set when the entry came from a pre-order batch moving rather than
+    // from staff. Carries the CUSTOMER-facing stage (four, not the eight
+    // internal ones), because this history is shown to the customer.
+    //
+    // Tagging is what makes the journey correctable: when a batch is stepped
+    // back, only entries carrying this field are rewritten, so a courier note
+    // sitting beside them survives untouched.
+    preorderStage: {
+      type: String,
+      enum: ['', 'preparing', 'on_the_way', 'in_ghana', 'at_shop'],
+      default: ''
     }
   }],
 

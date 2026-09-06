@@ -499,3 +499,143 @@ describe("One tracking number, start to finish (T45)", () => {
     expect((await Order.findById(order._id)).trackingNumber).toBe(before);
   });
 });
+
+// The batch's journey belongs in the customer's OWN tracking history, not only in
+// a separate widget: otherwise the history shows a payment and then months of
+// silence. Every stage the goods reach is written there, step by step, using the
+// four customer stages — the eight internal ones would repeat themselves and
+// carry supplier and container detail that must never reach a customer.
+describe("Shipment journey in the order's tracking history (T45)", () => {
+  const advance = (token, id, stage, body = {}) =>
+    request(app).patch(`/api/v1/shipments/${id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage, ...body });
+
+  const attach = (token, id, orderIds) =>
+    request(app).post(`/api/v1/shipments/${id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds });
+
+  const journeyOf = (order) => (order.trackingHistory || []).filter((e) => e.preorderStage);
+
+  async function batchWithOrder() {
+    const token = await tokenFor();
+    const { order } = await makePreorder();
+    const shipment = (await createShipment(token)).body.data;
+    await attach(token, shipment._id, [order._id.toString()]);
+    return { token, order, shipment };
+  }
+
+  it("writes each customer stage into the order's history as the batch moves", async () => {
+    const { token, order, shipment } = await batchWithOrder();
+
+    await advance(token, shipment._id, "in_transit");
+    await advance(token, shipment._id, "arrived_port");
+
+    const fresh = await Order.findById(order._id);
+    const journey = journeyOf(fresh);
+    expect(journey.map((e) => e.preorderStage)).toEqual(["preparing", "on_the_way", "in_ghana"]);
+    expect(journey.at(-1).note).toMatch(/Arrived in Ghana/i);
+  });
+
+  it("keeps the history in date order when a stage is backdated", async () => {
+    const { token, order, shipment } = await batchWithOrder();
+
+    await advance(token, shipment._id, "in_transit", { date: "2026-04-01T00:00:00Z" });
+    await advance(token, shipment._id, "arrived_port", { date: "2026-05-01T00:00:00Z" });
+
+    const fresh = await Order.findById(order._id);
+    const stamps = fresh.trackingHistory.map((e) => new Date(e.timestamp).getTime());
+    expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
+  });
+
+  it("does not repeat a stage the customer has already seen", async () => {
+    const { token, order, shipment } = await batchWithOrder();
+
+    // Three internal stages, one customer stage: "preparing".
+    await advance(token, shipment._id, "production");
+    await advance(token, shipment._id, "ready_supplier");
+
+    const fresh = await Order.findById(order._id);
+    expect(journeyOf(fresh).filter((e) => e.preorderStage === "preparing")).toHaveLength(1);
+  });
+
+  it("never leaks the supplier, the container or a staff note into the history", async () => {
+    const { token, order, shipment } = await batchWithOrder();
+
+    await advance(token, shipment._id, "in_transit", { note: "Container CMAU1234567 via Kwesi's agent" });
+
+    const fresh = await Order.findById(order._id);
+    const text = JSON.stringify(journeyOf(fresh));
+    expect(text).not.toMatch(/CMAU1234567/);
+    expect(text).not.toMatch(/Kwesi/i);
+    expect(journeyOf(fresh).every((e) => !e.updatedBy?.name)).toBe(true);
+  });
+
+  it("drops the stages a corrected batch never reached", async () => {
+    const { token, order, shipment } = await batchWithOrder();
+    await advance(token, shipment._id, "arrived_port");
+    expect(journeyOf(await Order.findById(order._id)).some((e) => e.preorderStage === "in_ghana")).toBe(true);
+
+    // Clicked one stage too far — the goods are still at sea.
+    await advance(token, shipment._id, "in_transit");
+
+    const journey = journeyOf(await Order.findById(order._id));
+    expect(journey.map((e) => e.preorderStage)).toEqual(["preparing", "on_the_way"]);
+  });
+
+  it("leaves staff-written entries alone when the batch is corrected", async () => {
+    const { token, order, shipment } = await batchWithOrder();
+    await Order.updateOne(
+      { _id: order._id },
+      { $push: { trackingHistory: { status: "paid", note: "Customer called about the ETA", timestamp: new Date() } } },
+    );
+    await advance(token, shipment._id, "arrived_port");
+
+    await advance(token, shipment._id, "production");
+
+    const fresh = await Order.findById(order._id);
+    expect(fresh.trackingHistory.some((e) => e.note === "Customer called about the ETA")).toBe(true);
+  });
+
+  it("backfills the journey when an order is attached to a batch already under way", async () => {
+    const token = await tokenFor();
+    const shipment = (await createShipment(token)).body.data;
+    await advance(token, shipment._id, "in_transit");
+    await advance(token, shipment._id, "customs");
+
+    // Only now does someone remember to put this customer on the batch.
+    const { order } = await makePreorder();
+    await attach(token, shipment._id, [order._id.toString()]);
+
+    const journey = journeyOf(await Order.findById(order._id));
+    expect(journey.map((e) => e.preorderStage)).toEqual(["preparing", "on_the_way", "in_ghana"]);
+  });
+
+  it("shows the journey on the public tracking page", async () => {
+    const trackingNumber = `EZWTRK-${Date.now()}`;
+    const token = await tokenFor();
+    const { order } = await makePreorder(trackingNumber);
+    const shipment = (await createShipment(token)).body.data;
+    await attach(token, shipment._id, [order._id.toString()]);
+    await advance(token, shipment._id, "arrived_port");
+
+    const res = await request(app).get(`/api/v1/orders/track/${trackingNumber}`);
+
+    expect(res.status).toBe(200);
+    const notes = res.body.data.history.map((e) => e.note);
+    expect(notes).toContain("Arrived in Ghana — clearing customs");
+    expect(JSON.stringify(res.body.data)).not.toMatch(/CMAU1234567/);
+  });
+
+  it("stops writing to a line that has already been released", async () => {
+    const { token, order, shipment } = await batchWithOrder();
+    await advance(token, shipment._id, "at_shop");
+    await Order.updateOne({ _id: order._id }, { $set: { "items.0.preorderReleasedAt": new Date() } });
+
+    const before = journeyOf(await Order.findById(order._id)).length;
+    await advance(token, shipment._id, "customs"); // a late correction on the batch
+
+    const after = journeyOf(await Order.findById(order._id));
+    expect(after).toHaveLength(before);
+    expect(after.some((e) => e.preorderStage === "at_shop")).toBe(true);
+  });
+});
