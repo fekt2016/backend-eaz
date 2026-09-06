@@ -225,6 +225,18 @@ describe("CourierRate.resolvePayout", () => {
 // ── DeliveryCharge model ──────────────────────────────────────────────────
 
 describe("DeliveryCharge model", () => {
+  // The uniqueness test below asks the DATABASE to reject a duplicate, and the
+  // database can only do that once the unique index exists. Mongoose builds
+  // indexes in the background after connecting, so without waiting the insert
+  // races the build and the duplicate is accepted — the suite then failed or
+  // passed depending on which won, including in isolation.
+  //
+  // `init()` resolves when the model's indexes are built. The afterEach wipe
+  // empties collections rather than dropping them, so this holds for the file.
+  beforeAll(async () => {
+    await DeliveryCharge.init();
+  });
+
   it("invariant: courierPayout + retainedMargin === shippingFeeCollected", async () => {
     const orderId = new mongoose.Types.ObjectId();
     const doc = await DeliveryCharge.create({
