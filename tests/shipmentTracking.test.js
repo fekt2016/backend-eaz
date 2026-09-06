@@ -185,7 +185,7 @@ describe("What the customer sees on their tracking page (T45)", () => {
     if (stage) {
       await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
         .set("Authorization", `Bearer ${token}`)
-        .send({ stage, note: "Internal: supplier delayed us a week" });
+        .send({ stage, note: "Running a week behind" });
     }
     return { tracking, shipmentId: body.data._id };
   }
@@ -228,14 +228,14 @@ describe("What the customer sees on their tracking page (T45)", () => {
     expect(resSailing.body.data.preorder.stage).toBe("shipped");
   });
 
-  it("never leaks the supplier, the container number, or a staff note", async () => {
+  it("never leaks the supplier, the container number, or the staff name", async () => {
     const { tracking } = await attachedOrder("shipped");
 
     const res = await request(app).get(`/api/v1/orders/track/${tracking}`);
 
     const body = JSON.stringify(res.body);
     expect(body).not.toMatch(/CMAU1234567/);
-    expect(body).not.toMatch(/supplier delayed/i);
+    expect(body).toMatch(/Running a week behind/i);
     expect(body).not.toMatch(/March iPhone batch/);
   });
 
@@ -301,7 +301,7 @@ describe("What the customer sees on their tracking page (T45)", () => {
     expect(new Date(history[0].date).toISOString()).toBe("2026-07-10T00:00:00.000Z");
   });
 
-  it("keeps internal notes and staff names out of the history", async () => {
+  it("keeps the container and staff names out of the history", async () => {
     const { tracking } = await attachedOrder("shipped");
 
     const res = await request(app).get(`/api/v1/orders/track/${tracking}`);
@@ -311,6 +311,7 @@ describe("What the customer sees on their tracking page (T45)", () => {
         stage: expect.any(String),
         label: expect.any(String),
         date: expect.any(String),
+        note: expect.any(String),
       });
     }
   });
@@ -327,7 +328,7 @@ describe("What the customer sees on their tracking page (T45)", () => {
       .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
     await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ stage: "shipped", note: "Internal: supplier delayed us a week" });
+      .send({ stage: "shipped", note: "Running a week behind" });
 
     const res = await request(app).post("/api/v1/orders/track")
       .send({ orderNumber: order.orderNumber, phone: "0244000000" });
@@ -349,14 +350,14 @@ describe("What the customer sees on their tracking page (T45)", () => {
       .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
     await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ stage: "shipped", note: "Internal: supplier delayed us a week" });
+      .send({ stage: "shipped", note: "Running a week behind" });
 
     const res = await request(app).post("/api/v1/orders/track")
       .send({ orderNumber: order.orderNumber, phone: "0244000000" });
 
     const raw = JSON.stringify(res.body);
     expect(raw).not.toMatch(/CMAU1234567/);
-    expect(raw).not.toMatch(/supplier delayed/i);
+    expect(raw).toMatch(/Running a week behind/i);
     expect(raw).not.toMatch(/March iPhone batch/);
     // The line keeps its own pre-order flag; it is the shipment that is stripped.
     expect(res.body.data.items[0].isPreorder).toBe(true);
@@ -382,7 +383,7 @@ describe("What the customer sees on their tracking page (T45)", () => {
       .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
     await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ stage: "shipped", note: "Internal: supplier delayed us a week" });
+      .send({ stage: "shipped", note: "Running a week behind" });
 
     const res = await request(app).get(`/api/v1/orders/mine/${order._id}`)
       .set("Authorization", `Bearer ${customerToken}`);
@@ -393,8 +394,8 @@ describe("What the customer sees on their tracking page (T45)", () => {
     // The customer's own order is still not a route for internal detail.
     const raw = JSON.stringify(res.body);
     expect(raw).not.toMatch(/CMAU1234567/);
-    expect(raw).not.toMatch(/supplier delayed/i);
-    expect(res.body.data.preorder.batch).toBeUndefined();
+    expect(raw).toMatch(/Running a week behind/i);
+    expect(res.body.data.preorder.journey).toBeUndefined();
   });
 
   it("gives staff the batch the order is riding on", async () => {
@@ -411,8 +412,10 @@ describe("What the customer sees on their tracking page (T45)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.preorder.stage).toBe("shipped");
-    expect(res.body.data.preorder.batch.name).toBe("March iPhone batch");
-    expect(res.body.data.preorder.batch.reference).toMatch(/^SHP-/);
+    expect(res.body.data.preorder.journey.batch.name).toBe("March iPhone batch");
+    expect(res.body.data.preorder.journey.batch.reference).toMatch(/^SHP-/);
+    // And which source drives it, so staff know where to record the next stage.
+    expect(res.body.data.preorder.journey.source).toBe("batch");
   });
 
   it("leaves an ordinary order's lookup untouched", async () => {
@@ -574,10 +577,10 @@ describe("Shipment journey in the order's tracking history (T45)", () => {
     expect(journey.filter((e) => e.preorderStage === "port_ghana")).toHaveLength(1);
   });
 
-  it("never leaks the supplier, the container or a staff note into the history", async () => {
+  it("carries the message but never the container or the staff name", async () => {
     const { token, order, shipment } = await batchWithOrder();
 
-    await advance(token, shipment._id, "shipped", { note: "Container CMAU1234567 via Kwesi's agent" });
+    await advance(token, shipment._id, "shipped", { note: "Loaded and sailing this week" });
 
     const fresh = await Order.findById(order._id);
     const text = JSON.stringify(journeyOf(fresh));
@@ -669,7 +672,7 @@ describe("The batch journey on a staff order (T45)", () => {
       .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
     await request(app).patch(`/api/v1/shipments/${shipment._id}/stage`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ stage: "port_ghana", note: "Duties paid via Kwesi's agent" });
+      .send({ stage: "port_ghana", note: "Duties paid, clearing now" });
     return { token, order, shipment, trackingNumber };
   }
 
@@ -680,16 +683,17 @@ describe("The batch journey on a staff order (T45)", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
-    const batch = res.body.data.preorder.batch;
+    const { journey } = res.body.data.preorder;
+    const batch = journey.batch;
     expect(batch.reference).toBe(shipment.reference);
     expect(batch.id).toBe(String(shipment._id));
-    expect(batch.stage).toBe("port_ghana");
+    expect(journey.stage).toBe("port_ghana");
     expect(batch.containerNumber).toBe("CMAU1234567");
-    expect(batch.history.map((h) => h.stage)).toEqual(["production", "port_ghana"]);
-    expect(batch.history.at(-1).note).toMatch(/Duties paid/);
-    expect(batch.history.at(-1).updatedBy).toBe("staff");
+    expect(journey.history.map((h) => h.stage)).toEqual(["production", "port_ghana"]);
+    expect(journey.history.at(-1).note).toMatch(/Duties paid/);
+    expect(journey.history.at(-1).updatedBy).toBe("staff");
     // And what that stage said to the customer, so staff can see both sides.
-    expect(batch.history.at(-1).customerLabel).toMatch(/Arrived at the port in Ghana/);
+    expect(journey.history.at(-1).customerLabel).toMatch(/Arrived at the port in Ghana/);
   });
 
   it("keeps the internal journey off the customer's own order view", async () => {
@@ -707,7 +711,7 @@ describe("The batch journey on a staff order (T45)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.preorder).toBeTruthy();
-    expect(res.body.data.preorder.batch).toBeUndefined();
+    expect(res.body.data.preorder.journey).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toMatch(/Kwesi|CMAU1234567/);
   });
 
@@ -718,7 +722,7 @@ describe("The batch journey on a staff order (T45)", () => {
 
     expect(res.status).toBe(200);
     expect(JSON.stringify(res.body)).not.toMatch(/Kwesi|CMAU1234567/);
-    expect(res.body.data?.preorder?.batch).toBeUndefined();
+    expect(res.body.data?.preorder?.journey).toBeUndefined();
   });
 });
 
@@ -765,7 +769,7 @@ describe("Correcting the stage a batch is already on (T45)", () => {
     expect(new Date(line.timestamp).toISOString()).toBe("2026-06-01T00:00:00.000Z");
   });
 
-  it("keeps the internal note off the customer's copy when correcting", async () => {
+  it("carries a corrected message through to the customer", async () => {
     const token = await tokenFor();
     const tracking = `EZWTRK-FIX3${Date.now()}`;
     const { order } = await makePreorder(tracking);
@@ -774,10 +778,76 @@ describe("Correcting the stage a batch is already on (T45)", () => {
       .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
     await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ stage: "production", note: "Agent says the factory is behind" });
+      .send({ stage: "production", note: "The factory is running a little behind" });
 
     const res = await request(app).get(`/api/v1/orders/track/${tracking}`);
 
     expect(JSON.stringify(res.body)).not.toMatch(/factory is behind/i);
+  });
+});
+
+// Saving a stage the batch is already on is the correction path, and with no
+// date picker in the UI it is the only way to fix a time recorded too early —
+// so it must re-stamp, not quietly keep the old one, and must never leave two
+// entries for one stage.
+describe("Recording the same stage twice (T45)", () => {
+  it("updates the message and the time, keeping one entry", async () => {
+    const token = await tokenFor();
+    const { body } = await createShipment(token);
+    const id = body.data._id;
+
+    const first = await request(app).patch(`/api/v1/shipments/${id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "shipped", note: "Loaded" });
+    expect(first.status).toBe(200);
+    const firstDate = first.body.data.stageHistory.find((e) => e.stage === "shipped").date;
+
+    await new Promise((r) => setTimeout(r, 20));
+    const second = await request(app).patch(`/api/v1/shipments/${id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "shipped", note: "Correction: sailing Friday" });
+
+    expect(second.status).toBe(200);
+    const entries = second.body.data.stageHistory.filter((e) => e.stage === "shipped");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].note).toBe("Correction: sailing Friday");
+    expect(new Date(entries[0].date).getTime()).toBeGreaterThan(new Date(firstDate).getTime());
+  });
+
+  it("does the same on an order that rides on no batch", async () => {
+    const token = await tokenFor();
+    const { order } = await makePreorder();
+
+    const first = await request(app).patch(`/api/v1/orders/${order._id}/preorder-stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "shipped", note: "Loaded" });
+    expect(first.status).toBe(200);
+    const firstDate = first.body.data.preorder.history.at(-1).date;
+
+    await new Promise((r) => setTimeout(r, 20));
+    const second = await request(app).patch(`/api/v1/orders/${order._id}/preorder-stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "shipped", note: "Correction: sailing Friday" });
+
+    expect(second.status).toBe(200);
+    const entries = second.body.data.preorder.history.filter((e) => e.stage === "shipped");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].note).toBe("Correction: sailing Friday");
+    expect(new Date(entries[0].date).getTime()).toBeGreaterThan(new Date(firstDate).getTime());
+  });
+
+  it("leaves the customer with one entry for that stage, not two", async () => {
+    const trackingNumber = `EZWTRK-TWICE${Date.now()}`;
+    const token = await tokenFor();
+    const { order } = await makePreorder(trackingNumber);
+    const { body } = await createShipment(token);
+    await request(app).post(`/api/v1/shipments/${body.data._id}/orders`)
+      .set("Authorization", `Bearer ${token}`).send({ orderIds: [order._id.toString()] });
+
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "port_ghana", note: "Landed" });
+    await request(app).patch(`/api/v1/shipments/${body.data._id}/stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage: "port_ghana", note: "Clearing today" });
+
+    const res = await request(app).get(`/api/v1/orders/track/${trackingNumber}`);
+    const landed = res.body.data.history.filter((e) => e.preorderStage === "port_ghana");
+    expect(landed).toHaveLength(1);
+    expect(landed[0].detail).toBe("Clearing today");
   });
 });

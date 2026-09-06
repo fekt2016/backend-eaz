@@ -16,7 +16,9 @@ const { normalizePhone } = require("../utils/phone");
 const { buildCustomerOrderFilter } = require("../utils/customerOrderMatch");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
 const { sendPreorderReadyEmail, sendShopStatusEmail } = require("../utils/email");
-const { CUSTOMER_STAGES, STAGE_LABELS, customerStageHistory } = require("../models/Shipment");
+const {
+  CUSTOMER_STAGES, CUSTOMER_STAGE_ORDER, STAGE_LABELS, customerStageHistory,
+} = require("../models/Shipment");
 const Shipment = require("../models/Shipment");
 const { syncPreorderJourney } = require("../utils/preorderJourney");
 
@@ -590,43 +592,56 @@ function buildPreorderTracking(order, { includeBatch = false } = {}) {
   const waiting = (order?.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
   if (!waiting.length) return null;
 
-  const shipment = waiting.find((i) => i.shipment?.stage)?.shipment || null;
+  // Exactly one thing drives a line: the batch it rides on, or — for a single
+  // pre-order that is not part of any container — the line itself. A batch is
+  // an efficiency, never a requirement, so staff can record a stage on an order
+  // that will never be containerised.
+  const onBatch = waiting.find((i) => i.shipment?.stage) || null;
+  const onItsOwn = onBatch ? null : waiting.find((i) => i.preorderStage) || null;
+
+  const shipment = onBatch?.shipment || null;
+  const stageHistory = shipment ? shipment.stageHistory : (onItsOwn?.preorderStageHistory || []);
+  const stage = shipment ? shipment.stage : (onItsOwn?.preorderStage || '');
+
   return {
-    // Staff-only, and opt-in: which batch this is riding on is the first thing
-    // support needs and the last thing a customer may see. The customer-facing
-    // callers do not even SELECT these fields, so there is nothing to leak.
-    //
-    // Staff get the FULL internal journey here — all eight stages, their notes
-    // and who entered them — not the four-stage collapse below it. Someone
-    // answering "where is my phone?" needs to know the batch cleared customs on
-    // Tuesday and who to ask about it, and they need the batch's id to move it
-    // along without leaving the customer's order.
-    ...(includeBatch && shipment
+    // Staff-only, and opt-in: the internal journey — every stage with its note,
+    // its date and who entered it — plus which line to record the next stage on.
+    // Someone answering "where is my phone?" needs the detail behind the public
+    // wording, and the customer-facing callers do not even SELECT these fields.
+    ...(includeBatch
       ? {
-        batch: {
-          id: String(shipment._id || ''),
-          reference: shipment.reference || '',
-          name: shipment.name || '',
-          containerNumber: shipment.containerNumber || '',
-          stage: shipment.stage || '',
-          stageLabel: STAGE_LABELS[shipment.stage] || '',
-          history: (shipment.stageHistory || []).map((e) => ({
+        journey: {
+          // Where the next update has to be made. A line on a batch moves with
+          // the batch; one on its own is recorded on the order.
+          source: shipment ? 'batch' : 'order',
+          itemId: String((onBatch || onItsOwn || waiting[0])._id || ''),
+          stage,
+          stageLabel: STAGE_LABELS[stage] || '',
+          batch: shipment
+            ? {
+              id: String(shipment._id || ''),
+              reference: shipment.reference || '',
+              name: shipment.name || '',
+              containerNumber: shipment.containerNumber || '',
+            }
+            : null,
+          history: (stageHistory || []).map((e) => ({
             stage: e.stage,
             label: STAGE_LABELS[e.stage] || e.stage,
             note: e.note || '',
             date: e.date,
             updatedBy: e.updatedBy?.name || '',
-            // Which of the four the customer was shown for this stage, so staff
-            // can see what their own update actually said to the customer.
+            // What that stage actually said to the customer, so staff can see
+            // both sides of their own update.
             customerLabel: CUSTOMER_STAGES[e.stage]?.label || '',
           })),
         },
       }
       : {}),
     items: waiting.map((i) => ({ name: i.name, qty: i.qty })),
-    stage: shipment ? CUSTOMER_STAGES[shipment.stage]?.key || null : null,
-    label: shipment
-      ? CUSTOMER_STAGES[shipment.stage]?.label || null
+    stage: stage ? CUSTOMER_STAGES[stage]?.key || null : null,
+    label: stage
+      ? CUSTOMER_STAGES[stage]?.label || null
       : 'Confirmed — awaiting shipment',
     expectedArrival: shipment ? shipment.expectedArrival || null : null,
     // Where the goods are coming from. The journey starts at the supplier, so
@@ -634,9 +649,24 @@ function buildPreorderTracking(order, { includeBatch = false } = {}) {
     // being made abroad and assuming we are sitting on it.
     origin: shipment?.origin || 'China',
     // The dated journey so far — a position alone cannot tell someone whether it
-    // has been at sea for a week or a month. Collapsed to the four customer
-    // stages, earliest date per stage, internal notes dropped in the model.
-    history: shipment ? customerStageHistory(shipment.stageHistory) : [],
+    // has been at sea for a week or a month.
+    //
+    // A batch's history comes off the Shipment, which customer endpoints
+    // populate. An order's OWN history does not: that field is select:false so
+    // it cannot ride out on the raw order, which means deriving from it here
+    // would hand every customer an empty journey. The synced copy in
+    // `trackingHistory` is the customer-safe one and is kept in step by
+    // syncPreorderJourney, so read that instead.
+    history: shipment
+      ? customerStageHistory(stageHistory)
+      : (order.trackingHistory || [])
+        .filter((e) => e.preorderStage)
+        .map((e) => ({
+          stage: e.preorderStage,
+          label: e.note || '',
+          date: e.timestamp,
+          note: e.detail || '',
+        })),
   };
 }
 
@@ -713,8 +743,10 @@ const getOrderTracking = async (req, res, next) => {
         location: e.location || '',
         timestamp: e.timestamp,
         // Which entries are the batch's journey rather than a fulfilment event,
-        // so the timeline can mark them. `updatedBy` still never crosses.
+        // so the timeline can mark them, and what staff wrote for the customer
+        // alongside it. `updatedBy` still never crosses.
         preorderStage: e.preorderStage || '',
+        detail: e.detail || '',
       }))
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
@@ -1026,6 +1058,150 @@ const getPreorders = async (req, res, next) => {
 };
 
 /**
+ * PATCH /api/v1/orders/:id/preorder-stage — record where this pre-order has got
+ * to (admin/staff), without any container batch.
+ *
+ * A batch is an efficiency for the case where one container carries twenty
+ * customers' goods: staff move it once and everyone follows. It was never meant
+ * to be the price of recording a stage at all, and making it mandatory left a
+ * single pre-order with five stages on the customer's page and no way to update
+ * any of them.
+ *
+ * A line that IS on a batch is refused here on purpose: two sources writing one
+ * journey is how a customer ends up being told two different things. Move the
+ * batch, or take the line off it first.
+ *
+ * Re-recording the current stage corrects its date or note; picking an earlier
+ * one moves the journey back and drops the stages it never reached — the same
+ * rules the batch works to.
+ */
+const updatePreorderStage = async (req, res, next) => {
+  try {
+    const { stage, date, note } = req.body;
+    if (!CUSTOMER_STAGE_ORDER.includes(stage)) {
+      return res.status(400).json({
+        success: false,
+        error: `Stage must be one of: ${CUSTOMER_STAGE_ORDER.join(', ')}.`,
+      });
+    }
+
+    // Opt in: the internal history is select:false so it cannot ride out on a
+    // customer payload, and this is one of the few places that must read it.
+    const order = await Order.findById(req.params.id).select('+items.preorderStageHistory');
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    const waiting = order.items.filter((i) => i.isPreorder && !i.preorderReleasedAt);
+    if (!waiting.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'This order has no pre-order lines waiting on stock.',
+      });
+    }
+
+    const onBatch = waiting.find((i) => i.shipment);
+    if (onBatch) {
+      return res.status(400).json({
+        success: false,
+        error: 'This pre-order rides on a shipment batch — move the batch, or take the line off it first.',
+      });
+    }
+
+    const when = date ? new Date(date) : new Date();
+    if (Number.isNaN(when.getTime())) {
+      return res.status(400).json({ success: false, error: 'That date is not valid.' });
+    }
+    const cleanNote = note ? sanitizeText(note, 300) : '';
+    const to = CUSTOMER_STAGE_ORDER.indexOf(stage);
+
+    for (const item of waiting) {
+      const from = CUSTOMER_STAGE_ORDER.indexOf(item.preorderStage || '');
+
+      if (to < from) {
+        // Moving back is a correction: the stages it never reached have to go,
+        // or the customer's page keeps claiming the goods are further along.
+        item.preorderStageHistory = item.preorderStageHistory.filter(
+          (e) => CUSTOMER_STAGE_ORDER.indexOf(e.stage) <= to,
+        );
+      }
+
+      const existing = [...item.preorderStageHistory].reverse().find((e) => e.stage === stage);
+      if (existing) {
+        // Same stage again: the date or the note was wrong.
+        existing.date = when;
+        if (note !== undefined) existing.note = cleanNote;
+        existing.updatedBy = { name: req.user?.name || '', role: req.user?.role || '' };
+      } else {
+        item.preorderStageHistory.push({
+          stage,
+          note: cleanNote,
+          date: when,
+          updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
+        });
+      }
+
+      item.preorderStage = stage;
+    }
+
+    // "Arrived at our warehouse" IS the release: the goods are physically here
+    // and going straight back out to the customer who paid for them. Making
+    // staff record the stage and then press Release was two clicks for one
+    // event, and the second was easy to forget — leaving a customer told their
+    // order had landed while the order itself still sat in the waiting queue.
+    let filled = { released: [], fromStock: [], receivedDirect: [] };
+    if (stage === 'at_shop') {
+      filled = await fillWaitingPreorderLines(order, req.user || {});
+    }
+
+    await order.save();
+
+    // The customer reads one history, so the stage lands there too.
+    const driver = waiting[0];
+    await syncPreorderJourney(driver.preorderStageHistory, { _id: order._id });
+
+    // Same mail the manual release sends, and best-effort for the same reason:
+    // a mail failure must not undo a release that has already moved stock.
+    if (filled.released.length) {
+      sendPreorderReadyEmail(order, filled.released).catch(() => {});
+    }
+
+    await logFromRequest(req, {
+      action: ACTIONS.ORDER_UPDATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order.orderNumber,
+      resourceName: order.orderNumber,
+      description: `Pre-order stage on ${order.orderNumber} → ${STAGE_LABELS[stage] || stage}`
+        + (filled.released.length ? ` (auto-released ${filled.released.length})` : ''),
+      metadata: { stage, note: cleanNote, released: filled.released.length },
+    });
+
+    const fresh = await Order.findById(order._id)
+      .select('+items.preorderStageHistory')
+      .populate('items.shipment', 'stage expectedArrival origin stageHistory reference name containerNumber');
+    const data = fresh.toObject();
+    data.preorder = buildPreorderTracking(fresh, { includeBatch: true });
+    data.items = (data.items || []).map((line) => ({
+      ...line,
+      shipment: line.shipment?._id || line.shipment || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data,
+      // So the UI can say the stage was recorded AND the order released.
+      meta: {
+        released: filled.released.length,
+        fromStock: filled.fromStock.map((i) => i.name),
+        receivedDirect: filled.receivedDirect.map((i) => i.name),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * PATCH /api/v1/orders/:id/preorder-line — correct one waiting pre-order line
  * (admin/staff): how many, and which batch it rides on.
  *
@@ -1051,7 +1227,9 @@ const updatePreorderLine = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'itemId is required.' });
     }
 
-    const order = await Order.findById(req.params.id);
+    // Taking a line off a batch hands the journey back to the line's own
+    // history, so this path needs it too.
+    const order = await Order.findById(req.params.id).select('+items.preorderStageHistory');
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
@@ -1151,7 +1329,10 @@ const updatePreorderLine = async (req, res, next) => {
     // The order's history shows the batch's journey, so moving it between
     // batches (or off one) has to rewrite what the old batch wrote.
     if (batchChanged) {
-      await syncPreorderJourney(batch, { _id: order._id });
+      await syncPreorderJourney(
+        batch ? batch.stageHistory : item.preorderStageHistory,
+        { _id: order._id },
+      );
     }
 
     await logFromRequest(req, {
@@ -1164,6 +1345,7 @@ const updatePreorderLine = async (req, res, next) => {
     });
 
     const fresh = await Order.findById(order._id)
+      .select('+items.preorderStageHistory')
       .populate('items.shipment', 'stage expectedArrival origin stageHistory reference name containerNumber');
     const data = fresh.toObject();
     data.preorder = buildPreorderTracking(fresh, { includeBatch: true });
@@ -1183,6 +1365,68 @@ const updatePreorderLine = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Fill every waiting pre-order line on this order: move what stock there is to
+ * move, mark the lines released, and record it on the order. Does NOT save,
+ * email, or log — the callers differ on those.
+ *
+ * Shared because releasing happens two ways now: staff pressing Release, and a
+ * pre-order reaching "Arrived at our warehouse", which means the same thing.
+ */
+async function fillWaitingPreorderLines(order, actor = {}) {
+  const pending = order.items.filter((i) => i.isPreorder && !i.preorderReleasedAt);
+  const released = [];
+  const fromStock = [];
+  const receivedDirect = [];
+
+  for (const item of pending) {
+    // Two honest ways a pre-order gets filled, and the shop uses both.
+    //
+    // 1. The container was received into stock first — twenty units on the
+    //    shelf, fifteen of them spoken for. Releasing takes one off, exactly
+    //    as fulfilment does, and the guard makes sure it is really there.
+    const filter = item.variant?.sku
+      ? { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku, stock: { $gte: item.qty } } } }
+      : { _id: item.product, stock: { $gte: item.qty } };
+    const update = item.variant?.sku
+      ? { $inc: { 'variants.$.stock': -item.qty, sold: item.qty } }
+      : { $inc: { stock: -item.qty, sold: item.qty } };
+
+    const result = await Product.findOneAndUpdate(filter, update);
+    if (result) {
+      // Releasing moves variant stock the same way fulfilment does, so the
+      // top-level field needs the same correction.
+      if (item.variant?.sku) await syncVariantStock(item.product);
+      fromStock.push(item);
+    } else {
+      // 2. The goods arrived FOR this customer and go straight back out —
+      //    nothing is kept. A pre-ordered unit was never in stock, which is
+      //    what made it a pre-order, so there is nothing to take off. It counts
+      //    as sold, and stock is left alone rather than driven negative.
+      //    Refusing here demanded stock the shop had correctly never recorded.
+      await Product.updateOne({ _id: item.product }, { $inc: { sold: item.qty } });
+      receivedDirect.push(item);
+    }
+
+    item.preorderReleasedAt = new Date();
+    released.push(item);
+  }
+
+  if (released.length) {
+    order.trackingHistory.push({
+      status: order.status,
+      note: `Pre-order released: ${released.map((i) => i.name).join(', ')}.`
+        + (receivedDirect.length
+          ? ` Received directly against this order: ${receivedDirect.map((i) => i.name).join(', ')}.`
+          : ''),
+      updatedBy: { name: actor.name || '', role: actor.role || '' },
+      timestamp: new Date(),
+    });
+  }
+
+  return { released, fromStock, receivedDirect };
+}
 
 /**
  * PATCH /api/v1/orders/:id/preorder-release — the stock has landed (admin/staff).
@@ -1213,45 +1457,8 @@ const releasePreorder = async (req, res, next) => {
       });
     }
 
-    const released = [];
-    const short = [];
+    const { released, fromStock, receivedDirect } = await fillWaitingPreorderLines(order, req.user || {});
 
-    for (const item of pending) {
-      // The same guarded decrement fulfilment uses, for the same reason: never
-      // oversell. If the stock is not actually there yet, this line stays queued
-      // rather than being marked released against inventory that does not exist.
-      const filter = item.variant?.sku
-        ? { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku, stock: { $gte: item.qty } } } }
-        : { _id: item.product, stock: { $gte: item.qty } };
-      const update = item.variant?.sku
-        ? { $inc: { 'variants.$.stock': -item.qty, sold: item.qty } }
-        : { $inc: { stock: -item.qty, sold: item.qty } };
-
-      const result = await Product.findOneAndUpdate(filter, update);
-      if (!result) {
-        short.push(item.name);
-        continue;
-      }
-      // Releasing moves variant stock the same way fulfilment does, so the
-      // top-level field needs the same correction.
-      if (item.variant?.sku) await syncVariantStock(item.product);
-      item.preorderReleasedAt = new Date();
-      released.push(item);
-    }
-
-    if (!released.length) {
-      return res.status(400).json({
-        success: false,
-        error: `Not enough stock to release: ${short.join(', ')}.`,
-      });
-    }
-
-    order.trackingHistory.push({
-      status: order.status,
-      note: `Pre-order released: ${released.map((i) => i.name).join(', ')}.`,
-      updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
-      timestamp: new Date(),
-    });
     await order.save();
 
     // Best-effort: a mail failure must not undo a release that already moved stock.
@@ -1263,14 +1470,24 @@ const releasePreorder = async (req, res, next) => {
       resourceId: order.orderNumber,
       resourceName: order.orderNumber,
       description: `Pre-order released for ${order.orderNumber} — ${released.map((i) => i.name).join(', ')}`,
-      metadata: { released: released.length, short },
+      metadata: {
+        released: released.length,
+        fromStock: fromStock.length,
+        receivedDirect: receivedDirect.length,
+      },
     });
 
     res.status(200).json({
       success: true,
       data: order,
       // Named so the caller can tell a full release from a partial one.
-      meta: { released: released.length, short },
+      // How each line was filled: off the shelf, or received against this
+      // order because the goods arrived with nothing spare.
+      meta: {
+        released: released.length,
+        fromStock: fromStock.map((i) => i.name),
+        receivedDirect: receivedDirect.map((i) => i.name),
+      },
     });
   } catch (error) {
     next(error);
@@ -1280,6 +1497,7 @@ const releasePreorder = async (req, res, next) => {
 const getOrder = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
+      .select('+items.preorderStageHistory')
       .populate('deliveryZone')
       .populate('items.shipment', 'stage expectedArrival origin stageHistory reference name containerNumber');
     if (!order) {
@@ -1879,6 +2097,7 @@ module.exports = {
   createOrder,
   getPreorders,
   updatePreorderLine,
+  updatePreorderStage,
   getPreorderCount,
   releasePreorder,
   getMyOrders,

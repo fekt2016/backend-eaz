@@ -9,22 +9,25 @@ const { customerStageHistory } = require('../models/Shipment');
  * every other fulfilment event appears — shows a payment and then nothing until
  * the goods land. So the batch writes into it, step by step.
  *
- * The CUSTOMER wording is what gets written, never the staff wording, and this
- * history is returned to customers by both tracking endpoints — so supplier
- * names, container numbers, staff notes and staff identities must not reach it.
+ * The CUSTOMER wording is what gets written, never the staff wording. The note
+ * crosses too — it is the message staff write for the customer — but supplier
+ * names, container numbers and staff identities never do.
  *
  * Written as a REWRITE rather than an append, which is what makes it safe to
- * call from anywhere — the batch moving, an order being attached, or a staff
- * member moving one order onto a different batch: the tagged entries are replaced by the batch's current
+ * call from anywhere — the batch moving, an order being attached, a staff
+ * member moving one order onto a different batch, or a single order's own
+ * stage being recorded: the tagged entries are replaced by the batch's current
  * journey every time. Advancing adds the new stage, stepping a batch back drops
  * the stages it never reached, attaching a late order backfills everything the
  * batch has already done — one function, no special cases. Untagged entries are
  * staff's and are never touched.
  */
-async function syncPreorderJourney(shipment, filter) {
-  // A null shipment means the line rides on no batch: the journey is empty, so
-  // the rewrite clears what a previous batch wrote and leaves staff entries.
-  const journey = shipment ? customerStageHistory(shipment.stageHistory) : [];
+async function syncPreorderJourney(stageHistory, filter) {
+  // Takes the raw internal history rather than a batch, because a batch is not
+  // the only thing that drives a pre-order: a single order not part of any
+  // container records its stages on the line itself, in the same shape. Empty
+  // or absent clears what a previous source wrote and leaves staff entries.
+  const journey = customerStageHistory(stageHistory || []);
 
   // Lean + select: a batch can carry dozens of orders and the backend runs on a
   // 512MB heap. One bulkWrite rather than a save() per order, for the same reason.
@@ -42,6 +45,8 @@ async function syncPreorderJourney(shipment, filter) {
       updatedBy: { name: '', role: '' },
       timestamp: s.date,
       preorderStage: s.stage,
+      // Staff write this FOR the customer, so it crosses with the stage.
+      detail: s.note || '',
     }));
 
     // Sorted, because a stage is routinely backdated ("it actually sailed on

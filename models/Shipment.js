@@ -66,9 +66,10 @@ const CUSTOMER_STAGE_ORDER = [
  * EARLIEST date per stage, which is what makes a corrected batch honest: if a
  * stage is recorded twice, the customer keeps the date they were first told.
  *
- * Notes and `updatedBy` are dropped rather than filtered later — supplier names,
- * container numbers and staff identities must not leave the building, and the
- * safest place to enforce that is where the collapse happens.
+ * The note DOES cross: it is the message staff write for the customer ("held at
+ * customs, expect three more days"), which is the most useful thing on the page.
+ * `updatedBy` does not — who moved the batch is nobody's business but ours, and
+ * neither the supplier nor the container number is anywhere near this function.
  */
 function customerStageHistory(stageHistory = []) {
   const earliest = new Map();
@@ -77,7 +78,12 @@ function customerStageHistory(stageHistory = []) {
     if (!mapped || !entry.date) continue;
     const seen = earliest.get(mapped.key);
     if (!seen || new Date(entry.date) < new Date(seen.date)) {
-      earliest.set(mapped.key, { stage: mapped.key, label: mapped.label, date: entry.date });
+      earliest.set(mapped.key, {
+        stage: mapped.key,
+        label: mapped.label,
+        date: entry.date,
+        note: entry.note || '',
+      });
     }
   }
   return CUSTOMER_STAGE_ORDER.filter((key) => earliest.has(key)).map((key) => earliest.get(key));

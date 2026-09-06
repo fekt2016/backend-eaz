@@ -13,6 +13,7 @@ const {
   getPreorders,
   getPreorderCount,
   updatePreorderLine,
+  updatePreorderStage,
   releasePreorder,
   getOrder,
   updateOrderStatus,
@@ -36,6 +37,8 @@ router.get('/preorders', protect, restrictTo('admin', 'staff'), getPreorders);
 // Feeds the badge on the Orders nav item. Above `/:id` for the same reason.
 router.get('/preorders/count', protect, restrictTo('admin', 'staff'), getPreorderCount);
 router.patch('/:id/preorder-line', protect, restrictTo('admin', 'staff'), updatePreorderLine);
+// A pre-order that is not part of any container records its own position here.
+router.patch('/:id/preorder-stage', protect, restrictTo('admin', 'staff'), updatePreorderStage);
 router.patch('/:id/preorder-release', protect, restrictTo('admin', 'staff'), releasePreorder);
 router.get('/by-reference/:reference', getOrderByReference);
 router.post('/:id/tracking', protect, restrictTo('admin', 'staff'), addTrackingEvent);

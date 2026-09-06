@@ -131,12 +131,12 @@ const advanceShipmentStage = async (req, res, next) => {
       if (!entry) {
         return res.status(400).json({ success: false, error: 'The shipment is already at that stage.' });
       }
-      if (date) entry.date = new Date(date);
+      entry.date = date ? new Date(date) : new Date();
       if (note !== undefined) entry.note = note ? sanitizeText(note, 300) : '';
       entry.updatedBy = { name: req.user?.name || '', role: req.user?.role || '' };
       await shipment.save();
 
-      const corrected = await syncPreorderJourney(shipment, waitingOn(shipment._id));
+      const corrected = await syncPreorderJourney(shipment.stageHistory, waitingOn(shipment._id));
       await logFromRequest(req, {
         action: ACTIONS.ORDER_UPDATED,
         resourceType: RESOURCES.ORDER,
@@ -176,7 +176,7 @@ const advanceShipmentStage = async (req, res, next) => {
     await shipment.save();
 
     // The move is the batch's; the history belongs to each customer's order.
-    const orderCount = await syncPreorderJourney(shipment, waitingOn(shipment._id));
+    const orderCount = await syncPreorderJourney(shipment.stageHistory, waitingOn(shipment._id));
 
     await logFromRequest(req, {
       action: ACTIONS.ORDER_UPDATED,
@@ -221,7 +221,7 @@ const attachOrdersToShipment = async (req, res, next) => {
     // A batch is often half way to Ghana before someone remembers to attach an
     // order to it. Backfilling here is what stops that customer's history
     // starting mid-voyage — the rewrite makes it the batch's journey either way.
-    await syncPreorderJourney(shipment, {
+    await syncPreorderJourney(shipment.stageHistory, {
       _id: { $in: orderIds },
       ...waitingOn(shipment._id),
     });
