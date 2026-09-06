@@ -6,6 +6,37 @@ const { escapeRegex } = require("../utils/regex");
 const { formatGhs } = require("../utils/money");
 const { getRatingSummary } = require("./productReviewController");
 const { nextProductSku, nextVariantSku } = require("../services/skuGenerator");
+const { createPart, updatePart } = require("./pos/inventoryController");
+
+/*
+ * One endpoint for both kinds of stock (owner request, 2026-09-04).
+ *
+ * The Marketplace form already covered shop products and bench parts; only the
+ * destination was split. Both now POST/PATCH /products and say which they are
+ * via `itemType`, and a part is handed to the POS handler that already knows
+ * how to build one.
+ *
+ * Delegating rather than inlining is deliberate — createPart owns the bench
+ * defaults (sellOnline:false, isActive:false, useInRepairs:true), the POS
+ * vocabulary (quantity→stock, sellingPrice→price), sanitisation, the
+ * INVENTORY_* audit action and the inventory-shaped response. Reimplementing
+ * any of that here would drift from /pos/inventory, which other POS screens
+ * still call.
+ *
+ * ⚠️ The two routes were NOT guarded alike: /products allows staff,
+ * /pos/inventory is admin+superadmin only. Unifying the URL must not hand staff
+ * a permission they never had, so part payloads re-assert the stricter rule.
+ */
+const PART_ROLES = ["superadmin", "admin"];
+const isPartPayload = (req) => req.body?.itemType === "part";
+const denyIfCannotManageParts = (req, res) => {
+  if (PART_ROLES.includes(req.user?.role)) return false;
+  res.status(403).json({
+    success: false,
+    error: "You do not have permission to manage bench parts.",
+  });
+  return true;
+};
 
 // Shape a retail Part like a shop product so it flows through the same
 // product-detail page, metadata, JSON-LD and cart/checkout. Mirrors the part
@@ -149,6 +180,50 @@ const getProducts = async (req, res, next) => {
     next(error);
   }
 };
+
+/*
+ * Categories actually in use, for the shop's browse bar.
+ *
+ * The bar used to be a hardcoded list of six names in ShopGrid, so a category
+ * typed into the item form had no button unless it happened to match one of
+ * them — the owner types categories freely, so the list has to come from the
+ * data instead (owner request, 2026-09-04).
+ *
+ * Ordered by how many items carry each, so the busy categories stay at the
+ * front and a one-off typo sinks to the back rather than sitting between two
+ * real ones. Only sellable stock counts, matching what the grid itself shows.
+ *
+ * Cached briefly: this changes when stock is added, not per request, and the
+ * shop page asks for it on every visit. Module-scoped, so it is per-process —
+ * fine while Passenger is pinned to one process (see docs/HOSTING.md), and a
+ * stale minute costs nothing worse than a late button. Writes through the API
+ * clear it immediately; a direct database write (scripts/publishPartsToShop.js)
+ * does not, so a freshly published category appears within the minute.
+ */
+const CATEGORY_TTL_MS = 60 * 1000;
+let categoryCache = { at: 0, data: null };
+
+const getCategories = async (req, res, next) => {
+  try {
+    if (categoryCache.data && Date.now() - categoryCache.at < CATEGORY_TTL_MS) {
+      return res.json({ success: true, data: categoryCache.data });
+    }
+    const rows = await Product.aggregate([
+      { $match: { sellOnline: true, category: { $nin: [null, ""] } } },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 60 },
+      { $project: { _id: 0, category: "$_id", count: 1 } },
+    ]);
+    categoryCache = { at: Date.now(), data: rows };
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** Drop the cached category list — call after stock is created or edited. */
+const clearCategoryCache = () => { categoryCache = { at: 0, data: null }; };
 
 const getProductBySlug = async (req, res, next) => {
   try {
@@ -338,7 +413,12 @@ const generateSku = async (req, res, next) => {
 
 const createProduct = async (req, res, next) => {
   try {
-    const { name, slug, description, shortDescription, price, images, category, stock, sku, variants, gallery, isActive } = req.body;
+    if (isPartPayload(req)) {
+      if (denyIfCannotManageParts(req, res)) return;
+      return createPart(req, res, next);
+    }
+    const { name, slug, description, shortDescription, price, images, category, stock, sku, variants, gallery, isActive,
+            costPrice, barcode, supplier, compatibleWith, lowStockThreshold, notes, useInRepairs } = req.body;
 
     if (!name || price == null || !category) {
       return res.status(400).json({
@@ -368,7 +448,22 @@ const createProduct = async (req, res, next) => {
       // The shop reads sellOnline; isActive is the switch the admin UI writes.
       // Keep them in step so turning a product off still hides it.
       sellOnline: isActive !== undefined ? Boolean(isActive) : true,
+      // One item type (owner request, 2026-09-04): everything is sold in both
+      // channels. These were reachable only through POST /pos/inventory before,
+      // so the whitelist dropped them silently — the model always had the
+      // fields (costPrice exists precisely because counter-sold PRODUCTS were
+      // invisible to COGS; barcode because a cashier could not scan one).
+      sellInStore: true,
+      useInRepairs: useInRepairs !== undefined ? Boolean(useInRepairs) : true,
+      costPrice: costPrice == null ? 0 : Math.round(Number(costPrice)) || 0,
+      barcode: barcode ? String(barcode).trim() : "",
+      supplier: supplier || undefined,
+      compatibleWith: Array.isArray(compatibleWith) ? compatibleWith.filter(Boolean) : [],
+      lowStockThreshold: lowStockThreshold == null ? 0 : Math.max(0, Number(lowStockThreshold) || 0),
+      notes: notes ? String(notes).trim() : "",
     });
+
+    clearCategoryCache();
 
     await logFromRequest(req, {
       action: ACTIONS.PRODUCT_CREATED,
@@ -400,7 +495,13 @@ const createProduct = async (req, res, next) => {
 
 const updateProduct = async (req, res, next) => {
   try {
+    if (isPartPayload(req)) {
+      if (denyIfCannotManageParts(req, res)) return;
+      return updatePart(req, res, next);
+    }
     const update = { ...req.body };
+    // Routing hint for the shared Marketplace form, not a Product field.
+    delete update.itemType;
     if (update.price != null) update.price = Number(update.price);
     if (update.stock != null) update.stock = Number(update.stock);
     if (update.isActive !== undefined) {
@@ -418,6 +519,8 @@ const updateProduct = async (req, res, next) => {
     if (!product) {
       return res.status(404).json({ success: false, error: "Product not found" });
     }
+
+    clearCategoryCache();
 
     await logFromRequest(req, {
       action: ACTIONS.PRODUCT_UPDATED,
@@ -459,6 +562,8 @@ const deleteProduct = async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Product not found" });
     }
 
+    clearCategoryCache();
+
     await logFromRequest(req, {
       action: ACTIONS.PRODUCT_DELETED,
       resourceType: RESOURCES.PRODUCT,
@@ -480,6 +585,8 @@ module.exports = {
   getAdminProducts,
   getProductById,
   generateSku,
+  getCategories,
+  clearCategoryCache,
   createProduct,
   updateProduct,
   deleteProduct,

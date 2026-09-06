@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Shipment = require('../models/Shipment');
 const { SHIPMENT_STAGES } = require('../models/Shipment');
+const { syncPreorderJourney, waitingOn } = require('../utils/preorderJourney');
 const Order = require('../models/Order');
 const { logFromRequest, ACTIONS, RESOURCES } = require('../services/activityLogService');
 const { sanitizeText } = require('../utils/sanitize');
@@ -23,9 +24,9 @@ const createShipment = async (req, res, next) => {
       origin: origin ? sanitizeText(origin, 60) : 'China',
       containerNumber: containerNumber ? sanitizeText(containerNumber, 40) : undefined,
       expectedArrival: expectedArrival || null,
-      stage: 'ordered',
+      stage: SHIPMENT_STAGES[0],
       stageHistory: [{
-        stage: 'ordered',
+        stage: SHIPMENT_STAGES[0],
         note: note ? sanitizeText(note, 300) : '',
         date: new Date(),
         updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
@@ -120,8 +121,47 @@ const advanceShipmentStage = async (req, res, next) => {
     if (!shipment) {
       return res.status(404).json({ success: false, error: 'Shipment not found' });
     }
+    // Re-recording the stage a batch is already on is a CORRECTION, not a move:
+    // the date or the note was wrong. Refusing it would leave the opening stage
+    // permanently stamped with the day the batch row was created, which is
+    // rarely the day the goods actually went into production — and that stamp is
+    // the date the customer is shown.
     if (shipment.stage === stage) {
-      return res.status(400).json({ success: false, error: 'The shipment is already at that stage.' });
+      const entry = [...shipment.stageHistory].reverse().find((e) => e.stage === stage);
+      if (!entry) {
+        return res.status(400).json({ success: false, error: 'The shipment is already at that stage.' });
+      }
+      entry.date = date ? new Date(date) : new Date();
+      if (note !== undefined) entry.note = note ? sanitizeText(note, 300) : '';
+      entry.updatedBy = { name: req.user?.name || '', role: req.user?.role || '' };
+      await shipment.save();
+
+      const corrected = await syncPreorderJourney(shipment.stageHistory, waitingOn(shipment._id));
+      await logFromRequest(req, {
+        action: ACTIONS.ORDER_UPDATED,
+        resourceType: RESOURCES.ORDER,
+        resourceId: shipment.reference,
+        resourceName: shipment.name,
+        description: `Shipment ${shipment.reference} — ${stage} corrected`,
+        metadata: { stage, note: note || '', orders: corrected },
+      });
+
+      return res.status(200).json({ success: true, data: shipment });
+    }
+
+    // Moving BACK is a correction, not a move: someone clicked one stage too far,
+    // or the goods genuinely turned around. The customer's dated journey reads
+    // straight off this array, so entries beyond the corrected position have to
+    // go — otherwise their tracking page keeps claiming the batch reached Ghana.
+    // The activity log below retains the full audit trail either way.
+    const from = SHIPMENT_STAGES.indexOf(shipment.stage);
+    const to = SHIPMENT_STAGES.indexOf(stage);
+    if (to < from) {
+      // `<= to` rather than `< to`: an earlier genuine visit to this stage keeps
+      // its original date, which is the one the customer should see.
+      shipment.stageHistory = shipment.stageHistory.filter(
+        (e) => SHIPMENT_STAGES.indexOf(e.stage) <= to,
+      );
     }
 
     shipment.stage = stage;
@@ -135,13 +175,16 @@ const advanceShipmentStage = async (req, res, next) => {
     });
     await shipment.save();
 
+    // The move is the batch's; the history belongs to each customer's order.
+    const orderCount = await syncPreorderJourney(shipment.stageHistory, waitingOn(shipment._id));
+
     await logFromRequest(req, {
       action: ACTIONS.ORDER_UPDATED,
       resourceType: RESOURCES.ORDER,
       resourceId: shipment.reference,
       resourceName: shipment.name,
       description: `Shipment ${shipment.reference} → ${stage}`,
-      metadata: { stage, note: note || '' },
+      metadata: { stage, note: note || '', orders: orderCount },
     });
 
     res.status(200).json({ success: true, data: shipment });
@@ -174,6 +217,14 @@ const attachOrdersToShipment = async (req, res, next) => {
       { $set: { 'items.$[line].shipment': shipment._id } },
       { arrayFilters: [{ 'line.isPreorder': true, 'line.preorderReleasedAt': null }] },
     );
+
+    // A batch is often half way to Ghana before someone remembers to attach an
+    // order to it. Backfilling here is what stops that customer's history
+    // starting mid-voyage — the rewrite makes it the batch's journey either way.
+    await syncPreorderJourney(shipment.stageHistory, {
+      _id: { $in: orderIds },
+      ...waitingOn(shipment._id),
+    });
 
     // Count the lines that actually carry this shipment now, rather than trusting
     // `modifiedCount`: Mongo reports a document as modified even when the array

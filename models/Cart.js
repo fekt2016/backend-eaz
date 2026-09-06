@@ -11,6 +11,11 @@ const cartItemSchema = new mongoose.Schema(
     category: { type: String, default: '' },
     stock: { type: Number, default: 0 },
     qty: { type: Number, default: 1, min: 1 },
+    // A pre-order line holds no stock, so `stock` is 0 and cannot bound its
+    // quantity. Without these two the flag was stripped on save and a signed-in
+    // shopper's pre-order came back from the DB as an ordinary 0-stock line.
+    isPreorder: { type: Boolean, default: false },
+    preorderMaxQty: { type: Number, default: null },
     variant: {
       sku: String,
       attributes: mongoose.Schema.Types.Mixed,

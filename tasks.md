@@ -152,6 +152,74 @@
 Not defects; product features that don't exist yet. Scope separately before building.
 
 
+- [ ] **T138 · Per-unit (IMEI/serial) tracking for serialised stock** — P1, backend-led
+  - **Issue:** Inventory has **no per-unit identity**. `Product.stock` is a plain counter
+    (`models/Product.js:50`) and SKU is unique per product/variant
+    (`models/Product.js:320`), so 20 iPhone 16s are one document with `stock: 20`. Nothing
+    records *which* handsets are on the shelf or which one a given customer bought. The only
+    IMEI in the system belongs to a **customer's own device brought in for repair**
+    (`models/RepairJob.js:13`) — never to sale stock.
+  - **Impact:** Warranty claims can't be tied to a handset; "which phone did we sell this
+    customer" is unanswerable; no stolen/blacklisted-handset check; no audit trail if a unit
+    walks. For a phone shop this is an ops and compliance gap, not a nicety.
+  - **Why it is not just another field:** stock is mutated in **9 places across 5 files**, and
+    every one of them must learn to move a *unit*, not a count:
+    | Path | Site |
+    |---|---|
+    | Online order deduct | `controllers/orderController.js:906-907` (variant + non-variant) |
+    | Online fulfil deduct | `utils/fulfilShopOrder.js:149,184,189` |
+    | Online cancel/refund restore | `utils/fulfilShopOrder.js:264,274,277` |
+    | POS sale deduct | `controllers/pos/salesController.js:79,109` |
+    | POS refund restore | `controllers/pos/salesController.js:321,325` |
+    | Repair-job part return | `controllers/pos/jobController.js:441` |
+    | Shared part deduct | `utils/deductPartStock.js:29,39` |
+  - **⚠️ There is no stock-intake event to hang IMEIs on.** Stock arrives either as
+    `createPart`'s opening `quantity` (`controllers/pos/inventoryController.js:225`) or by
+    setting `stock` directly in `updatePart` (`:273`, flagged `stockAdjusted`). `PartOrder` is a
+    *customer's* part order against a repair job, not supplier receiving. A receiving step has
+    to be built before units can be captured — this is the bulk of the work, not the schema.
+  - **Design (needs `database` agent sign-off before any model file is written):**
+    - **Opt-in per product** via `serialised: true`. Cables, cases and screen protectors must
+      never demand an IMEI; only phones/laptops do.
+    - **Separate `InventoryUnit` collection**, not an embedded array — a phone shop accumulates
+      thousands of units over time and the backend runs on a 512MB heap. Fields:
+      `product`, `variantSku`, `imei` / `serial`, `status`
+      (`in_stock` · `reserved` · `sold` · `returned` · `written_off`), `supplier`, `costPesewas`,
+      `receivedAt`, `soldAt`, `order` / `sale`, `customer`.
+    - **Unique sparse index on `imei`** — mirror the SKU partial-unique pattern at
+      `models/Product.js:320`. Heed the T17 lesson: verify the index that actually builds on live
+      Atlas, and run a duplicate check first (`scripts/checkDuplicateSkus.js` is the precedent).
+    - **`Product.stock` stays**, as a denormalised count. For serialised products it must equal
+      `countDocuments({ product, status: 'in_stock' })` — two sources of truth **will** drift, so
+      a reconciliation report is part of the work, not a follow-up.
+    - Validate IMEIs: 15 digits + Luhn check digit. Cheap, catches most typos at entry.
+  - **Interactions to get right:**
+    - **Pre-order (T45)** sells stock that does not exist yet, so no unit can be assigned at
+      payment. Units must be attachable later, when the shipment lands and the release queue runs.
+    - **Refunds** must return *that* IMEI to `in_stock`, not merely `$inc` a counter — otherwise
+      the unit list and the count diverge on the first return.
+    - **Privacy:** an IMEI tied to a named buyer is quasi-PII. Staff/admin only; redact from
+      public/by-reference endpoints — follow `tests/orderByReferenceRedaction.test.js`.
+  - **Suggested phasing** (each independently shippable):
+    1. `InventoryUnit` model + receiving screen + manual assignment. Useful immediately for
+       warranty lookup, and touches none of the 9 mutation sites.
+    2. Wire the sale paths (POS + online) to reserve and consume a specific unit.
+    3. Returns/refunds, write-offs, and the stock-vs-units reconciliation report.
+  - **Out of scope:** GSMA/blacklist API checks; automatic IMEI capture from handset packaging
+    (the existing `useBarcodeScanner` hook can scan the IMEI barcode — worth using in phase 1's
+    receiving screen, but not a dependency).
+  - **Location:** `models/Product.js:50,320`; `models/RepairJob.js:13`; the 9 sites tabled above;
+    `controllers/pos/inventoryController.js:213-289`
+  - **Acceptance:**
+    - [ ] `serialised` products refuse a stock increase without matching unit records
+    - [ ] Non-serialised products behave exactly as they do today (no regression in the 9 sites)
+    - [ ] A sale (POS **and** online) marks one specific unit `sold` and links it to the order/sale
+    - [ ] A refund returns that same unit to `in_stock`
+    - [ ] `Product.stock` and the `in_stock` unit count agree; a reconciliation report flags drift
+    - [ ] IMEI is unique, Luhn-validated, and absent from public order lookups
+    - [ ] Frontend half tracked as **T138 (frontend)** in `frontend-eaz/tasks.md`
+
+
 ---
 
 ## Final production re-audit (2026-08-29) — new findings

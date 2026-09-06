@@ -1,4 +1,7 @@
 const mongoose = require('mongoose');
+// The customer-facing stage list lives on the Shipment model, which owns the
+// journey; deriving the enum from it is what stops the two drifting apart.
+const { CUSTOMER_STAGE_ORDER } = require('./Shipment');
 
 const orderSchema = new mongoose.Schema({
   orderNumber: {
@@ -35,13 +38,45 @@ const orderSchema = new mongoose.Schema({
       type: Date,
       default: null
     },
-    // Which incoming batch this line is waiting on. Staff move the shipment
-    // through its stages once and every line attached to it follows, rather than
-    // the same container being re-entered on twenty separate orders.
+    // Which incoming batch this line is waiting on — OPTIONAL. A batch is the
+    // efficiency: staff move a container once and every line on it follows,
+    // rather than re-entering the same voyage on twenty orders. A single
+    // pre-order that is not part of a container carries its own stage below.
     shipment: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shipment',
       default: null
+    },
+    // This line's OWN position, used when it rides on no batch. Exactly one
+    // source drives a line: the batch if it has one, otherwise this.
+    preorderStage: {
+      type: String,
+      enum: ['', ...CUSTOMER_STAGE_ORDER],
+      default: ''
+    },
+    // The line's own dated journey, in the same shape a Shipment records, and
+    // internal for the same reason: `note` is where staff put what they must not
+    // say to the customer, beside the staff member who wrote it. What the
+    // customer sees is derived from this into `trackingHistory`, which is where
+    // the notes are dropped.
+    //
+    // `select: false` because three customer endpoints return the raw order and
+    // would otherwise carry these notes straight out — the shipment equivalent
+    // is safe only because it lives in another collection nobody populates for
+    // a customer. Staff paths opt back in with .select('+items.preorderStageHistory').
+    preorderStageHistory: {
+      select: false,
+      default: [],
+      type: [{
+        _id: false,
+        stage: { type: String, enum: CUSTOMER_STAGE_ORDER, required: true },
+        note: { type: String, trim: true, maxlength: 300, default: '' },
+        date: { type: Date, default: Date.now },
+        updatedBy: {
+          name: { type: String, trim: true, default: '' },
+          role: { type: String, trim: true, default: '' }
+        }
+      }],
     },
     // Which variant was purchased (structured variants feature). Absent for
     // products bought as a single implicit SKU and for retail parts.
@@ -321,6 +356,26 @@ const orderSchema = new mongoose.Schema({
     timestamp: {
       type: Date,
       default: Date.now
+    },
+    // T45 — set when the entry came from a pre-order batch moving rather than
+    // from staff. Carries the CUSTOMER-facing stage (four, not the eight
+    // internal ones), because this history is shown to the customer.
+    //
+    // Tagging is what makes the journey correctable: when a batch is stepped
+    // back, only entries carrying this field are rewritten, so a courier note
+    // sitting beside them survives untouched.
+    preorderStage: {
+      type: String,
+      enum: ['', ...CUSTOMER_STAGE_ORDER],
+      default: ''
+    },
+    // What staff wrote for the customer alongside that stage — "held at customs,
+    // expect three more days". `note` above carries the stage's own wording, so
+    // the timeline can show the position and the explanation as two things.
+    detail: {
+      type: String,
+      trim: true,
+      default: ''
     }
   }],
 

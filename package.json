@@ -23,6 +23,7 @@
     "migrate:user-phones": "node scripts/normalizeUserPhones.js",
     "migrate:user-email-index": "node scripts/migrateUserEmailIndex.js",
     "migrate:order-tracking": "node scripts/backfillOrderTrackingNumbers.js",
+    "migrate:preorder-stages": "node scripts/migratePreorderStages.js",
     "migrate:parts-into-products": "node scripts/migratePartsIntoProducts.js",
     "migrate:addresses": "node scripts/migrateAddressesToCollection.js",
     "migrate:tier-etas": "node scripts/updateSpeedTierEtas.js",
@@ -43,7 +44,8 @@
     "migrate:resanitize-posts": "node scripts/resanitizePostContent.js",
     "seed:role-accounts": "node scripts/seedRoleAccounts.js",
     "user:set-role": "node scripts/setUserAdmin.js",
-    "user:verify": "node scripts/verifyUser.js"
+    "user:verify": "node scripts/verifyUser.js",
+    "catalogue:replace": "node scripts/replaceCatalogue.js"
   },
   "keywords": [],
   "author": "",

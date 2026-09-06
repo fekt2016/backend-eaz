@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const { syncVariantStock } = require('./syncVariantStock');
 const DeliveryZone = require('../models/DeliveryZone');
 const { log, ACTIONS, RESOURCES } = require('../services/activityLogService');
 const { formatGhs } = require('./money');
@@ -183,6 +184,9 @@ async function fulfilShopOrder(reference, payment) {
         { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku, stock: { $gte: item.qty } } } },
         { $inc: { "variants.$.stock": -item.qty, sold: item.qty } }
       );
+      // The top-level field is not touched by the line above, so without this it
+      // keeps reading the pre-sale number to the edit form and the product page.
+      if (result) await syncVariantStock(item.product);
     } else {
       result = await Product.findOneAndUpdate(
         { _id: item.product, stock: { $gte: item.qty } },
@@ -273,6 +277,7 @@ async function restockOrderItems(order) {
         { _id: item.product, variants: { $elemMatch: { sku: item.variant.sku } } },
         { $inc: { "variants.$.stock": item.qty } }
       );
+      await syncVariantStock(item.product);
     } else if (item.product) {
       await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.qty } });
     }

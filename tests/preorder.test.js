@@ -58,6 +58,12 @@ const checkout = (slug, qty = 1) =>
     customer: { name: "Ama", phone: "0244000000", email: "ama@example.com" },
   });
 
+// Releasing is refused until the goods are in the country, so any test that
+// releases has to say they landed. "At the port" is the earliest stage that
+// qualifies and, unlike "at our warehouse", does not auto-release.
+const markInGhana = (orderId) =>
+  Order.updateOne({ _id: orderId }, { $set: { "items.0.preorderStage": "port_ghana" } });
+
 async function makePaidPreorder(product, qty = 1) {
   const order = await Order.create({
     orderNumber: `EZW-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -68,6 +74,99 @@ async function makePaidPreorder(product, qty = 1) {
   });
   return order;
 }
+
+const checkoutVariant = (slug, sku, qty = 1) =>
+  request(app).post("/api/v1/orders").send({
+    items: [{ slug, qty, variant: { sku } }],
+    customer: { name: "Ama", phone: "0244000000", email: "ama@example.com" },
+  });
+
+// A pre-order that lives on ONE variant. The whole product is not a single
+// on/off switch: a 0-stock colour can be pre-ordered while its siblings sell
+// normally, and a variant can opt out of a product-level pre-order.
+describe("Per-variant pre-order at checkout", () => {
+  const variants = (over = {}) => [
+    { sku: "PH-BLK", attributes: { color: "Black" }, stock: 0, ...over },
+    { sku: "PH-BLU", attributes: { color: "Blue" }, stock: 4 },
+  ];
+
+  it("accepts a 0-stock variant that is itself flagged, product flag off", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: false },
+      variants: variants({ preorder: { enabled: true } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(200);
+    const order = await Order.findOne({ "items.product": product._id });
+    expect(order.items[0].variant.sku).toBe("PH-BLK");
+    expect(order.items[0].isPreorder).toBe(true);
+  });
+
+  it("still refuses a 0-stock variant nobody flagged", async () => {
+    const product = await makeProduct({ stock: 4, variants: variants() });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/in stock/i);
+  });
+
+  it("lets a product-level pre-order reach a variant that is unset", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true },
+      variants: variants(),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(200);
+    const order = await Order.findOne({ "items.product": product._id });
+    expect(order.items[0].isPreorder).toBe(true);
+  });
+
+  it("lets a variant opt OUT of a product-level pre-order", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true },
+      variants: variants({ preorder: { enabled: false } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("enforces the variant's own cap, not the product's", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true, maxQty: 10 },
+      variants: variants({ preorder: { enabled: true, maxQty: 2 } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLK", 3);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/limited to 2 per pre-order/i);
+  });
+
+  it("leaves an in-stock sibling variant an ordinary sale", async () => {
+    const product = await makeProduct({
+      stock: 4,
+      preorder: { enabled: true },
+      variants: variants({ preorder: { enabled: true } }),
+    });
+
+    const res = await checkoutVariant(product.slug, "PH-BLU", 2);
+
+    expect(res.status).toBe(200);
+    const order = await Order.findOne({ "items.product": product._id });
+    expect(order.items[0].isPreorder).toBeFalsy();
+  });
+});
 
 describe("Pre-order checkout (T45)", () => {
   it("refuses an out-of-stock product that is not marked for pre-order", async () => {
@@ -200,6 +299,8 @@ describe("Pre-order release (T45)", () => {
     const order = await makePaidPreorder(product, 2);
     await Product.updateOne({ _id: product._id }, { $set: { stock: 5 } }); // shipment landed
 
+    await markInGhana(order._id);
+
     const res = await request(app)
       .patch(`/api/v1/orders/${order._id}/preorder-release`)
       .set("Authorization", `Bearer ${token}`);
@@ -212,19 +313,51 @@ describe("Pre-order release (T45)", () => {
     expect(freshOrder.items[0].preorderReleasedAt).toBeTruthy();
   });
 
-  it("refuses to release against stock that has not arrived", async () => {
+  it("releases a unit that was never in stock, because it never was", async () => {
+    // The ordinary case. A pre-ordered unit is not on the shelf — that is what
+    // makes it a pre-order — and when it lands it goes straight out to the
+    // customer who paid for it, never into stock. Demanding stock here refused
+    // every release the shop actually needed to make.
     const token = await staffToken();
     const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
     const order = await makePaidPreorder(product);
+
+    await markInGhana(order._id);
 
     const res = await request(app)
       .patch(`/api/v1/orders/${order._id}/preorder-release`)
       .set("Authorization", `Bearer ${token}`);
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/not enough stock/i);
+    expect(res.status).toBe(200);
+    expect(res.body.meta.receivedDirect).toEqual(["Imported Phone"]);
+    expect(res.body.meta.fromStock).toEqual([]);
+
     const fresh = await Product.findById(product._id);
-    expect(fresh.stock).toBe(0); // never went negative
+    expect(fresh.stock).toBe(0);  // not taken from stock, and never negative
+    expect(fresh.sold).toBe(1);   // but it was sold
+    expect((await Order.findById(order._id)).items[0].preorderReleasedAt).toBeTruthy();
+  });
+
+  it("still takes it off the shelf when the batch WAS received into stock", async () => {
+    // The other flow: twenty units received, fifteen spoken for. Releasing one
+    // takes it off, exactly as an ordinary sale does.
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 20, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 2);
+
+    await markInGhana(order._id);
+
+    const res = await request(app)
+      .patch(`/api/v1/orders/${order._id}/preorder-release`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.fromStock).toEqual(["Imported Phone"]);
+    expect(res.body.meta.receivedDirect).toEqual([]);
+
+    const fresh = await Product.findById(product._id);
+    expect(fresh.stock).toBe(18);
+    expect(fresh.sold).toBe(2);
   });
 
   it("cannot be released twice", async () => {
@@ -233,6 +366,7 @@ describe("Pre-order release (T45)", () => {
     const order = await makePaidPreorder(product);
     await Product.updateOne({ _id: product._id }, { $set: { stock: 3 } });
 
+    await markInGhana(order._id);
     await request(app).patch(`/api/v1/orders/${order._id}/preorder-release`).set("Authorization", `Bearer ${token}`);
     const second = await request(app).patch(`/api/v1/orders/${order._id}/preorder-release`).set("Authorization", `Bearer ${token}`);
 
@@ -248,6 +382,7 @@ describe("Pre-order release (T45)", () => {
     const order = await makePaidPreorder(product);
     await Product.updateOne({ _id: product._id }, { $set: { stock: 3 } });
 
+    await markInGhana(order._id);
     await request(app).patch(`/api/v1/orders/${order._id}/preorder-release`).set("Authorization", `Bearer ${token}`);
 
     // Resend is disabled in tests, so the send is logged as failed — what matters
@@ -263,10 +398,679 @@ describe("Pre-order release (T45)", () => {
     const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
     const order = await makePaidPreorder(product);
 
+    await markInGhana(order._id);
+
     const res = await request(app)
       .patch(`/api/v1/orders/${order._id}/preorder-release`)
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(403);
+  });
+});
+
+// Staff must not be able to walk an order through packing and delivery while the
+// goods are still on a container. Release is the gate: it is the one place that
+// proves the stock is physically here, so every fulfilment stage waits behind it.
+describe("Pre-order holds internal tracking (T45)", () => {
+  const patchStatus = (id, token, status) =>
+    request(app).patch(`/api/v1/orders/${id}`)
+      .set("Authorization", `Bearer ${token}`).send({ status });
+
+  const trackingEvent = (id, token, body) =>
+    request(app).post(`/api/v1/orders/${id}/tracking`)
+      .set("Authorization", `Bearer ${token}`).send(body);
+
+  it("refuses to move an unreleased pre-order to processing", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchStatus(order._id, token, "processing");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/waiting on pre-order stock/i);
+    expect(res.body.error).toContain(product.name);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.status).toBe("paid");
+  });
+
+  it("closes the tracking endpoint's status door too", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await trackingEvent(order._id, token, { status: "shipped", note: "Off to the courier" });
+
+    expect(res.status).toBe(400);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.status).toBe("paid");
+    // The note must not slip into the history on a refused move.
+    expect(fresh.trackingHistory).toHaveLength(0);
+  });
+
+  it("still lets staff cancel an order that is waiting", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchStatus(order._id, token, "cancelled");
+
+    expect(res.status).toBe(200);
+    expect((await Order.findById(order._id)).status).toBe("cancelled");
+  });
+
+  it("still accepts a note-only tracking event while waiting", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await trackingEvent(order._id, token, { note: "Customer called about the ETA" });
+
+    expect(res.status).toBe(200);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.status).toBe("paid");
+    expect(fresh.trackingHistory.at(-1).note).toBe("Customer called about the ETA");
+  });
+
+  it("lifts the hold once the pre-order is released", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 5, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    await markInGhana(order._id);
+    const release = await request(app)
+      .patch(`/api/v1/orders/${order._id}/preorder-release`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(release.status).toBe(200);
+
+    const res = await patchStatus(order._id, token, "shipped");
+
+    expect(res.status).toBe(200);
+    expect((await Order.findById(order._id)).status).toBe("shipped");
+  });
+
+  it("holds a mixed order until its last pre-order line is released", async () => {
+    const token = await staffToken();
+    const inStock = await makeProduct({ stock: 3 });
+    const incoming = await makeProduct({ name: "Imported Case", stock: 0, preorder: { enabled: true } });
+    const order = await Order.create({
+      orderNumber: `EZW-${Date.now()}-mix`,
+      items: [
+        { product: inStock._id, name: inStock.name, price: inStock.price, qty: 1 },
+        { product: incoming._id, name: incoming.name, price: incoming.price, qty: 1, isPreorder: true },
+      ],
+      subtotal: inStock.price + incoming.price, total: inStock.price + incoming.price,
+      customer: { name: "Ama", phone: "0244000000", email: "ama@example.com" },
+      status: "paid", stockDeducted: true,
+    });
+
+    const res = await patchStatus(order._id, token, "processing");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Imported Case");
+    expect(res.body.error).not.toContain(inStock.name);
+  });
+
+  it("leaves an ordinary order alone", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 4 });
+    const order = await Order.create({
+      orderNumber: `EZW-${Date.now()}-plain`,
+      items: [{ product: product._id, name: product.name, price: product.price, qty: 1 }],
+      subtotal: product.price, total: product.price,
+      customer: { name: "Ama", phone: "0244000000", email: "ama@example.com" },
+      status: "paid", stockDeducted: true,
+    });
+
+    const res = await patchStatus(order._id, token, "delivered");
+
+    expect(res.status).toBe(200);
+  });
+});
+
+// The batch list moves a whole container; this is the other half — the one
+// customer who ordered two instead of three, or whose line went onto the wrong
+// container. Quantity is money on a paid pre-order, so the endpoint recomputes
+// the totals and reports the difference rather than moving anything.
+const Shipment = require("../models/Shipment");
+
+describe("Editing a waiting pre-order line (T45)", () => {
+
+  const patchLine = (orderId, token, body) =>
+    request(app).patch(`/api/v1/orders/${orderId}/preorder-line`)
+      .set("Authorization", `Bearer ${token}`).send(body);
+
+  async function makeBatch(name = "March batch") {
+    await Shipment.ensureReferenceCounter();
+    return Shipment.create({
+      name,
+      reference: `SHP-TEST-${Date.now()}${Math.random().toString(36).slice(2, 5)}`,
+      stage: "production",
+      stageHistory: [{ stage: "production", date: new Date() }],
+    });
+  }
+
+  it("changes the quantity and recomputes the order's money", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 1);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 3 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.oldTotal).toBe(500000);
+    expect(res.body.meta.newTotal).toBe(1500000);
+    expect(res.body.meta.difference).toBe(1000000);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.items[0].qty).toBe(3);
+    expect(fresh.subtotal).toBe(1500000);
+    expect(fresh.total).toBe(1500000);
+  });
+
+  it("reports money owed BACK when the quantity drops", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 3);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 1 });
+
+    expect(res.body.meta.difference).toBe(-1000000);
+  });
+
+  it("keeps the delivery fee in the recomputed total", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 1);
+    await Order.updateOne({ _id: order._id }, { $set: { shippingFee: 2500, total: 502500 } });
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    expect(res.body.meta.newTotal).toBe(1002500);
+  });
+
+  it("respects the per-product pre-order cap", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true, maxQty: 2 } });
+    const order = await makePaidPreorder(product, 1);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/limited to 2/);
+    expect((await Order.findById(order._id)).items[0].qty).toBe(1);
+  });
+
+  it("refuses a quantity below one", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 0 });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("moves a line onto a batch, and off one again", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    const batch = await makeBatch();
+
+    const on = await patchLine(order._id, token, {
+      itemId: order.items[0]._id.toString(), shipment: batch._id.toString(),
+    });
+    expect(on.status).toBe(200);
+    expect(String((await Order.findById(order._id)).items[0].shipment)).toBe(String(batch._id));
+
+    const off = await patchLine(order._id, token, {
+      itemId: order.items[0]._id.toString(), shipment: null,
+    });
+    expect(off.status).toBe(200);
+    expect((await Order.findById(order._id)).items[0].shipment).toBeNull();
+  });
+
+  it("clears the old batch's journey when the line comes off it", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    const batch = await makeBatch();
+    await patchLine(order._id, token, {
+      itemId: order.items[0]._id.toString(), shipment: batch._id.toString(),
+    });
+    expect((await Order.findById(order._id)).trackingHistory.some((e) => e.preorderStage)).toBe(true);
+
+    await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), shipment: null });
+
+    const fresh = await Order.findById(order._id);
+    expect(fresh.trackingHistory.some((e) => e.preorderStage)).toBe(false);
+    // The staff note recording the move survives.
+    expect(fresh.trackingHistory.some((e) => /Pre-order updated/.test(e.note))).toBe(true);
+  });
+
+  it("leaves a released line alone — that is a refund, not an edit", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 5, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await markInGhana(order._id);
+    await request(app).patch(`/api/v1/orders/${order._id}/preorder-release`)
+      .set("Authorization", `Bearer ${token}`);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/already been released/i);
+  });
+
+  it("records the change on the order's history", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 1);
+
+    await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    const fresh = await Order.findById(order._id);
+    expect(fresh.trackingHistory.at(-1).note).toMatch(/Quantity 1 → 2/);
+  });
+
+  it("is closed to customers", async () => {
+    const token = await staffToken("user");
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    expect(res.status).toBe(403);
+  });
+});
+
+// A batch is an efficiency for the container carrying twenty customers' goods —
+// it was never meant to be the price of recording a stage at all. Without this,
+// a single pre-order showed the customer five stages and gave staff no way to
+// update any of them.
+describe("Recording a pre-order's stage with no batch (T45)", () => {
+  const setStage = (orderId, token, body) =>
+    request(app).patch(`/api/v1/orders/${orderId}/preorder-stage`)
+      .set("Authorization", `Bearer ${token}`).send(body);
+
+  it("records a stage on an order that is on no batch", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await setStage(order._id, token, {
+      stage: "production", date: "2026-06-01T09:00:00Z", note: "Factory started",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder.stage).toBe("production");
+    expect(res.body.data.preorder.label).toBe("In production");
+    const fresh = await Order.findById(order._id).select("+items.preorderStageHistory");
+    expect(fresh.items[0].preorderStage).toBe("production");
+    expect(fresh.items[0].preorderStageHistory).toHaveLength(1);
+  });
+
+  it("puts it on the customer's own tracking history, message and all", async () => {
+    const trackingNumber = `EZWTRK-OWN${Date.now()}`;
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await Order.updateOne({ _id: order._id }, { $set: { trackingNumber } });
+
+    await setStage(order._id, token, { stage: "shipped", note: "The vessel is running late" });
+
+    const res = await request(app).get(`/api/v1/orders/track/${trackingNumber}`);
+    expect(res.body.data.preorder.stage).toBe("shipped");
+    const entry = res.body.data.history.find((e2) => e2.preorderStage === "shipped");
+    expect(entry).toBeTruthy();
+    // The stage's own wording, and the message staff wrote beside it.
+    expect(entry.note).toBe("Shipped — on its way to Ghana");
+    expect(entry.detail).toBe("The vessel is running late");
+  });
+
+  it("builds the journey up one stage at a time", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    await setStage(order._id, token, { stage: "production" });
+    await setStage(order._id, token, { stage: "shipped" });
+    const res = await setStage(order._id, token, { stage: "port_ghana" });
+
+    expect(res.body.data.preorder.history.map((h) => h.stage))
+      .toEqual(["production", "shipped", "port_ghana"]);
+  });
+
+  it("corrects the date of the stage it is already on", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, { stage: "production" });
+
+    await setStage(order._id, token, { stage: "production", date: "2026-05-04T08:30:00Z" });
+
+    const fresh = await Order.findById(order._id).select("+items.preorderStageHistory");
+    expect(fresh.items[0].preorderStageHistory).toHaveLength(1);
+    expect(fresh.items[0].preorderStageHistory[0].date.toISOString()).toBe("2026-05-04T08:30:00.000Z");
+  });
+
+  it("drops the stages a corrected order never reached", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, { stage: "port_ghana" });
+
+    await setStage(order._id, token, { stage: "shipped" });
+
+    const fresh = await Order.findById(order._id).select("+items.preorderStageHistory");
+    expect(fresh.items[0].preorderStage).toBe("shipped");
+    expect(fresh.items[0].preorderStageHistory.map((e) => e.stage)).toEqual(["shipped"]);
+  });
+
+  it("refuses when the line rides on a batch — one source drives one journey", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    const batch = await Shipment.create({
+      name: "March batch", reference: `SHP-X-${Date.now()}`,
+      stage: "production", stageHistory: [{ stage: "production", date: new Date() }],
+    });
+    await Order.updateOne({ _id: order._id }, { $set: { "items.0.shipment": batch._id } });
+
+    const res = await setStage(order._id, token, { stage: "shipped" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/rides on a shipment batch/i);
+  });
+
+  it("tells staff which source drives the journey", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, { stage: "production", note: "Factory started" });
+
+    const res = await request(app).get(`/api/v1/orders/${order._id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.body.data.preorder.journey.source).toBe("order");
+    expect(res.body.data.preorder.journey.batch).toBeNull();
+    expect(res.body.data.preorder.journey.history[0].note).toBe("Factory started");
+    expect(res.body.data.preorder.journey.history[0].customerLabel).toBe("In production");
+  });
+
+  it("rejects a stage that is not on the journey", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await setStage(order._id, token, { stage: "customs" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("is closed to customers", async () => {
+    const token = await staffToken("user");
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await setStage(order._id, token, { stage: "production" });
+
+    expect(res.status).toBe(403);
+  });
+});
+
+// The note staff write with a stage IS for the customer — "held at customs,
+// expect three more days" is the most useful thing on the page. What must never
+// cross is who recorded it and which container it came in on.
+describe("What crosses with a pre-order stage, and what does not (T45)", () => {
+  async function recordedWithNote() {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    const trackingNumber = `EZWTRK-SEC${Date.now()}`;
+    // A reference too: the confirmation page is looked up by it, and without one
+    // that probe 404s and every "must not contain" assertion passes vacuously.
+    await Order.updateOne({ _id: order._id }, {
+      $set: { trackingNumber, paystackReference: `REF_SEC_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` },
+    });
+    await request(app).patch(`/api/v1/orders/${order._id}/preorder-stage`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ stage: "shipped", note: "Held at the port — about three more days" });
+    return { token, order: await Order.findById(order._id), trackingNumber };
+  }
+
+  const message = /Held at the port/i;
+  const noAuthor = (entries) => entries.every((e) => e.updatedBy === undefined);
+
+  it("shows the message on the public tracking-number page", async () => {
+    const { trackingNumber } = await recordedWithNote();
+    const res = await request(app).get(`/api/v1/orders/track/${trackingNumber}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder.stage).toBe("shipped");
+    expect(JSON.stringify(res.body)).toMatch(message);
+    // Against the right entry, not loose in the payload.
+    expect(res.body.data.history.find((e) => e.preorderStage === "shipped").detail).toMatch(message);
+    // But never who wrote it.
+    expect(noAuthor(res.body.data.preorder.history)).toBe(true);
+    expect(res.body.data.history.every((e) => e.updatedBy === undefined)).toBe(true);
+  });
+
+  it("shows it on the order-number lookup, without the staff name", async () => {
+    const { order } = await recordedWithNote();
+    const res = await request(app).post("/api/v1/orders/track")
+      .send({ orderNumber: order.orderNumber, phone: "0244000000" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.preorder.history.at(-1).note).toMatch(message);
+    expect(noAuthor(res.body.data.preorder.history)).toBe(true);
+  });
+
+  it("shows it on the confirmation page", async () => {
+    const { order } = await recordedWithNote();
+    const res = await request(app).get(`/api/v1/orders/by-reference/${order.paystackReference}`);
+    expect(res.body.data.preorder.history.at(-1).note).toMatch(message);
+    expect(noAuthor(res.body.data.preorder.history)).toBe(true);
+  });
+
+  it("never leaks the RAW internal history onto the customer's own order", async () => {
+    // The message reaches the customer through the derived journey. The stored
+    // history behind it also carries `updatedBy`, so it stays select:false and
+    // must not ride out on the raw order these endpoints return.
+    const { order } = await recordedWithNote();
+    const customer = await User.create({
+      name: "Ama", email: `ama-${Date.now()}@t.com`, password: "Password123!",
+      role: "user", isVerified: true, phone: "0244000000",
+    });
+    const ctok = jwt.sign({ id: customer._id.toString() }, process.env.JWT_SECRET);
+
+    const list = await request(app).get("/api/v1/orders/mine").set("Authorization", `Bearer ${ctok}`);
+    const detail = await request(app).get(`/api/v1/orders/mine/${order._id}`).set("Authorization", `Bearer ${ctok}`);
+
+    expect(detail.body.data.items[0].preorderStageHistory).toBeUndefined();
+    expect((list.body.data[0]?.items || []).every((i) => i.preorderStageHistory === undefined)).toBe(true);
+    expect(noAuthor(detail.body.data.preorder.history)).toBe(true);
+    // The customer still sees where their order is, and why.
+    expect(detail.body.data.preorder.stage).toBe("shipped");
+    expect(detail.body.data.preorder.history.at(-1).note).toMatch(message);
+  });
+
+  it("shows staff the message and who recorded it", async () => {
+    const { token, order } = await recordedWithNote();
+    const res = await request(app).get(`/api/v1/orders/${order._id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.body.data.preorder.journey.source).toBe("order");
+    expect(res.body.data.preorder.journey.history.at(-1).note).toMatch(message);
+    expect(res.body.data.preorder.journey.history.at(-1).updatedBy).toBe("staff");
+  });
+});
+
+// "Arrived at our warehouse" IS the release: the goods are here and going
+// straight out. Recording the stage and then pressing Release was two clicks for
+// one event, and forgetting the second left a customer told their order had
+// landed while it still sat in the waiting queue.
+describe("Arriving at the warehouse releases the order (T45)", () => {
+  const setStage = (orderId, token, stage) =>
+    request(app).patch(`/api/v1/orders/${orderId}/preorder-stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage });
+
+  it("releases the waiting lines the moment the stage is recorded", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await setStage(order._id, token, "at_shop");
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.released).toBe(1);
+    expect(res.body.meta.receivedDirect).toEqual(["Imported Phone"]);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.items[0].preorderReleasedAt).toBeTruthy();
+    expect((await Product.findById(product._id)).sold).toBe(1);
+  });
+
+  it("does not release at any earlier stage", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    for (const stage of ["production", "container_warehouse", "shipped", "port_ghana"]) {
+      const res = await setStage(order._id, token, stage);
+      expect(res.body.meta.released).toBe(0);
+    }
+
+    expect((await Order.findById(order._id)).items[0].preorderReleasedAt).toBeNull();
+  });
+
+  it("takes the order out of the waiting queue", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, "at_shop");
+
+    const queue = await request(app).get("/api/v1/orders/preorders")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect((queue.body.data || []).some((o) => o._id === String(order._id))).toBe(false);
+  });
+
+  it("emails the customer that their item has arrived", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    await setStage(order._id, token, "at_shop");
+
+    await new Promise((r) => setTimeout(r, 60));
+    expect(await EmailLog.findOne({ type: "preorder_ready", orderId: order._id })).toBeTruthy();
+  });
+
+  it("lifts the fulfilment hold, so local tracking can start", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, "at_shop");
+
+    const res = await request(app).patch(`/api/v1/orders/${order._id}`)
+      .set("Authorization", `Bearer ${token}`).send({ status: "processing" });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("cannot sell the unit twice", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, "at_shop");
+
+    // The journey is over once released — there is no pre-order left to stage,
+    // so a second "at our warehouse" is refused rather than counting the sale
+    // again.
+    const again = await setStage(order._id, token, "at_shop");
+
+    expect(again.status).toBe(400);
+    expect(again.body.error).toMatch(/no pre-order lines waiting/i);
+    expect((await Product.findById(product._id)).sold).toBe(1);
+  });
+});
+
+// Releasing hands goods over: it moves stock, counts the sale and emails the
+// customer that their item has arrived. All three are wrong while it is still
+// on the water, so the goods have to be in the country first.
+describe("A pre-order cannot be released before it reaches Ghana (T45)", () => {
+  const release = (orderId, token) =>
+    request(app).patch(`/api/v1/orders/${orderId}/preorder-release`)
+      .set("Authorization", `Bearer ${token}`);
+
+  const setStage = (orderId, token, stage) =>
+    request(app).patch(`/api/v1/orders/${orderId}/preorder-stage`)
+      .set("Authorization", `Bearer ${token}`).send({ stage });
+
+  it("refuses while the goods are still abroad", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+
+    for (const stage of ["production", "container_warehouse", "shipped"]) {
+      const order = await makePaidPreorder(product);
+      await setStage(order._id, token, stage);
+
+      const res = await release(order._id, token);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not reached Ghana/i);
+      expect((await Order.findById(order._id)).items[0].preorderReleasedAt).toBeNull();
+    }
+  });
+
+  it("refuses when nothing has been recorded at all", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await release(order._id, token);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no stage recorded/i);
+  });
+
+  it("allows it at the port — the shop hands over the day it clears", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, "port_ghana");
+
+    const res = await release(order._id, token);
+
+    expect(res.status).toBe(200);
+    expect((await Order.findById(order._id)).items[0].preorderReleasedAt).toBeTruthy();
+  });
+
+  it("counts the batch's position for a line riding on one", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    const batch = await Shipment.create({
+      name: "March batch", reference: `SHP-G-${Date.now()}`,
+      stage: "shipped", stageHistory: [{ stage: "shipped", date: new Date() }],
+    });
+    await Order.updateOne({ _id: order._id }, { $set: { "items.0.shipment": batch._id } });
+
+    const stillAtSea = await release(order._id, token);
+    expect(stillAtSea.status).toBe(400);
+    expect(stillAtSea.body.error).toMatch(/not reached Ghana/i);
+
+    await Shipment.updateOne({ _id: batch._id }, { $set: { stage: "port_ghana" } });
+    const landed = await release(order._id, token);
+
+    expect(landed.status).toBe(200);
+  });
+
+  it("names the stage it is actually at, so staff know what to fix", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await setStage(order._id, token, "shipped");
+
+    const res = await release(order._id, token);
+
+    expect(res.body.error).toMatch(/Shipped/);
   });
 });
