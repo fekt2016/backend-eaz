@@ -1,6 +1,6 @@
 /**
  * Backend sanitisation helpers.
- * Note: xss-clean + express-mongo-sanitize middleware already strip XSS and
+ * Note: middleware/sanitizeInput + express-mongo-sanitize already strip XSS and
  * NoSQL injection from req.body globally. These helpers add field-level
  * trimming, length capping, and type coercion on top.
  */

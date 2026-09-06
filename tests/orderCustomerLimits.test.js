@@ -1,6 +1,6 @@
 // T125 — Order.customer fields are guest-supplied and were bounded only by
 // express.json({ limit: '5mb' }), with no email format check. Two concrete
-// consequences, neither of them XSS (app.js runs xss-clean globally and it
+// consequences, neither of them XSS (app.js runs middleware/sanitizeInput globally and it
 // traverses nested objects):
 //   1. a single order could carry a multi-megabyte address, and getOrders
 //      renders those to admins on a 512MB heap

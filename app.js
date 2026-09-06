@@ -2,7 +2,7 @@ const express    = require('express');
 const dotenv     = require('dotenv');
 const cookieParser = require('cookie-parser');
 const helmet     = require('helmet');
-const xss        = require('xss-clean');
+const xss        = require('./middleware/sanitizeInput');
 const mongoSanitize = require('express-mongo-sanitize');
 const cors       = require('cors');
 const rateLimit  = require('express-rate-limit');
@@ -88,7 +88,7 @@ app.use(helmet({
 // ────────────────────────────────────────────────
 // 🧱 Security — XSS, NoSQL injection, HPP
 // ────────────────────────────────────────────────
-app.use(xss());                  // strip XSS from body/query
+app.use(xss());                  // escape `<` in body/query/params
 app.use(mongoSanitize());        // prevent NoSQL injection ($, .)
 app.use(hpp({                    // prevent HTTP Parameter Pollution
   whitelist: ['sort', 'fields', 'page', 'limit', 'status', 'type'],
