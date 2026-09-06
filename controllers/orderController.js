@@ -17,6 +17,8 @@ const { buildCustomerOrderFilter } = require("../utils/customerOrderMatch");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
 const { sendPreorderReadyEmail, sendShopStatusEmail } = require("../utils/email");
 const { CUSTOMER_STAGES, STAGE_LABELS, customerStageHistory } = require("../models/Shipment");
+const Shipment = require("../models/Shipment");
+const { syncPreorderJourney } = require("../utils/preorderJourney");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -1024,6 +1026,165 @@ const getPreorders = async (req, res, next) => {
 };
 
 /**
+ * PATCH /api/v1/orders/:id/preorder-line — correct one waiting pre-order line
+ * (admin/staff): how many, and which batch it rides on.
+ *
+ * The batch list moves a whole container at once. This is the other half: the
+ * one customer who ordered two instead of three, or whose line went onto the
+ * wrong container and needs moving — including off a batch entirely, which
+ * nothing could do before.
+ *
+ * ⚠️ Quantity is money. A pre-order is paid in full up front, so changing it
+ * changes what is owed, and this endpoint does NOT move money — the same rule
+ * changeOrderAddress works to. The order's totals are recomputed and the
+ * difference is returned in `meta` so staff can settle it deliberately: a
+ * refund through the refund endpoint, or a top-up collected separately.
+ *
+ * A released line is out of scope on purpose. Once released it is ordinary
+ * stock that has been handed over, and changing it is a refund or a return,
+ * not an edit.
+ */
+const updatePreorderLine = async (req, res, next) => {
+  try {
+    const { itemId, qty, shipment: shipmentId } = req.body;
+    if (!itemId) {
+      return res.status(400).json({ success: false, error: 'itemId is required.' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    const item = order.items.id(itemId);
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'That line is not on this order.' });
+    }
+    if (!item.isPreorder) {
+      return res.status(400).json({ success: false, error: 'That line is not a pre-order.' });
+    }
+    if (item.preorderReleasedAt) {
+      return res.status(400).json({
+        success: false,
+        error: 'That pre-order has already been released. Use a refund or a return instead.',
+      });
+    }
+
+    const changes = [];
+    const oldTotal = order.total;
+
+    // ── Quantity ─────────────────────────────────────────────────────────
+    if (qty !== undefined) {
+      const next = Number(qty);
+      if (!Number.isInteger(next) || next < 1) {
+        return res.status(400).json({ success: false, error: 'Quantity must be a whole number of 1 or more.' });
+      }
+
+      // The same per-product/variant cap checkout enforces — raising a line
+      // here must not get round a supply limit the storefront respects.
+      const product = await Product.findById(item.product).select('name preorder variants').lean();
+      if (product) {
+        const variant = item.variant?.sku
+          ? (product.variants || []).find((v) => v.sku === item.variant.sku)
+          : null;
+        const cap = resolveVariantPreorder(product, variant)?.maxQty;
+        if (cap != null && next > cap) {
+          return res.status(400).json({
+            success: false,
+            error: `${product.name} is limited to ${cap} per pre-order.`,
+          });
+        }
+      }
+
+      if (next !== item.qty) {
+        changes.push({ field: 'qty', label: 'Quantity', before: item.qty, after: next });
+        item.qty = next;
+      }
+    }
+
+    // ── Which batch it rides on ──────────────────────────────────────────
+    let batch = null;
+    let batchChanged = false;
+    if (shipmentId !== undefined) {
+      const before = item.shipment ? String(item.shipment) : null;
+
+      if (shipmentId) {
+        batch = await Shipment.findById(shipmentId);
+        if (!batch) {
+          return res.status(404).json({ success: false, error: 'Shipment not found' });
+        }
+        item.shipment = batch._id;
+      } else {
+        item.shipment = null;
+      }
+
+      const after = item.shipment ? String(item.shipment) : null;
+      if (before !== after) {
+        batchChanged = true;
+        changes.push({
+          field: 'shipment',
+          label: 'Shipment batch',
+          before: before || '(none)',
+          after: batch ? batch.reference : '(none)',
+        });
+      }
+    }
+
+    if (!changes.length) {
+      return res.status(400).json({ success: false, error: 'Nothing to change.' });
+    }
+
+    // Totals are always recomputed server-side from the lines, the same way
+    // checkout builds them — never adjusted by a delta the client sent.
+    order.subtotal = order.items.reduce((sum, i) => sum + i.price * i.qty, 0);
+    order.total = Math.max(0, order.subtotal + (order.shippingFee || 0));
+
+    order.trackingHistory.push({
+      status: order.status,
+      note: `Pre-order updated: ${item.name} — ${changes.map((c) => `${c.label} ${c.before} → ${c.after}`).join(', ')}.`,
+      updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
+      timestamp: new Date(),
+    });
+
+    await order.save();
+
+    // The order's history shows the batch's journey, so moving it between
+    // batches (or off one) has to rewrite what the old batch wrote.
+    if (batchChanged) {
+      await syncPreorderJourney(batch, { _id: order._id });
+    }
+
+    await logFromRequest(req, {
+      action: ACTIONS.ORDER_UPDATED,
+      resourceType: RESOURCES.ORDER,
+      resourceId: order.orderNumber,
+      resourceName: order.orderNumber,
+      description: `Pre-order line updated on ${order.orderNumber} (${item.name})`,
+      changes,
+    });
+
+    const fresh = await Order.findById(order._id)
+      .populate('items.shipment', 'stage expectedArrival origin stageHistory reference name containerNumber');
+    const data = fresh.toObject();
+    data.preorder = buildPreorderTracking(fresh, { includeBatch: true });
+    data.items = (data.items || []).map((line) => ({
+      ...line,
+      shipment: line.shipment?._id || line.shipment || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data,
+      // What the change did to the money. Nothing has moved — a positive figure
+      // is owed by the customer, a negative one is owed back to them.
+      meta: { oldTotal, newTotal: order.total, difference: order.total - oldTotal },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * PATCH /api/v1/orders/:id/preorder-release — the stock has landed (admin/staff).
  *
  * This is the moment a pre-order becomes a normal line: stock moves, `sold`
@@ -1717,6 +1878,7 @@ const changeOrderAddress = async (req, res, next) => {
 module.exports = {
   createOrder,
   getPreorders,
+  updatePreorderLine,
   getPreorderCount,
   releasePreorder,
   getMyOrders,

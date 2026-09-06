@@ -482,3 +482,156 @@ describe("Pre-order holds internal tracking (T45)", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// The batch list moves a whole container; this is the other half — the one
+// customer who ordered two instead of three, or whose line went onto the wrong
+// container. Quantity is money on a paid pre-order, so the endpoint recomputes
+// the totals and reports the difference rather than moving anything.
+describe("Editing a waiting pre-order line (T45)", () => {
+  const Shipment = require("../models/Shipment");
+
+  const patchLine = (orderId, token, body) =>
+    request(app).patch(`/api/v1/orders/${orderId}/preorder-line`)
+      .set("Authorization", `Bearer ${token}`).send(body);
+
+  async function makeBatch(name = "March batch") {
+    await Shipment.ensureReferenceCounter();
+    return Shipment.create({
+      name,
+      reference: `SHP-TEST-${Date.now()}${Math.random().toString(36).slice(2, 5)}`,
+      stage: "production",
+      stageHistory: [{ stage: "production", date: new Date() }],
+    });
+  }
+
+  it("changes the quantity and recomputes the order's money", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 1);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 3 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.oldTotal).toBe(500000);
+    expect(res.body.meta.newTotal).toBe(1500000);
+    expect(res.body.meta.difference).toBe(1000000);
+    const fresh = await Order.findById(order._id);
+    expect(fresh.items[0].qty).toBe(3);
+    expect(fresh.subtotal).toBe(1500000);
+    expect(fresh.total).toBe(1500000);
+  });
+
+  it("reports money owed BACK when the quantity drops", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 3);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 1 });
+
+    expect(res.body.meta.difference).toBe(-1000000);
+  });
+
+  it("keeps the delivery fee in the recomputed total", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 1);
+    await Order.updateOne({ _id: order._id }, { $set: { shippingFee: 2500, total: 502500 } });
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    expect(res.body.meta.newTotal).toBe(1002500);
+  });
+
+  it("respects the per-product pre-order cap", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true, maxQty: 2 } });
+    const order = await makePaidPreorder(product, 1);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/limited to 2/);
+    expect((await Order.findById(order._id)).items[0].qty).toBe(1);
+  });
+
+  it("refuses a quantity below one", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 0 });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("moves a line onto a batch, and off one again", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    const batch = await makeBatch();
+
+    const on = await patchLine(order._id, token, {
+      itemId: order.items[0]._id.toString(), shipment: batch._id.toString(),
+    });
+    expect(on.status).toBe(200);
+    expect(String((await Order.findById(order._id)).items[0].shipment)).toBe(String(batch._id));
+
+    const off = await patchLine(order._id, token, {
+      itemId: order.items[0]._id.toString(), shipment: null,
+    });
+    expect(off.status).toBe(200);
+    expect((await Order.findById(order._id)).items[0].shipment).toBeNull();
+  });
+
+  it("clears the old batch's journey when the line comes off it", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    const batch = await makeBatch();
+    await patchLine(order._id, token, {
+      itemId: order.items[0]._id.toString(), shipment: batch._id.toString(),
+    });
+    expect((await Order.findById(order._id)).trackingHistory.some((e) => e.preorderStage)).toBe(true);
+
+    await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), shipment: null });
+
+    const fresh = await Order.findById(order._id);
+    expect(fresh.trackingHistory.some((e) => e.preorderStage)).toBe(false);
+    // The staff note recording the move survives.
+    expect(fresh.trackingHistory.some((e) => /Pre-order updated/.test(e.note))).toBe(true);
+  });
+
+  it("leaves a released line alone — that is a refund, not an edit", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 5, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+    await request(app).patch(`/api/v1/orders/${order._id}/preorder-release`)
+      .set("Authorization", `Bearer ${token}`);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/already been released/i);
+  });
+
+  it("records the change on the order's history", async () => {
+    const token = await staffToken();
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product, 1);
+
+    await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    const fresh = await Order.findById(order._id);
+    expect(fresh.trackingHistory.at(-1).note).toMatch(/Quantity 1 → 2/);
+  });
+
+  it("is closed to customers", async () => {
+    const token = await staffToken("user");
+    const product = await makeProduct({ stock: 0, preorder: { enabled: true } });
+    const order = await makePaidPreorder(product);
+
+    const res = await patchLine(order._id, token, { itemId: order.items[0]._id.toString(), qty: 2 });
+
+    expect(res.status).toBe(403);
+  });
+});
