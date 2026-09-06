@@ -1,4 +1,7 @@
 const mongoose = require('mongoose');
+// The customer-facing stage list lives on the Shipment model, which owns the
+// journey; deriving the enum from it is what stops the two drifting apart.
+const { CUSTOMER_STAGE_ORDER } = require('./Shipment');
 
 const orderSchema = new mongoose.Schema({
   orderNumber: {
@@ -331,7 +334,7 @@ const orderSchema = new mongoose.Schema({
     // sitting beside them survives untouched.
     preorderStage: {
       type: String,
-      enum: ['', 'preparing', 'on_the_way', 'in_ghana', 'at_shop'],
+      enum: ['', ...CUSTOMER_STAGE_ORDER],
       default: ''
     }
   }],

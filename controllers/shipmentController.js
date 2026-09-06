@@ -85,9 +85,9 @@ const createShipment = async (req, res, next) => {
       origin: origin ? sanitizeText(origin, 60) : 'China',
       containerNumber: containerNumber ? sanitizeText(containerNumber, 40) : undefined,
       expectedArrival: expectedArrival || null,
-      stage: 'ordered',
+      stage: SHIPMENT_STAGES[0],
       stageHistory: [{
-        stage: 'ordered',
+        stage: SHIPMENT_STAGES[0],
         note: note ? sanitizeText(note, 300) : '',
         date: new Date(),
         updatedBy: { name: req.user?.name || '', role: req.user?.role || '' },
@@ -182,8 +182,32 @@ const advanceShipmentStage = async (req, res, next) => {
     if (!shipment) {
       return res.status(404).json({ success: false, error: 'Shipment not found' });
     }
+    // Re-recording the stage a batch is already on is a CORRECTION, not a move:
+    // the date or the note was wrong. Refusing it would leave the opening stage
+    // permanently stamped with the day the batch row was created, which is
+    // rarely the day the goods actually went into production — and that stamp is
+    // the date the customer is shown.
     if (shipment.stage === stage) {
-      return res.status(400).json({ success: false, error: 'The shipment is already at that stage.' });
+      const entry = [...shipment.stageHistory].reverse().find((e) => e.stage === stage);
+      if (!entry) {
+        return res.status(400).json({ success: false, error: 'The shipment is already at that stage.' });
+      }
+      if (date) entry.date = new Date(date);
+      if (note !== undefined) entry.note = note ? sanitizeText(note, 300) : '';
+      entry.updatedBy = { name: req.user?.name || '', role: req.user?.role || '' };
+      await shipment.save();
+
+      const corrected = await syncPreorderJourney(shipment, waitingOn(shipment._id));
+      await logFromRequest(req, {
+        action: ACTIONS.ORDER_UPDATED,
+        resourceType: RESOURCES.ORDER,
+        resourceId: shipment.reference,
+        resourceName: shipment.name,
+        description: `Shipment ${shipment.reference} — ${stage} corrected`,
+        metadata: { stage, note: note || '', orders: corrected },
+      });
+
+      return res.status(200).json({ success: true, data: shipment });
     }
 
     // Moving BACK is a correction, not a move: someone clicked one stage too far,

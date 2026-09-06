@@ -16,7 +16,7 @@ const { normalizePhone } = require("../utils/phone");
 const { buildCustomerOrderFilter } = require("../utils/customerOrderMatch");
 const { applyRefundOutcome, mapPaystackRefundStatus } = require("../utils/refunds");
 const { sendPreorderReadyEmail, sendShopStatusEmail } = require("../utils/email");
-const { CUSTOMER_STAGES, customerStageHistory } = require("../models/Shipment");
+const { CUSTOMER_STAGES, STAGE_LABELS, customerStageHistory } = require("../models/Shipment");
 
 const paystackSecret = process.env.PAYSTACK_SECRET || process.env.PAYSTACK_KEY;
 let paystack;
@@ -593,8 +593,33 @@ function buildPreorderTracking(order, { includeBatch = false } = {}) {
     // Staff-only, and opt-in: which batch this is riding on is the first thing
     // support needs and the last thing a customer may see. The customer-facing
     // callers do not even SELECT these fields, so there is nothing to leak.
+    //
+    // Staff get the FULL internal journey here — all eight stages, their notes
+    // and who entered them — not the four-stage collapse below it. Someone
+    // answering "where is my phone?" needs to know the batch cleared customs on
+    // Tuesday and who to ask about it, and they need the batch's id to move it
+    // along without leaving the customer's order.
     ...(includeBatch && shipment
-      ? { batch: { reference: shipment.reference || '', name: shipment.name || '' } }
+      ? {
+        batch: {
+          id: String(shipment._id || ''),
+          reference: shipment.reference || '',
+          name: shipment.name || '',
+          containerNumber: shipment.containerNumber || '',
+          stage: shipment.stage || '',
+          stageLabel: STAGE_LABELS[shipment.stage] || '',
+          history: (shipment.stageHistory || []).map((e) => ({
+            stage: e.stage,
+            label: STAGE_LABELS[e.stage] || e.stage,
+            note: e.note || '',
+            date: e.date,
+            updatedBy: e.updatedBy?.name || '',
+            // Which of the four the customer was shown for this stage, so staff
+            // can see what their own update actually said to the customer.
+            customerLabel: CUSTOMER_STAGES[e.stage]?.label || '',
+          })),
+        },
+      }
       : {}),
     items: waiting.map((i) => ({ name: i.name, qty: i.qty })),
     stage: shipment ? CUSTOMER_STAGES[shipment.stage]?.key || null : null,
@@ -1095,7 +1120,7 @@ const getOrder = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate('deliveryZone')
-      .populate('items.shipment', 'stage expectedArrival origin stageHistory reference name');
+      .populate('items.shipment', 'stage expectedArrival origin stageHistory reference name containerNumber');
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }

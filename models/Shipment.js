@@ -10,59 +10,61 @@ const Counter = require('./Counter');
  * pre-order attached to it reflects the new position.
  */
 
-// The staff-facing journey, in order. Kept as a fixed list so a shipment's
-// position is comparable across batches — free text could not tell you which
-// shipments are late.
+// The journey, in order — the five milestones staff drive and customers see.
+// One list, not an operational list collapsing into a public one: staff record
+// the stage the customer is waiting to hear about, and the nuance behind it
+// ("cleared customs, awaiting release") belongs in that stage's note.
+//
+// Kept as a fixed list so a shipment's position is comparable across batches —
+// free text could not tell you which shipments are late.
 const SHIPMENT_STAGES = [
-  'ordered',         // order placed with the supplier
-  'production',      // supplier is making/assembling it
-  'ready_supplier',  // finished, sitting at the supplier's warehouse
-  'at_port_origin',  // delivered to the origin port, awaiting a container
-  'in_transit',      // sailing
-  'arrived_port',    // landed at the destination port (Tema)
-  'customs',         // clearing customs / duties
-  'at_shop',         // received at the shop — pre-orders can now be released
+  'production',           // being made by the supplier
+  'container_warehouse',  // made, at the container warehouse awaiting a container
+  'shipped',              // sailing
+  'port_ghana',           // landed at the port in Ghana (Tema), incl. customs
+  'at_shop',              // received at our warehouse — pre-orders can now be released
 ];
 
 const STAGE_LABELS = {
-  ordered:        'Ordered with supplier',
-  production:     'In production',
-  ready_supplier: 'Ready at supplier',
-  at_port_origin: 'At origin port',
-  in_transit:     'In transit',
-  arrived_port:   'Arrived at port',
-  customs:        'Clearing customs',
-  at_shop:        'Received at shop',
+  production:          'In production',
+  container_warehouse: 'At the container warehouse',
+  shipped:             'Shipped',
+  port_ghana:          'Arrived at the port in Ghana',
+  at_shop:             'Arrived at our warehouse',
 };
 
 /**
- * What a customer is shown. Eight operational stages collapse into four that mean
- * something to someone waiting: supplier detail, container numbers and internal
- * notes never cross this line.
+ * What a customer is shown for each stage — the same five, in warmer words.
+ *
+ * The map stays even though the keys now match one-to-one: it is the boundary
+ * that supplier names, container numbers, staff notes and staff identities do
+ * not cross, and the place to change the customer's wording without touching
+ * what staff work with.
+ *
+ * `at_shop` is the end of this road, not of the order — releasing the pre-order
+ * there is what starts the ordinary local delivery tracking.
  */
 const CUSTOMER_STAGES = {
-  ordered:        { key: 'preparing', label: 'Preparing with our supplier' },
-  production:     { key: 'preparing', label: 'Preparing with our supplier' },
-  ready_supplier: { key: 'preparing', label: 'Preparing with our supplier' },
-  at_port_origin: { key: 'on_the_way', label: 'On its way' },
-  in_transit:     { key: 'on_the_way', label: 'On its way' },
-  arrived_port:   { key: 'in_ghana',   label: 'Arrived in Ghana — clearing customs' },
-  customs:        { key: 'in_ghana',   label: 'Arrived in Ghana — clearing customs' },
-  at_shop:        { key: 'at_shop',    label: 'At our shop — preparing your order' },
+  production:          { key: 'production',          label: 'In production' },
+  container_warehouse: { key: 'container_warehouse', label: 'At the container warehouse' },
+  shipped:             { key: 'shipped',             label: 'Shipped — on its way to Ghana' },
+  port_ghana:          { key: 'port_ghana',          label: 'Arrived at the port in Ghana' },
+  at_shop:             { key: 'at_shop',             label: 'At our warehouse — preparing your order' },
 };
 
-// The four customer stages in order, so a position is comparable to a step index
+// The five customer stages in order, so a position is comparable to a step index
 // and a history can be sorted by where it sits on the journey rather than by the
 // eight-stage detail behind it.
-const CUSTOMER_STAGE_ORDER = ['preparing', 'on_the_way', 'in_ghana', 'at_shop'];
+const CUSTOMER_STAGE_ORDER = [
+  'production', 'container_warehouse', 'shipped', 'port_ghana', 'at_shop',
+];
 
 /**
  * The dated journey a customer may see, built from the staff `stageHistory`.
  *
- * Three staff stages collapse into "preparing", two into "in_ghana", so a batch
- * that moved ordered → production → ready_supplier reached "preparing" ONCE, on
- * the first of those dates. Keeping the earliest is what makes the date honest:
- * the later ones are internal detail about a stage the customer already saw.
+ * Stages map one-to-one now, so this mostly relabels — but it still keeps the
+ * EARLIEST date per stage, which is what makes a corrected batch honest: if a
+ * stage is recorded twice, the customer keeps the date they were first told.
  *
  * Notes and `updatedBy` are dropped rather than filtered later — supplier names,
  * container numbers and staff identities must not leave the building, and the
@@ -91,7 +93,7 @@ const shipmentSchema = new mongoose.Schema(
     containerNumber: { type: String, trim: true, maxlength: 40, uppercase: true },
     expectedArrival: { type: Date, default: null },
 
-    stage: { type: String, enum: SHIPMENT_STAGES, default: 'ordered' },
+    stage: { type: String, enum: SHIPMENT_STAGES, default: SHIPMENT_STAGES[0] },
     stageHistory: [{
       _id:   false,
       stage: { type: String, enum: SHIPMENT_STAGES, required: true },
