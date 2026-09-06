@@ -1366,6 +1366,23 @@ const updatePreorderLine = async (req, res, next) => {
   }
 };
 
+// Releasing hands goods over, so it may not happen before they are in the
+// country. Both stages that mean "in Ghana" qualify — at the port and at our
+// warehouse — because a customer collecting from us the day it clears customs
+// is a real thing the shop does.
+const IN_GHANA_STAGES = ['port_ghana', 'at_shop'];
+
+/**
+ * Where this order's waiting pre-order actually is, from whichever source
+ * drives it: the batch it rides on, or the line's own recorded stage.
+ */
+function currentPreorderStage(order) {
+  const waiting = (order?.items || []).filter((i) => i.isPreorder && !i.preorderReleasedAt);
+  const onBatch = waiting.find((i) => i.shipment?.stage);
+  if (onBatch) return onBatch.shipment.stage;
+  return waiting.find((i) => i.preorderStage)?.preorderStage || '';
+}
+
 /**
  * Fill every waiting pre-order line on this order: move what stock there is to
  * move, mark the lines released, and record it on the order. Does NOT save,
@@ -1438,7 +1455,9 @@ async function fillWaitingPreorderLines(order, actor = {}) {
  */
 const releasePreorder = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id);
+    // The batch's stage decides whether this may be released, so it has to come
+    // along — for a line riding on one, the batch is where the position lives.
+    const order = await Order.findById(req.params.id).populate('items.shipment', 'stage');
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
@@ -1454,6 +1473,21 @@ const releasePreorder = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'This order has no pre-order lines waiting to be released.',
+      });
+    }
+
+    // Goods still abroad cannot be handed to anyone. Releasing moves stock,
+    // counts the sale and tells the customer their item has arrived — all three
+    // are wrong while it is still on the water.
+    const stage = currentPreorderStage(order);
+    if (!IN_GHANA_STAGES.includes(stage)) {
+      return res.status(400).json({
+        success: false,
+        error: stage
+          ? `This pre-order has not reached Ghana yet — it is "${STAGE_LABELS[stage] || stage}". `
+            + 'Record it as arrived at the port, or at our warehouse, first.'
+          : 'This pre-order has no stage recorded yet, so nothing says the goods have arrived. '
+            + 'Record where it has got to first.',
       });
     }
 
