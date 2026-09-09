@@ -262,7 +262,9 @@ const getJobs = async (req, res, next) => {
 
     const [jobs, total] = await Promise.all([
       RepairJob.find(query)
-        .sort({ createdAt: -1 })
+        // `_id` breaks ties — several jobs booked in the same minute share a
+        // createdAt, and an unstable sort loses one between pages.
+        .sort({ createdAt: -1, _id: -1 })
         .skip(skip)
         .limit(limit)
         .populate('customer', 'name phone')

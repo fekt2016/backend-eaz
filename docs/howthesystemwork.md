@@ -1,6 +1,12 @@
 # How the EazWorld System Works
 
-A plain-English guide to the entire EazWorld platform.
+Organised by **journey**: what actually happens, step by step, from someone's
+first click to the money landing and the goods going out. Reference material
+(data models, security, file layout, environment) follows the flows.
+
+Rewritten 2026-09-07 from the code as it stands. The previous version was
+written before pre-orders were built out and described stages and rules that no
+longer exist — where the code and that text disagreed, the code won.
 
 ---
 
@@ -15,6 +21,8 @@ EazWorld is a **Ghana-based digital agency** that does five things:
 5. **Runs a blog and portfolio** to showcase their work
 
 Everything runs on one platform — customers browse, buy, and track everything from a single website.
+
+---
 
 ---
 
@@ -43,15 +51,6 @@ The system is split into two separate applications that talk to each other:
 
 ---
 
-## How Money Works
-
-**Everything is stored in pesewas (the smallest unit of Ghana Cedis).**
-
-- GH₵1.00 = 100 pesewas
-- A product priced at GH₵25.00 is stored as `2500` in the database
-- Money is only divided by 100 at the very last moment when showing it to a person
-- This avoids floating-point rounding errors that would give customers wrong totals
-
 ---
 
 ## User Roles
@@ -61,7 +60,7 @@ There are five types of users:
 | Role | What they can do |
 |------|-----------------|
 | **user** (customer) | Browse shop, buy products, track orders, manage cart |
-| **staff** | Handle customer chats, view orders (read-only), front desk duties |
+| **staff** | Run the shop day to day — orders, repair jobs, pre-order stages, counter sales, expenses, customer chats |
 | **technician** | Handle device repairs, update repair status |
 | **admin** | Full access — manage products, orders, refunds, hosting, domains, staff |
 | **superadmin** | Same as admin but can also manage other admins. The "owner" account |
@@ -70,213 +69,318 @@ The `superadmin` role automatically passes every permission check — they can d
 
 ---
 
-## Authentication (How Login Works)
+---
 
-1. **Register:** Customer signs up with name, email, phone, and password
-2. **Verify:** They receive a PIN code via email and enter it to verify their account
-3. **Login:** They enter email + password. If they have 2FA enabled, they also enter a second PIN
-4. **Session:** The server creates a **JWT token** (a short encrypted string) and saves it as an HTTP-only cookie called `token` in the browser. This cookie is sent with every request to prove "yes, I'm logged in"
-5. **Protected routes:** Any API route with the `protect` middleware checks this cookie. If it's missing or invalid, the request is rejected with a 401 error
-6. **Role-based access:** Some routes use `restrictTo('admin', 'staff')` to limit who can access them. The `superadmin` role passes all of these checks automatically
+## Before the flows: five things that apply everywhere
+
+**1. Money is stored in pesewas, never in cedis.** GH₵1.00 is stored as the
+number `100`. Nothing is ever a decimal, because decimals drift — add GH₵0.10
+three times in floating point and you get GH₵0.30000000000000004. Cedis appear
+only at the last moment, on screen.
+
+**2. Prices are always worked out on the server.** A phone or a browser can send
+anything it likes; the API ignores any price in the request and recomputes it
+from the product, the plan table, or the shipping rules. This is tested from the
+outside — one test sends `amount: 1` for a real hosting plan and checks the
+stored order still carries the full price.
+
+**3. Payment is Paystack**, taking cards and Mobile Money in cedis. Nothing is
+ever fulfilled because a *browser* said the payment worked. Paystack calls the
+API directly (a "webhook"), the API checks the message really came from Paystack
+using a signature, and only then does anything move.
+
+**4. Five kinds of account.** `superadmin` and `admin` see everything;
+`staff` run the shop day to day; `technician` works on repairs and is
+deliberately blocked from money and customer records; `user` is a customer.
+
+**5. Logging in** sets a cookie the browser can't read from JavaScript, which is
+what stops a stolen script from stealing a session.
 
 ---
 
-## The Shop & E-commerce System
+# Part 1 — What a customer does
 
-### Products
+## Flow 0: Creating an account and signing in
 
-Products live in the **Product** model. Each product has:
-- A name, slug (URL-friendly ID), description, price (in pesewas)
-- Images (uploaded to Cloudinary)
-- A category and stock count
-- Optional **variants** — e.g. a phone case might come in "Black" and "Blue", each with its own SKU, price, stock, and images
-- A `status` field: `active` (visible in shop), `draft` (hidden), or `archived`
+Buying does not need an account (see Flow 1), but tracking your own orders,
+hosting and domains does.
 
-### How Shopping Works
+1. They register with a name, a password, and **either an email or a phone
+   number**.
+2. A 6-digit PIN is sent to verify they own it — **by email if they registered
+   with an email, by SMS if they registered with a phone**. It expires in 15
+   minutes.
+3. They enter the PIN and the account is verified.
+4. Signing in takes their email/phone and password. If they've turned on
+   two-factor, a second PIN is sent and asked for.
+5. The server issues a token and stores it in a cookie the browser's JavaScript
+   cannot read — so a malicious script on the page cannot steal the session.
+   That cookie rides along with every later request.
+6. Protected endpoints reject a missing or invalid cookie with a 401. Endpoints
+   limited by role check it as well; `superadmin` passes every check.
 
-1. **Browse:** Customer visits `/shop` — the frontend fetches all active products from the API
-2. **Add to cart:** When they click "Add to Cart", the item goes into the **CartContext** (React state). If they're logged in, the cart is also saved to the database. If they're a guest, it's saved in the browser's localStorage
-3. **Cart persistence:** The cart is synced to the backend every time it changes (for logged-in users). On login, any localStorage items are merged into the database cart. On logout, localStorage is cleared
-4. **Checkout:** Customer fills in their details (name, phone, address) and clicks Pay
-5. **Payment:** The frontend calls the backend to initialize a Paystack payment. Paystack opens a popup where the customer enters their card or Mobile Money details
-6. **Confirmation:** After payment, Paystack sends a webhook to the backend. The backend verifies the signature, marks the order as "paid", deducts stock, and sends a confirmation email
-7. **Order tracking:** The customer gets an order number and can track their order at `/track-order`
+**Forgotten password:** they request a reset, get a link by email, and set a new
+one.
 
-### Shipping
+⚠️ **Email verification currently cannot complete.** No transactional email
+sends (see the last section), so anyone registering with an email address never
+receives a PIN. Registering with a phone number goes by SMS instead and is
+unaffected. Worth knowing before anyone tests sign-up.
 
-When the customer enters their delivery address, the system:
-1. Looks up which **shipping zone** the address falls into
-2. Checks which **shipping tier** the product belongs to (by weight)
-3. Calculates the shipping fee
-4. Shows the total (products + shipping) before payment
+## Flow 1: Buying something that's in stock
 
-Shipping can be done in two ways:
-- **In-house delivery** — EazWorld's own riders
-- **Courier dispatch** — third-party courier service
+1. They browse the shop and add items to a basket.
+2. At checkout they give a name, phone and delivery address. **No account is
+   needed** — this is guest checkout, because making people register to spend
+   money loses sales.
+3. They pick how it reaches them:
+   - **In-house delivery** — the shop's own rider
+   - **Courier dispatch** — a third-party courier
+   - **Bus station pickup** — the parcel goes to a station and the customer
+     collects it there
+   ...and a speed: standard, same-day, next-day or express.
+4. The API works out the delivery fee from the delivery zone, the weight of what
+   they bought, and the speed chosen. One file does this and only that file — so
+   a price can't quietly differ between two screens.
+5. They pay on Paystack, by card or Mobile Money.
+6. **Paystack tells the API the payment succeeded.** The API then, in one
+   step: marks the order paid, takes the items out of stock, and counts the
+   sale.
+7. The customer gets a tracking number and a confirmation email.
+8. Staff move the order along: **paid → processing → shipped → delivered**. Each
+   move can carry a note and a location ("Handed to courier, Accra depot"), and
+   the customer sees the whole history.
 
-### Stock Management
+**If they change their mind:** an admin can refund. The money goes back through
+Paystack and the stock returns to the shelf.
 
-- Stock is deducted when an order is paid
-- If an order is cancelled, stock is restored
-- **Preorders** are items the customer buys before they're in stock — they pay now, but stock isn't deducted until the item arrives and staff "releases" it
-- The system tracks whether stock was deducted/restored to prevent double-restocking
+## Flow 2: Buying a pre-order — goods that don't exist yet
+
+This is for stock coming from China that hasn't been made, let alone shipped.
+The customer pays **in full, up front**, and then waits — sometimes months.
+
+1. A product (or one colour/size of it) is marked as available to pre-order,
+   optionally with a limit per customer.
+2. The customer buys it exactly like anything else and pays in full.
+3. **Nothing leaves stock**, because there is no stock. The line is marked as a
+   pre-order and joins a waiting queue.
+4. **The order is frozen.** Staff cannot mark it processing, shipped or
+   delivered — there are no goods to pack. They can still cancel it, because a
+   customer must be able to walk away while their goods are still at sea.
+5. Staff record where the goods have got to, as they get there. Five stages:
+
+   | Stage | What the customer reads |
+   |---|---|
+   | 1 | In production |
+   | 2 | At the container warehouse |
+   | 3 | Shipped — on its way to Ghana |
+   | 4 | Arrived at the port in Ghana |
+   | 5 | At our warehouse — preparing your order |
+
+6. Each stage is stamped with the time it was saved and can carry a **message
+   for the customer** — "Held at the port, about three more days". That message
+   is shown to them. What is never shown: which staff member recorded it, the
+   container number, or the supplier.
+7. **The customer sees only stages that have actually been recorded.** The road
+   ahead is not drawn. (It used to be, and people read five drawn steps as five
+   things that had already happened.)
+8. When it reaches **"At our warehouse"**, the order **releases itself**: it
+   leaves the waiting queue, the customer is emailed that their item has
+   arrived, and normal delivery tracking opens up. Everything in Flow 1 from
+   step 8 then applies.
+
+**Two rules worth knowing:**
+- **Release is blocked until the goods are in Ghana.** Releasing tells a
+  customer their item has arrived; doing that while it's on the water would be a
+  lie.
+- **Releasing doesn't need the item to be in stock**, because a pre-ordered unit
+  never was. It arrives *for that customer* and goes straight back out. If the
+  container *was* booked into stock first, release takes one off the shelf
+  instead. Both are handled.
+
+**Optional: shipping batches.** If one container carries twenty customers'
+pre-orders, staff can create a *batch*, attach those orders to it, and move the
+batch once — all twenty customers update together. This is an efficiency, never
+a requirement. A single pre-order needs no batch at all.
+
+## Flow 3: Checking on an order
+
+Three ways in, all showing the same story:
+
+- The **tracking number** from the confirmation email
+- **Order number + phone number**
+- The **confirmation link** they landed on after paying
+
+They see the status history, and for a pre-order, the stages recorded so far
+with dates and any message staff wrote. Public lookups deliberately hide most of
+the order — name and phone are partly masked, and money and item details are
+trimmed — because a tracking link can be forwarded.
+
+## Flow 4: Bringing in a device for repair
+
+1. The customer walks in. Staff create a repair job: who they are, what the
+   device is, what's wrong with it.
+2. The job gets a **private tracking link** the customer can use from home.
+3. The job moves through: **received → diagnosing → waiting for parts →
+   repairing → ready → collected**. (Or cancelled.)
+4. Parts used are recorded against the job and come out of stock.
+5. Payment can be taken in pieces — a deposit now, the balance on collection —
+   in cash, Mobile Money or by card. **The parts leave stock once**, on the
+   first payment, however many payments there are.
+6. When it's ready the customer is told, collects, and the job closes.
+
+## Flow 5: Paying a repair bill from home
+
+1. The customer opens their tracking link and sees what's outstanding.
+2. They enter their phone number. **It must match the number on the job** —
+   that's the only thing standing between a guessed link and someone else's
+   repair record.
+3. They pay the balance on Paystack. **The amount is worked out from the job**,
+   never taken from the request, so a crafted request can't settle a GH₵500
+   repair for one pesewa.
+
+## Flow 6: Registering a domain
+
+1. They search for a name. The API asks Namecheap whether it's free and what it
+   costs wholesale, converts to cedis using an **admin-editable exchange rate
+   and markup**, and shows a price.
+2. `.gh` and `.com.gh` are refused before any lookup — those are
+   registry-restricted and the shop can't sell them.
+3. They pay. On confirmation the API registers the domain with Namecheap and it
+   appears under their account.
+4. If registration fails after payment, staff can retry it — the money is
+   already in, so the order isn't lost.
+
+⚠️ **Registration has never been proven end to end.** The registrar is live but
+this path should be tested in Namecheap's sandbox before anyone relies on it.
+
+## Flow 7: Buying hosting
+
+1. They pick a plan. **Only plans the shop can actually deliver are sellable:**
+   shared and WordPress are instant; VPS is quote-only and points at an enquiry;
+   cloud and email can't be bought at all. This is enforced by the API, not just
+   hidden in the storefront — otherwise a stale page could sell a server nobody
+   could build.
+2. They pay by card, Mobile Money or bank transfer. (Bank transfer means
+   uploading proof, which an admin verifies.)
+3. Once paid, the API creates the cPanel account automatically through WHM and
+   emails the login details.
+4. Renewals reprice from the current plan table, not from what the original cost
+   — so an old price or a one-off domain fee doesn't get charged again.
+
+## Flow 8: Asking for a consultation or a website
+
+A form: name, email, phone, business, what they need. It's stored, the customer
+gets an acknowledgement, and staff get an alert. Staff then work it in the
+dashboard. Bigger jobs become **service orders**, which have their own life:
+pending → paid → in progress → completed.
+
+## Flow 9: Chatting on the website
+
+1. The chat widget answers using **Claude** — it knows the shop's services,
+   prices and past work.
+2. If the customer asks for a person, or the bot can't help, the chat is
+   **escalated**: the bot stops answering and it waits for a human.
+3. Staff see waiting chats in the dashboard, claim one, and reply. The widget
+   checks for replies every few seconds.
+4. When the chat is closed, the customer is asked to rate it once.
+
+## Flow 10: Leaving a review
+
+Reviews are tied to a **verified purchase** — the API checks the person actually
+bought the thing, and that they haven't already reviewed it. Reviews are
+approved before they show.
 
 ---
 
-## Hosting & Domain Registration
+# Part 2 — What staff do
 
-### Hosting Plans
+## Flow 11: Working the shop orders
 
-EazWorld sells web hosting on a VPS (Virtual Private Server) managed through WHM (Web Host Manager). Plans include:
+The order list is the day's work. It shows what's paid and waiting, and carries
+a **count of pre-orders waiting on stock** so nobody has to remember to look.
 
-- **Shared hosting** (Deluxe, Premium, Business, Enterprise)
-- **VPS hosting** (Starter, Pro, Business, Enterprise)
-- **Cloud hosting** (various tiers)
-- **WordPress hosting** (managed WordPress)
-- **Email hosting** (standalone email)
+On one order, staff can: move its status, add a tracking note, change the
+delivery address (which recalculates the fee and records the difference), and —
+for admins — refund it.
 
-Prices are stored in USD and converted to GH₵ using a configurable exchange rate. Annual billing gives 2 months free (charged as 10 months).
+**On a held pre-order** the status buttons and the tracking form are hidden
+entirely rather than shown greyed out: there is nothing useful to do until the
+goods arrive. Cancel stays available. A **delivered or cancelled** order hides
+both too — its history is the finished record.
 
-### How Hosting Orders Work
+## Flow 12: Running the repair counter
 
-1. Customer picks a hosting plan and billing cycle (monthly/annual)
-2. They pay via Paystack
-3. The backend creates a **HostingOrder** record
-4. A provisioning job runs automatically and:
-   - Creates a cPanel account on the VPS via the WHM API
-   - Sets up the hosting package
-   - Sends the customer their hosting credentials via email
+Create jobs, move them along, add parts, take payments, print receipts. A
+technician can update the work but **cannot change money fields** — labour,
+diagnosis fee and deposits are read-only to them, so a bill can't be quietly
+reduced.
 
-### Domain Registration
+## Flow 13: Selling over the counter
 
-Domains are registered through **Namecheap** (a domain registrar). The flow:
+A straight POS sale: scan or search a part, add it, take payment, print a
+receipt. Stock comes down as it sells. Each sale gets its own number, and those
+numbers stay unique even when two tills ring up at the same instant.
 
-1. Customer searches for a domain (e.g. `mybusiness.com`)
-2. The backend queries Namecheap's API to check availability
-3. Domain pricing is defined in `config/domainPricing.js` (USD prices converted to GH₵ with a markup)
-4. Customer pays for the domain + hosting together
-5. The backend registers the domain with Namecheap and sets EazWorld's nameservers
+## Flow 14: Recording expenses
 
-**Note:** `.gh` and `.com.gh` domains cannot be registered through us — they are registry-restricted by ghNIC and listed as unsupported. `.africa` is available again since the move to Namecheap.
+Staff record what the shop spends. Who recorded it decides who can see it.
 
----
+## Flow 15: Provisioning hosting by hand
 
-## Device Repair Tracking
-
-EazWorld runs an in-store repair shop. Here's how it works:
-
-### POS (Point of Sale) System
-
-Staff use a dedicated POS interface at `/dashboard/pos` to:
-- Create repair jobs for customers
-- Track repair status (received → diagnosed → in-progress → completed → picked-up)
-- Process payments for repairs
-- Manage parts inventory
-- Look up customers by phone number
-
-### Customer Repair Tracking
-
-1. When a repair job is created, the customer gets a **tracking token** (a unique URL)
-2. They can visit `/track/{token}` to see the current status of their repair
-3. They don't need to log in — the token is their proof of identity
-4. Staff update the status as the repair progresses, and the customer sees it in real-time
+Some orders don't provision themselves — bank transfers awaiting verification,
+or a plan needing manual setup. There's a queue for those, so a paying customer
+never sits invisible.
 
 ---
 
-## Live Chat System
+# Part 3 — What happens without anyone clicking
 
-EazWorld has a real-time chat system where customers can talk to staff.
+## Flow 16: The payment webhook
 
-### How It Works
+The most important piece of plumbing in the system.
 
-1. **Customer initiates chat:** A customer opens the chat widget (bottom-right corner) and types a message. This creates a **ChatSession** with the customer's message
-2. **Bot mode:** Initially, the chat is in "bot mode" — the customer's messages are just logged
-3. **Requesting a human:** The customer can click "Talk to a human" which sends a request
-4. **Staff picks it up:** Staff members see the pending request in their chat console (`/dashboard/chats`). They click "Accept" to claim the conversation
-5. **Live conversation:** Staff and customer can now exchange messages in real-time (polled every few seconds)
-6. **Resolve:** When the conversation is done, the staff member clicks "Resolve" to end the chat
-7. **Rating:** After the chat ends, the customer can rate their experience (1-5 stars)
+1. Paystack sends a message saying a payment succeeded.
+2. The API **checks the signature** to prove it came from Paystack.
+3. It looks up the reference to find what was paid for — a hosting order, a
+   domain, a service, a shop order, or a repair balance.
+4. It fulfils that one thing.
 
-### Staff Chat Console
+Two properties matter. **It can't be tricked**: an unsigned or wrongly-signed
+message is refused. And **it can't double-fulfil**: if Paystack sends the same
+message twice (which it does), the second one changes nothing — the stock only
+moves once.
 
-- Staff see all **open** (unresolved) chats
-- Admins can also see **resolved** chats (for quality review)
-- Multiple chats can be open at once — each one opens in a separate draggable modal
-- Staff can claim, reply to, and resolve chats
-- Only admins can **reopen** a resolved chat or **delete** a chat record
+## Flow 17: The scheduled jobs
 
-### Roles in Chat
+Four run on the server's schedule, not inside the app: renewal reminders,
+uncollected-device reminders, publishing scheduled blog posts, and reconciling
+refunds.
 
-| Role | Can see chats | Can reply | Can resolve | Can reopen | Can delete |
-|------|:---:|:---:|:---:|:---:|:---:|
-| Staff | Yes (open only) | Yes | Yes | No | No |
-| Admin | Yes (all) | Yes | Yes | Yes | Yes |
-| Superadmin | Yes (all) | Yes | Yes | Yes | Yes |
+They're scheduled **outside** the app on purpose. The hosting idles the app when
+nobody's using the site, and an idled app runs no timers — so a quiet night used
+to mean reminders never sent, with nothing in the logs to say so.
 
 ---
 
-## The Dashboard
+# Part 4 — Things that are true today and worth knowing
 
-The dashboard (`/dashboard`) is the staff/admin control center. Different roles see different things:
+**Transactional email has never worked.** The sender address is a test one and
+the domain isn't verified, so every "we've emailed the customer" step above
+currently writes a log entry and sends nothing. Fixing this is one DNS change
+and one config value, and it silently blocks a lot of the flows above.
 
-### Customer Dashboard
-- Order history
-- Hosting management
-- Domain management
-- Settings (profile, password)
+**Delivery pricing by distance is built but switched off.** It needs billing
+enabled on a Google Cloud project and the Routes API turned on.
 
-### Staff Dashboard
-- Chat console
-- Order viewing
-- Repair tracking
+**Domain registration is unproven end to end** (see Flow 6).
 
-### Admin/Superadmin Dashboard
-Everything above, plus:
-- Product management (add/edit/delete products)
-- Order management (update status, process refunds)
-- Commerce settings (shipping zones, delivery charges)
-- Hosting management (create accounts, manage plans)
-- Domain management
-- User management
-- Sales reports and analytics
-- Activity logs (who did what)
-- Notifications
-- Settings
-
-### POS (Point of Sale) Dashboard
-A separate interface for the physical store:
-- Sell products in person
-- Create repair jobs
-- Process payments (card, cash, MoMo)
-- View daily/weekly/monthly sales reports
-- Manage customers
-- Manage parts inventory
+**Payments are one-way for corrections.** Cancelling a paid order does *not*
+refund it, and changing a pre-order's quantity doesn't move money either — both
+report what's owed and leave the settlement to a human. That's deliberate, but
+it means someone has to actually do it.
 
 ---
-
-## Payments (Paystack)
-
-All online payments go through **Paystack**, a payment processor popular in Ghana.
-
-### How Payment Works
-
-1. **Initialize:** Frontend sends the order total to the backend
-2. **Backend calls Paystack:** Creates a payment session and gets back an authorization URL
-3. **Customer pays:** A Paystack popup opens in the browser. The customer enters their card details or selects Mobile Money
-4. **Webhook:** After payment succeeds, Paystack sends a POST request to `/api/webhooks/paystack` with a cryptographic signature
-5. **Verify:** The backend verifies the signature (to make sure it's really Paystack), then:
-   - Marks the order as "paid"
-   - Deducts product stock
-   - Sends a confirmation email
-   - Creates an activity log entry
-
-### Refunds
-
-Admins can process full or partial refunds through Paystack. The system:
-- Records the refund status on the order
-- Sends a refund request to Paystack
-- Restores stock if it was a full refund
-- Logs the refund in the activity log
 
 ---
 
@@ -319,6 +423,8 @@ Here's a simplified list of all the data the system manages:
 
 ---
 
+---
+
 ## Security
 
 The system has multiple layers of security:
@@ -333,6 +439,8 @@ The system has multiple layers of security:
 8. **Password hashing:** Passwords are hashed with bcrypt before storage
 9. **Input validation:** Zod schemas validate user input on key endpoints
 10. **Webhook verification:** Paystack webhooks are verified with HMAC signatures
+
+---
 
 ---
 
@@ -364,6 +472,8 @@ eazworld/
 
 ---
 
+---
+
 ## Environment Variables
 
 The backend needs these key environment variables:
@@ -384,20 +494,16 @@ The backend needs these key environment variables:
 
 ---
 
-## How a Typical Customer Journey Works
-
-1. **Ama visits eazworld.co** → sees the homepage with services, testimonials, recent products
-2. **She browses the shop** → sees phone cases, cables, accessories with prices in GH₵
-3. **She adds items to cart** → cart saves to her browser (localStorage) and to the database (if logged in)
-4. **She goes to checkout** → enters her name, phone, and delivery address in Accra
-5. **She sees the total** → product prices + shipping fee calculated for her area
-6. **She pays with Mobile Money** → Paystack popup opens, she enters her MoMo number
-7. **Payment succeeds** → Paystack notifies the backend, order is created, stock is deducted
-8. **She gets a confirmation email** → with her order number and estimated delivery
-9. **She can track her order** → at `/track-order` using her order number
-10. **Meanwhile, admin sees the order** → in the dashboard, processes it, ships it, adds tracking number
-11. **She gets shipping updates** → email with tracking number, can follow the package
-
 ---
 
-*Last updated: August 2026*
+## Keeping this document honest
+
+Every flow above was read out of the code, not from memory or from the previous
+version of this file. `FLOWS.md` at the monorepo root is the same content
+without the reference sections.
+
+When a flow changes, change it here too — a document that quietly goes stale is
+worse than no document, because people trust it. The last version described a
+pre-order journey that no longer existed, and nothing flagged that.
+
+*Last rewritten: September 2026*

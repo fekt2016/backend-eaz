@@ -12,7 +12,9 @@ const getNotifications = async (req, res, next) => {
 
     const [items, total] = await Promise.all([
       Notification.find(filter)
-        .sort({ createdAt: -1 })
+        // `_id` breaks ties — notifications are written in bursts by the same
+        // event, so they share a createdAt more often than not.
+        .sort({ createdAt: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
         .lean(),

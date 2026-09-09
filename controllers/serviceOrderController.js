@@ -152,7 +152,9 @@ const getServiceOrders = async (req, res, next) => {
     const page  = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const orders = await ServiceOrder.find(query)
-      .sort({ createdAt: -1 })
+      // `_id` breaks ties — see productController's list for why an unstable
+      // sort loses rows between pages.
+      .sort({ createdAt: -1, _id: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
     const total = await ServiceOrder.countDocuments(query);
