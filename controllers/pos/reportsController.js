@@ -2,6 +2,23 @@ const {
   mongoose, crypto, Paystack, PosCustomer, RepairJob, Product, PosPayment, PartOrder, RepairOrder, Order, DeliveryZone, Sale, User, Expense, Supplier, sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, deductPartStock, cloudinary, streamifier, notifyCustomer, sendCredentialsSms, sendAccountCreatedEmail, log, logFromRequest, buildChanges, ACTIONS, RESOURCES, escapeRegex, normalizePhone, paystack, FRONTEND_URL, ACTIVE_JOB_STATUSES, REVENUE_ORDER_STATUSES, EXPENSE_CATEGORIES, MOMO_PROVIDERS, computeJobBalancePesewas, deductJobPartsOnce, generatePassword, findTechnicianToAssign, asInventoryItem, formatDateOnly, pctChange
 } = require('./common');
 
+/*
+ * Not re-exported by ./common — required directly. Hosting and domain sales are
+ * revenue like any other, and "Total Revenue" on the dashboard is meant to be
+ * every transaction in the app.
+ *
+ * Both read `amountPesewas`, never the legacy `price`/`amount` fields: those
+ * predate the pesewas split and their units are ambiguous (see T44). Rows with
+ * a null amountPesewas contribute 0 rather than corrupting the total.
+ */
+const DomainOrder  = require('../../models/DomainOrder');
+const HostingOrder = require('../../models/HostingOrder');
+
+// A domain is revenue once registered; hosting once paid for — 'suspended' was
+// still paid, 'cancelled'/'terminated'/'failed' were not fulfilled.
+const REVENUE_DOMAIN_STATUSES  = ['completed'];
+const REVENUE_HOSTING_STATUSES = ['paid', 'active', 'suspended'];
+
 const getOverview = async (req, res, next) => {
   try {
     const today = new Date();
@@ -14,9 +31,23 @@ const getOverview = async (req, res, next) => {
     const rangeEnd   = to   ? new Date(new Date(to).setHours(23, 59, 59, 999)) : null;
     const rangeMatch = rangeStart && rangeEnd ? { createdAt: { $gte: rangeStart, $lte: rangeEnd } } : {};
 
+    /*
+     * Revenue on this dashboard used to be PosPayment only — repair payments.
+     * That silently omitted counter sales (Sale) and every storefront order
+     * (Order), so "Total Revenue" read far below what the shop actually took,
+     * and netProfit inherited the same shortfall. getReportsAnalytics has
+     * always summed all three; these aggregates mirror it so the dashboard and
+     * the Reports page can no longer disagree.
+     */
+    const saleMatch  = Object.keys(rangeMatch).length ? rangeMatch : {};
+    const orderMatch = { ...(Object.keys(rangeMatch).length ? rangeMatch : {}),
+                         status: { $in: REVENUE_ORDER_STATUSES } };
+
     const [
       totalJobs, todayJobs, pendingJobs, readyJobs,
       totalCustomers, todayPayments, allPayments, lowStockCount,
+      todaySales, allSales, todayOrders, allOrders,
+      allDomains, allHosting, domainCount, hostingCount,
     ] = await Promise.all([
       RepairJob.countDocuments(),
       RepairJob.countDocuments({ createdAt: { $gte: today, $lt: tomorrow } }),
@@ -32,6 +63,32 @@ const getOverview = async (req, res, next) => {
         { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
       ]),
       Product.countDocuments({ lowStockThreshold: { $gt: 0 }, $expr: { $lte: ['$stock', '$lowStockThreshold'] } }),
+      Sale.aggregate([
+        { $match: { createdAt: { $gte: today, $lt: tomorrow } } },
+        { $group: { _id: null, total: { $sum: '$total' } } },
+      ]),
+      Sale.aggregate([
+        { $match: saleMatch },
+        { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
+      ]),
+      Order.aggregate([
+        { $match: { createdAt: { $gte: today, $lt: tomorrow }, status: { $in: REVENUE_ORDER_STATUSES } } },
+        { $group: { _id: null, total: { $sum: '$total' } } },
+      ]),
+      Order.aggregate([
+        { $match: orderMatch },
+        { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
+      ]),
+      DomainOrder.aggregate([
+        { $match: { ...(Object.keys(rangeMatch).length ? rangeMatch : {}), status: { $in: REVENUE_DOMAIN_STATUSES } } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$amountPesewas', 0] } }, count: { $sum: 1 } } },
+      ]),
+      HostingOrder.aggregate([
+        { $match: { ...(Object.keys(rangeMatch).length ? rangeMatch : {}), status: { $in: REVENUE_HOSTING_STATUSES } } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$amountPesewas', 0] } }, count: { $sum: 1 } } },
+      ]),
+      DomainOrder.countDocuments({ status: { $in: REVENUE_DOMAIN_STATUSES } }),
+      HostingOrder.countDocuments({ status: { $in: REVENUE_HOSTING_STATUSES } }),
     ]);
 
     // Daily revenue for the range (or last 30 days)
@@ -131,7 +188,20 @@ const getOverview = async (req, res, next) => {
     ]);
 
     const totalExpenses = expenseTotal[0]?.total || 0;
-    const totalRevenue  = allPayments[0]?.total  || 0;
+
+    // Same three sources, and the same order, as getReportsAnalytics.
+    const repairRevenue    = allPayments[0]?.total || 0;
+    const posSalesRevenue  = allSales[0]?.total    || 0;
+    const shopOrderRevenue = allOrders[0]?.total   || 0;
+    const domainRevenue    = allDomains[0]?.total  || 0;
+    const hostingRevenue   = allHosting[0]?.total  || 0;
+    const totalRevenue = repairRevenue + posSalesRevenue + shopOrderRevenue +
+                         domainRevenue + hostingRevenue;
+
+    const todayRevenue =
+      (todayPayments[0]?.total || 0) +
+      (todaySales[0]?.total    || 0) +
+      (todayOrders[0]?.total   || 0);
 
     res.json({
       success: true,
@@ -142,9 +212,19 @@ const getOverview = async (req, res, next) => {
           pendingJobs,
           readyJobs,
           totalCustomers,
-          todayRevenue:  todayPayments[0]?.total  || 0,
+          todayRevenue,
           totalRevenue,
-          totalPayments: allPayments[0]?.count    || 0,
+          // Breakdown so the tile can be explained without opening Reports.
+          repairRevenue,
+          posSalesRevenue,
+          shopOrderRevenue,
+          domainRevenue,
+          hostingRevenue,
+          domainCount,
+          hostingCount,
+          totalPayments: (allPayments[0]?.count || 0) +
+                         (allSales[0]?.count    || 0) +
+                         (allOrders[0]?.count   || 0),
           lowStockCount,
           totalExpenses,
           netProfit:     totalRevenue - totalExpenses,
