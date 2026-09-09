@@ -687,15 +687,31 @@ const getWarrantyJobs = async (req, res, next) => {
 
 const getMyRepairs = async (req, res, next) => {
   try {
+    /*
+     * Paginated: this used to return a hard `.limit(50)` and no total, so a
+     * customer with more than 50 repairs simply could not reach the rest, and
+     * the page had no way to know more existed. Same { data, total } shape and
+     * the same 10-per-page default as getJobs.
+     *
+     * `_id` breaks ties in the sort — jobs created in the same second otherwise
+     * order arbitrarily and a row can repeat across pages or be skipped.
+     */
+    const { page, limit, skip } = paginate(req.query);
+    const SELECT = 'jobNumber deviceBrand deviceModel status createdAt estimatedCompletion trackingToken';
+
     // Staff-side roles see every repair job; customers only see their own,
     // matched by the phone (and/or email) linked to their login account.
     if (['superadmin', 'admin', 'staff', 'technician'].includes(req.user.role)) {
-      const jobs = await RepairJob.find({})
-        .sort({ createdAt: -1 })
-        .limit(50)
-        .select('jobNumber deviceBrand deviceModel status createdAt estimatedCompletion trackingToken')
-        .lean();
-      return res.json({ success: true, data: jobs });
+      const [jobs, total] = await Promise.all([
+        RepairJob.find({})
+          .sort({ createdAt: -1, _id: -1 })
+          .skip(skip)
+          .limit(limit)
+          .select(SELECT)
+          .lean(),
+        RepairJob.countDocuments({}),
+      ]);
+      return res.json({ success: true, data: jobs, total, page });
     }
 
     const or = [];
@@ -714,18 +730,23 @@ const getMyRepairs = async (req, res, next) => {
       }
       or.push({ phone: { $in: [...variants] } });
     }
-    if (!or.length) return res.json({ success: true, data: [] });
+    if (!or.length) return res.json({ success: true, data: [], total: 0, page });
 
     const customers = await PosCustomer.find({ $or: or }).select('_id').lean();
-    if (!customers.length) return res.json({ success: true, data: [] });
+    if (!customers.length) return res.json({ success: true, data: [], total: 0, page });
 
     const ids = customers.map((c) => c._id);
-    const jobs = await RepairJob.find({ customer: { $in: ids } })
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .select('jobNumber deviceBrand deviceModel status createdAt estimatedCompletion trackingToken')
-      .lean();
-    res.json({ success: true, data: jobs });
+    const mine = { customer: { $in: ids } };
+    const [jobs, total] = await Promise.all([
+      RepairJob.find(mine)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select(SELECT)
+        .lean(),
+      RepairJob.countDocuments(mine),
+    ]);
+    res.json({ success: true, data: jobs, total, page });
   } catch (err) { next(err); }
 };
 
