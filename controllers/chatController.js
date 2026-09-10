@@ -142,7 +142,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Pricing
-  if (/\b(pric(e|ing|es)|cost|how much|fee|rates?|charges?|package)\b/.test(msg)) {
+  if (/\b(pric(e|ing|es)|costs?|how much|fees?|rates?|charges?|packages?|quotes?|budget)\b/.test(msg)) {
     const list = knowledge.services.map(s => `• **${s.name}** — ${s.price}`).join('\n');
     return {
       text: `Here's a summary of our pricing:\n\n${list}\n\nAll prices are in Ghana Cedis. Want a custom quote for your project?`,
@@ -151,7 +151,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Web design
-  if (/\b(web(site)?|web design|web dev|landing page|ecommerce|e-commerce|online store)\b/.test(msg)) {
+  if (/\b(web ?sites?|web ?designs?|web dev|landing pages?|ecommerce|e-commerce|online stores?)\b/.test(msg)) {
     return {
       text: `Our **Web Design & Development** service includes:\n\n• Custom design tailored to your brand\n• Mobile-responsive & fast\n• SEO-ready from day one\n• Most websites live within 2 weeks\n• Starting from **GHS 1,500**\n\nWant to see examples of our work?`,
       suggestions: ['View Portfolio', 'Book Consultation', 'Get a Quote', 'See Pricing'],
@@ -159,7 +159,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // SEO
-  if (/\b(seo|search engine|google ranking|rank|organic traffic|keywords?)\b/.test(msg)) {
+  if (/\b(seo|search engines?|google ranking|ranks?|ranking|rankings|organic traffic|keywords?)\b/.test(msg)) {
     return {
       text: `Our **SEO** service helps you rank higher on Google and get more organic traffic:\n\n• Local SEO — **GHS 800/month**\n• Business SEO — **GHS 2,000/month**\n\nAll plans include keyword research, on-page optimisation, and monthly reports.\n\nWe specialise in Ghanaian businesses — we know the local market!`,
       suggestions: ['SEO Pricing', 'Book Consultation', 'Paid Ads Instead'],
@@ -167,7 +167,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Paid ads
-  if (/\b(paid ads?|google ads?|meta ads?|facebook ads?|instagram ads?|advertising|ppc|campaign)\b/.test(msg)) {
+  if (/\b(paid ads?|google ads?|meta ads?|facebook ads?|instagram ads?|advertising|ppc|campaigns?)\b/.test(msg)) {
     return {
       text: `Our **Paid Advertising** service runs Google & Meta campaigns targeted to your audience:\n\n• Ads Starter — **GHS 800/month** (management fee)\n• Ads Business — **GHS 2,000/month** (management fee)\n\n*Note: Ad spend budget is separate and paid directly to Google/Meta.*`,
       suggestions: ['Paid Ads Pricing', 'Book Consultation', 'SEO Instead'],
@@ -175,7 +175,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Branding
-  if (/\b(brand(ing)?|logo|identity|design|visual)\b/.test(msg)) {
+  if (/\b(brands?|branding|logos?|identity|designs?|visuals?)\b/.test(msg)) {
     return {
       text: `Our **Branding** packages are one-time projects:\n\n• Logo Only — **GHS 500**\n• Brand Starter — **GHS 1,500** ⭐ Most Popular\n• Brand Premium — **GHS 3,500**\n\nAll packages include multiple revisions and final files in all formats.`,
       suggestions: ['Branding Pricing', 'Book Consultation', 'Web Design Too'],
@@ -183,7 +183,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Social media
-  if (/\b(social media|instagram|facebook|twitter|tiktok|content creation|posting)\b/.test(msg)) {
+  if (/\b(social media|instagram|facebook|twitter|tiktok|content creation|posting|posts?)\b/.test(msg)) {
     return {
       text: `Our **Social Media Management** service keeps your brand active and growing:\n\n• Social Starter — **GHS 600/month**\n• Social Business — **GHS 1,500/month**\n\nIncludes content creation, scheduling, community management, and monthly analytics.`,
       suggestions: ['Social Media Pricing', 'Book Consultation', 'Email Marketing Too'],
@@ -191,10 +191,26 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Email marketing
-  if (/\b(email marketing|newsletter|mailchimp|campaign|subscribers?)\b/.test(msg)) {
+  if (/\b(email marketing|newsletters?|mailchimp|subscribers?)\b/.test(msg)) {
     return {
       text: `Our **Email Marketing** service turns subscribers into buyers:\n\n• Email Starter — **GHS 500/month**\n• Email Business — **GHS 1,200/month**\n\n*Note: Platform subscription (Mailchimp etc.) is paid separately.*`,
       suggestions: ['Email Pricing', 'Book Consultation', 'Social Media Too'],
+    };
+  }
+
+  // Shop / e-commerce
+  //
+  // There was no rule for this at all, so "do you sell laptops?" — the shop is
+  // half the business — fell through to the catch-all "I'm not quite sure".
+  //
+  // Sits after the service intents on purpose: "online store" and "ecommerce"
+  // are web-design enquiries and must match there first. Deliberately carries no
+  // repair words ("fix", "screen", "broken"), so a repair question still reaches
+  // the repair rule below rather than being sold a charger.
+  if (/\b(sell|sells|selling|buy|purchase|shop|in stock|accessor(y|ies)|chargers?|cables?|power ?banks?|earbuds?|headphones?|laptops?|tablets?|phone cases?)\b/.test(msg)) {
+    return {
+      text: `Yes — we run an online shop 🛒\n\nPhones, laptops, accessories, chargers and repair parts, with delivery across Accra and pickup at our shop.\n\nBrowse the shop to see what's in stock and today's prices, or tell me what you're after and I'll point you to it.`,
+      suggestions: ['Browse Shop', 'Track My Order', 'Delivery & Pickup', 'WhatsApp Us'],
     };
   }
 
@@ -207,7 +223,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Hosting
-  if (/\b(hosting|web host|server|cpanel|domain)\b/.test(msg)) {
+  if (/\b(hosting|web hosts?|servers?|cpanel|domains?)\b/.test(msg)) {
     return {
       text: `We offer **web hosting & domain registration** for Ghanaian businesses:\n\n• Hosting from **GHS 150/year**\n• Domains from **GHS 80/year**\n• cPanel included\n• Pay via Mobile Money, Paystack or bank transfer\n\nAll prices in Ghana Cedis!`,
       suggestions: ['Hosting Plans', 'Register a Domain', 'Get Hosting + Domain'],
@@ -215,7 +231,7 @@ function ruleBasedResponse(message, knowledge) {
   }
 
   // Portfolio / work
-  if (/\b(portfolio|work|projects?|case stud(y|ies)|examples?|previous|saiisai)\b/.test(msg)) {
+  if (/\b(portfolios?|work|projects?|case stud(y|ies)|examples?|previous|saiisai)\b/.test(msg)) {
     return {
       text: `Our most notable project is **Saiisai** — Ghana's emerging online marketplace, built entirely by EazWorld:\n\n• 150+ verified sellers\n• 15,000+ products listed\n• 500+ daily transactions\n• 4.7/5 platform rating\n\nWe've also built platforms for WorldStar GH, JM Logistics, Giwa Investment, and many more.`,
       suggestions: ['View Full Portfolio', 'Book Consultation', 'Get a Quote'],
