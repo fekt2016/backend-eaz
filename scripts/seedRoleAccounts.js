@@ -31,12 +31,30 @@ function resolveMongoUrl() {
   return mongoUrlRaw;
 }
 
+/*
+ * ⚠️ These stay on `eazworld.com`, and that is deliberate — do NOT "fix" them to
+ * eazworldgh.com to match the rest of the codebase (see the 2026-09-10 domain
+ * change, backend dd773c2).
+ *
+ * `main()` below matches an existing account BY EMAIL. These five already exist
+ * in Atlas at exactly these addresses, and the owner chose to keep them. Change
+ * the domain here and the script stops finding them: instead of updating five
+ * accounts it creates five more, leaving two divergent sets of role logins with
+ * different passwords.
+ *
+ * eazworld.com is not ours — it resolves to a third party's mail server. That is
+ * safe *here* and nowhere else, because these are login identities, never
+ * delivery addresses: the accounts are created pre-verified, so no mail is ever
+ * sent to them, and this script refuses to run under NODE_ENV=production.
+ *
+ * To move them, change the addresses in Atlas and here in the same commit.
+ */
 const ACCOUNTS = [
-  { role: 'superadmin', name: 'Super Admin', email: 'superadmin@eazworldgh.com', password: 'Eaz@Super2026' },
-  { role: 'admin',      name: 'Admin',       email: 'admin@eazworldgh.com',      password: 'Eaz@Admin2026' },
-  { role: 'staff',      name: 'Staff',       email: 'staff@eazworldgh.com',      password: 'Eaz@Staff2026' },
-  { role: 'technician', name: 'Technician',  email: 'technician@eazworldgh.com', password: 'Eaz@Tech2026' },
-  { role: 'user',       name: 'Customer',    email: 'customer@eazworldgh.com',   password: 'Eaz@Customer2026' },
+  { role: 'superadmin', name: 'Super Admin', email: 'superadmin@eazworld.com', password: 'Eaz@Super2026' },
+  { role: 'admin',      name: 'Admin',       email: 'admin@eazworld.com',      password: 'Eaz@Admin2026' },
+  { role: 'staff',      name: 'Staff',       email: 'staff@eazworld.com',      password: 'Eaz@Staff2026' },
+  { role: 'technician', name: 'Technician',  email: 'technician@eazworld.com', password: 'Eaz@Tech2026' },
+  { role: 'user',       name: 'Customer',    email: 'customer@eazworld.com',   password: 'Eaz@Customer2026' },
 ];
 
 function assertNotProduction() {
