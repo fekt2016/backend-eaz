@@ -27,6 +27,7 @@ const Post         = require('../models/Post');
 const Project      = require('../models/Project');
 const namecheap    = require('./namecheap');
 const { formatGhs } = require('../utils/money');
+const { sanitizeName, sanitizeEmail, sanitizePhone } = require('../utils/sanitize');
 const { HOSTING_PLANS, isSellable } = require('../config/hostingPlans');
 const frontendUrl  = require('../utils/frontendUrl');
 
@@ -122,6 +123,23 @@ const TOOL_DEFINITIONS = [
         domain: { type: 'string', description: 'Full domain including the extension, e.g. "mybusiness.com".' },
       },
       required: ['domain'],
+    },
+  },
+  {
+    name: 'start_registration',
+    description:
+      'Produce a sign-up link with the customer\'s details already filled in. Offer this ' +
+      'when someone asks to create an account, or after they order and want to track it. ' +
+      'Collect their name and an email or phone number first. ' +
+      'NEVER ask for a password and never accept one — they set it on the sign-up page.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name:  { type: 'string', description: "The customer's full name." },
+        email: { type: 'string', description: 'Their email address, if they gave one.' },
+        phone: { type: 'string', description: 'Their phone number, if they gave one.' },
+      },
+      required: ['name'],
     },
   },
   {
@@ -349,6 +367,49 @@ async function searchContent({ query, kind = 'both' }) {
   return out;
 }
 
+/*
+ * A sign-up link, prefilled.
+ *
+ * Everything sensitive about registration is kept OUT of the conversation:
+ *
+ *  - No password, ever. ChatSession stores messages as plaintext and every
+ *    admin and staff member reads transcripts at /dashboard/chats, where they
+ *    are deliberately retained for the chat-quality metrics. A password typed
+ *    into chat would sit in the clear in front of the whole team, and customers
+ *    reuse passwords across their email and bank.
+ *  - No account is created here. This writes nothing; the customer submits the
+ *    real form, which is the rate-limited, validated path it always was.
+ *  - No "is this email taken?" check, deliberately. It would be convenient, and
+ *    it would also be an account-enumeration oracle behind the chat limiter (60
+ *    per 15 min) instead of the registration one (5 per hour). The sign-up form
+ *    already reports a duplicate on submit, at the correct rate limit.
+ */
+function startRegistration({ name, email, phone }) {
+  const cleanName  = sanitizeName(name);
+  const cleanEmail = sanitizeEmail(email);
+  const cleanPhone = sanitizePhone(phone);
+
+  if (!cleanName) {
+    return { error: 'Ask the customer for their name first.' };
+  }
+  if (!cleanEmail && !cleanPhone) {
+    return { error: 'Ask for an email address or a phone number — one of the two is required.' };
+  }
+
+  const params = new URLSearchParams({ name: cleanName });
+  if (cleanEmail) params.set('email', cleanEmail);
+  if (cleanPhone) params.set('phone', cleanPhone);
+
+  return {
+    signupUrl: `${frontendUrl()}/auth/register?${params.toString()}`,
+    prefilled: { name: cleanName, email: cleanEmail || undefined, phone: cleanPhone || undefined },
+    instruction:
+      'Give the customer signupUrl as a plain link on its own line. Tell them their ' +
+      'details are already filled in and they just choose a password. Do NOT ask for ' +
+      'a password here — you cannot accept one.',
+  };
+}
+
 const EXECUTORS = {
   search_products:   searchProducts,
   build_cart:        buildCart,
@@ -356,6 +417,7 @@ const EXECUTORS = {
   get_hosting_plans: getHostingPlans,
   check_domain:      checkDomain,
   search_content:    searchContent,
+  start_registration: startRegistration,
 };
 
 /**

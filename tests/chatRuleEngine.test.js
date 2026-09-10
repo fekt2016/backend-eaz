@@ -91,3 +91,49 @@ describe('Chat rule engine — the fallback still exists', () => {
     expect(reply).toMatch(/whatsapp|consultation|email/i);
   });
 });
+
+describe('Chat — a volunteered credential never reaches the transcript', () => {
+  // The assistant is told not to ask for a password, and it obeys. But a
+  // customer who types one anyway would otherwise have it stored in plaintext
+  // in ChatSession and read by every admin and staff member at
+  // /dashboard/chats, where transcripts are retained for the quality metrics.
+  // The model refusing to ASK is not the same as a customer refusing to TELL.
+  const ChatSession = require('../models/ChatSession');
+
+  it('stores [redacted] instead of the password the customer typed', async () => {
+    const sessionId = `redact-${Date.now()}`;
+    await request(app).post('/api/v1/chat')
+      .send({ sessionId, message: 'my password will be Hunter2Pass!' });
+
+    const saved = await ChatSession.findOne({ sessionId }).lean();
+    const text = saved.messages.map((m) => m.content).join(' ');
+    expect(text).not.toContain('Hunter2Pass');
+    expect(text).toMatch(/\[redacted\]/);
+  });
+
+  it.each([
+    ['my pin is 4821', '4821'],
+    ['pwd=letmein123', 'letmein123'],
+    ['the otp is 993211', '993211'],
+  ])('redacts %s', async (message, secret) => {
+    const sessionId = `redact-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    await request(app).post('/api/v1/chat').send({ sessionId, message });
+
+    const saved = await ChatSession.findOne({ sessionId }).lean();
+    expect(saved.messages.map((m) => m.content).join(' ')).not.toContain(secret);
+  });
+
+  // Over-redaction would quietly gut the transcripts the metrics read from, and
+  // "I forgot my password" is a thing people genuinely need help with.
+  it.each([
+    'I forgot my password',
+    'what is the wifi password',
+    'can you reset my password for me',
+  ])('leaves %s alone', async (message) => {
+    const sessionId = `keep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    await request(app).post('/api/v1/chat').send({ sessionId, message });
+
+    const saved = await ChatSession.findOne({ sessionId }).lean();
+    expect(saved.messages.some((m) => m.content === message)).toBe(true);
+  });
+});

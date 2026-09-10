@@ -157,6 +157,33 @@ function validatePassword(password) {
   return null;
 }
 
+/**
+ * Strip a credential a customer volunteered in free text.
+ *
+ * Chat transcripts are stored as plaintext and read by admin and staff at
+ * /dashboard/chats, and retained for the chat-quality metrics. So a customer who
+ * types "my password is hunter2" — despite being told not to — hands their
+ * credential to the whole team, permanently. People reuse passwords, so it is
+ * rarely only this site's password they have just disclosed.
+ *
+ * Applied at the storage boundary rather than trusted to the assistant's
+ * instructions, because the assistant refusing to ASK is not the same as a
+ * customer refusing to TELL, and only one of those is under our control.
+ *
+ * Deliberately narrow. It requires a credential word followed by an assignment
+ * ("is", ":", "="), so "I forgot my password" and "what's the wifi password"
+ * pass through untouched — over-redaction would quietly gut the transcripts the
+ * quality metrics are read from. A bare password typed with no context is not
+ * detectable and is not claimed to be.
+ */
+const CREDENTIAL_DISCLOSURE =
+  /\b(pass(?:word|code|phrase)?|pwd|pin|otp|code)\b(\s*(?:is|was|will be|=|:)\s*)(\S{3,})/gi;
+
+function redactCredentials(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str.replace(CREDENTIAL_DISCLOSURE, (_m, word, joiner) => `${word}${joiner}[redacted]`);
+}
+
 module.exports = {
   sanitizeText,
   sanitizeEmail,
@@ -165,6 +192,7 @@ module.exports = {
   sanitizeDomain,
   sanitizeInt,
   sanitizeMessage,
+  redactCredentials,
   sanitizePostContent,
   validatePassword,
 };

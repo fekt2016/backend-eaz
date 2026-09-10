@@ -159,3 +159,67 @@ describe('chat tools — failures never break the turn', () => {
     consoleSpy.mockRestore();
   });
 });
+
+describe('chat tools — start_registration keeps credentials out of chat', () => {
+  const { EXECUTORS: E } = require('../services/chatTools');
+
+  // The whole point of the hand-off. ChatSession stores messages as plaintext
+  // and admin/staff read every transcript at /dashboard/chats, where they are
+  // retained for the quality metrics — so a password collected in chat would
+  // sit in the clear in front of the whole team, forever.
+  it('accepts no password field on the tool, and ignores one if sent', () => {
+    const def = TOOL_DEFINITIONS.find((t) => t.name === 'start_registration');
+    expect(Object.keys(def.input_schema.properties)).toEqual(['name', 'email', 'phone']);
+
+    const res = E.start_registration({ name: 'Ama', email: 'a@b.com', password: 'hunter2' });
+    expect(JSON.stringify(res)).not.toContain('hunter2');
+    expect(res.signupUrl).not.toMatch(/password/i);
+  });
+
+  it('tells the model in the result itself not to ask for one', () => {
+    const res = E.start_registration({ name: 'Ama', phone: '0244000000' });
+    expect(res.instruction).toMatch(/do not ask for a password/i);
+  });
+
+  it('builds a prefilled link and normalises what the customer typed', () => {
+    const res = E.start_registration({ name: 'Ama Serwaa', email: '  AMA@Example.COM ', phone: '+233 24 400 0000' });
+    expect(res.signupUrl).toContain('/auth/register?');
+    expect(res.signupUrl).toContain('name=Ama+Serwaa');
+    expect(res.signupUrl).toContain('email=ama%40example.com'); // lowercased
+    expect(res.signupUrl).toContain('phone=0244000000');        // Ghana local format
+  });
+
+  it('creates no account — it is a link, not a write', async () => {
+    const User = require('../models/User');
+    const before = await User.countDocuments();
+    E.start_registration({ name: 'Ghost', email: 'ghost@example.com' });
+    expect(await User.countDocuments()).toBe(before);
+  });
+
+  it('requires a name, and an email or a phone', () => {
+    expect(E.start_registration({ email: 'a@b.com' }).error).toMatch(/name/i);
+    expect(E.start_registration({ name: 'Ama' }).error).toMatch(/email address or a phone/i);
+  });
+
+  // Convenient, but it would be an enumeration oracle behind the chat limiter
+  // (60 per 15 min) rather than the registration one (5 per hour). The sign-up
+  // form already reports a duplicate on submit, at the correct rate limit.
+  it('does not reveal whether an address is already registered', async () => {
+    const User = require('../models/User');
+    const email = `taken-${Date.now()}@example.com`;
+    await User.create({ name: 'Existing', email, password: 'Password123!', isVerified: true });
+
+    const taken = E.start_registration({ name: 'Someone', email });
+    const free  = E.start_registration({ name: 'Someone', email: `free-${Date.now()}@example.com` });
+
+    expect(taken.error).toBeUndefined();
+    expect(Object.keys(taken)).toEqual(Object.keys(free)); // identical shape either way
+  });
+
+  it('cannot be steered into linking somewhere else', () => {
+    const res = E.start_registration({ name: 'Ama', email: 'a@b.com' });
+    // The host comes from FRONTEND_URL and the path is fixed, so nothing the
+    // customer types can redirect the link off-site.
+    expect(res.signupUrl.split('?')[0]).toMatch(/\/auth\/register$/);
+  });
+});

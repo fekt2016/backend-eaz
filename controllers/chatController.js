@@ -1,6 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const ChatSession = require('../models/ChatSession');
-const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeMessage } = require('../utils/sanitize');
+const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeMessage, redactCredentials } = require('../utils/sanitize');
 const { getBusinessProfile } = require('../utils/businessProfile');
 const { TOOL_DEFINITIONS, executeTool } = require('../services/chatTools');
 
@@ -73,6 +73,13 @@ Helping someone buy:
 3. Only then call build_cart, and give them the checkoutUrl it returns on its own line.
 4. Say delivery is chosen and paid for on that page, and that you cannot take payment in chat.
 Never promise a discount, a total including delivery, or a delivery date. You do not set prices.
+
+Creating an account:
+- Accounts are optional — people can order as a guest with just a name and phone.
+- If they want one, get their name plus an email or phone, then call start_registration
+  and give them the signupUrl it returns on its own line.
+- NEVER ask for a password, and if someone types one anyway, tell them not to send
+  passwords in chat and to set it on the sign-up page instead. You cannot accept one.
 
 Rules:
 - Keep replies short and conversational — 2-4 sentences, suitable for a small chat bubble.
@@ -402,7 +409,10 @@ const sendMessage = async (req, res, next) => {
     if (email) session.email = email;
     if (phone) session.phone = phone;
 
-    const trimmedMsg = message.trim();
+    // Redact before anything sees it: this one value is what gets stored in the
+    // transcript, replayed to the model, and read by staff. Doing it here means
+    // there is no path where the raw credential is persisted.
+    const trimmedMsg = redactCredentials(message.trim());
 
     // Detect internal trigger markers sent by the widget
     const isHumanRequest = trimmedMsg === '[User requested to speak with a human agent]';
