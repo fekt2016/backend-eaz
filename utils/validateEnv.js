@@ -93,6 +93,33 @@ const validateEnv = () => {
     });
   }
 
+  /*
+   * Key-shape checks. A *present but wrong* key is worse than a missing one:
+   * `hasConfig()` returns true, the feature reports itself as on, and the failure
+   * only shows up as degraded behaviour at runtime. That is exactly how a chat
+   * bot spent a day answering from its rule-based fallback because
+   * ANTHROPIC_API_KEY held a 31-character key belonging to a different service —
+   * every request 401'd, the catch swallowed it, and the widget looked fine.
+   *
+   * These match prefixes only, never length or content, so a vendor rotating
+   * their key format produces a warning and not a boot failure. Warn, don't
+   * exit: a malformed optional key must not take the whole API down.
+   */
+  const keyFormats = [
+    { name: 'ANTHROPIC_API_KEY', prefix: 'sk-ant-', looksLike: 'sk-ant-api03-…' },
+    { name: 'RESEND_API_KEY',    prefix: 're_',     looksLike: 're_…' },
+  ];
+
+  for (const { name, prefix, looksLike } of keyFormats) {
+    const value = (process.env[name] || '').trim();
+    if (value && !value.startsWith(prefix)) {
+      console.warn(
+        `⚠️  ${name} does not start with "${prefix}" — expected ${looksLike}. ` +
+        'That feature will fail authentication at runtime and fall back silently.'
+      );
+    }
+  }
+
   console.log('✅ Environment variables validated');
 };
 
