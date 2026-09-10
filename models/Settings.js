@@ -79,6 +79,93 @@ const settingsSchema = new mongoose.Schema({
       ],
     },
   },
+
+  // ── Homepage hero carousel (owner request 2026-09-10) ───────────────────────
+  //
+  // The slides used to be a hardcoded array inside HeroCarousel.jsx, so changing
+  // a headline or a photo meant a frontend deploy. They live here instead: this
+  // document is already the one thing the owner can edit without a redeploy, and
+  // the hero is the copy that changes most often.
+  //
+  // `icon` is a NAME, not a component — the frontend resolves it against a
+  // whitelist of lucide icons (lib/heroSlides.js). An unknown name falls back to
+  // a default icon rather than crashing the homepage.
+  //
+  // `href` is validated as a site-relative path in the controller: this array is
+  // rendered straight into <Link href> and an absolute or javascript: URL here
+  // would turn the hero into an open redirect.
+  homeHero: {
+    slides: {
+      type: [{
+        icon:        { type: String, default: 'Palette', trim: true },
+        service:     { type: String, required: true, trim: true },
+        headline:    { type: String, required: true, trim: true },
+        description: { type: String, default: '', trim: true },
+        cta:         { type: String, default: 'Learn more', trim: true },
+        href:        { type: String, default: '/', trim: true },
+        image:       { type: String, default: '', trim: true },
+        accent:      { type: String, default: '#F5A623', trim: true },
+        bg:          { type: String, default: '#fffbf5', trim: true },
+        _id: false,
+      }],
+      // Seeded with exactly what HeroCarousel shipped with, so an existing
+      // install looks identical the moment this deploys and the admin edits from
+      // the real copy rather than an empty form.
+      default: [
+        {
+          icon: 'Palette', service: 'Web Design',
+          headline: 'Websites That Win Clients',
+          description: 'We design fast, modern websites that make your business look credible and convert visitors into customers.',
+          cta: 'See Web Design', href: '/services/web-design',
+          image: '/images/hero/web-design.png', accent: '#F5A623', bg: '#fffbf5',
+        },
+        {
+          icon: 'Search', service: 'SEO',
+          headline: 'Get Found on Google',
+          description: 'Rank higher, attract the right traffic, and grow organic revenue — with SEO built specifically for Ghanaian businesses.',
+          cta: 'Explore SEO', href: '/services/seo',
+          image: '/images/hero/seo.png', accent: '#10b981', bg: '#f0fdf4',
+        },
+        {
+          icon: 'Megaphone', service: 'Paid Advertising',
+          headline: 'Ads That Actually Convert',
+          description: 'Google and Meta campaigns targeted precisely to your audience — every cedi of your budget working hard.',
+          cta: 'Run Better Ads', href: '/services/paid-ads',
+          image: '/images/hero/paid-ads.png', accent: '#3b82f6', bg: '#eff6ff',
+        },
+        {
+          icon: 'Star', service: 'Branding',
+          headline: 'A Brand Worth Remembering',
+          description: 'Logo, identity, and brand strategy that tells your story clearly and sets you apart from the competition.',
+          cta: 'Build Your Brand', href: '/services/branding',
+          image: '/images/hero/branding.png', accent: '#8b5cf6', bg: '#f5f3ff',
+        },
+        {
+          icon: 'Hash', service: 'Social Media',
+          headline: 'Grow Your Audience Daily',
+          description: 'Consistent, creative social media management that builds community, trust, and engagement around your brand.',
+          cta: 'Grow Social', href: '/services/social-media',
+          image: '/images/hero/social-media.png', accent: '#ec4899', bg: '#fdf2f8',
+        },
+        {
+          icon: 'Mail', service: 'Email Marketing',
+          headline: 'Turn Subscribers Into Buyers',
+          description: 'Strategic email campaigns that nurture leads, re-engage customers, and drive repeat revenue on autopilot.',
+          cta: 'Start Email', href: '/services/email',
+          image: '/images/hero/email-marketing.png', accent: '#f59e0b', bg: '#fffbeb',
+        },
+        {
+          icon: 'Smartphone', service: 'Phone Repair',
+          headline: 'Your Phone Fixed Today',
+          description: 'Fast, reliable phone repair in Accra. All major brands, 30-day warranty, honest pricing. Walk-ins welcome.',
+          cta: 'Get a Repair', href: '/services/phone-repair',
+          image: '/images/hero/phone-repair.png', accent: '#06b6d4', bg: '#ecfeff',
+        },
+      ],
+    },
+    updatedAt: { type: Date, default: null },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  },
 }, { timestamps: true });
 
 /**
