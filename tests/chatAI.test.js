@@ -48,7 +48,8 @@ describe('POST /api/v1/chat — AI response (T13)', () => {
     expect(res.body.data.suggestions).toEqual([]);
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
       model: 'claude-sonnet-5',
-      max_tokens: 500,
+      max_tokens: 2000,
+      output_config: { effort: 'low' },
     }));
   });
 
@@ -131,5 +132,53 @@ describe('POST /api/v1/chat — AI response (T13)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.humanRequested).toBe(true);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/v1/chat — AI budget and effort (2026-09-10)', () => {
+  // Sonnet 5 thinks adaptively when `thinking` is omitted, and thinking tokens
+  // count against max_tokens. At 500 a reply could reason itself past the ceiling
+  // and return no text — silently demoting every answer to the rule-based engine.
+  it('leaves room for adaptive thinking plus a reply', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    mockCreate.mockResolvedValueOnce(aiTextResponse('Logos start at GHS 500.'));
+
+    await request(app)
+      .post('/api/v1/chat')
+      .send({ sessionId: `s-${Date.now()}`, message: 'logo price?' });
+
+    expect(mockCreate.mock.calls[0][0].max_tokens).toBeGreaterThanOrEqual(2000);
+  });
+
+  // A 2-4 sentence chat bubble is the workload that repays high effort least,
+  // and high is what you get by omitting this.
+  it('asks for low effort — a chat bubble is not a reasoning task', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    mockCreate.mockResolvedValueOnce(aiTextResponse('Sure.'));
+
+    await request(app)
+      .post('/api/v1/chat')
+      .send({ sessionId: `s-${Date.now()}`, message: 'hi' });
+
+    expect(mockCreate.mock.calls[0][0].output_config).toEqual({ effort: 'low' });
+  });
+
+  it('falls back, and says why, when the model returns no text at all', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // What a max_tokens truncation actually looks like: a 200, no text block.
+    mockCreate.mockResolvedValueOnce({ content: [], stop_reason: 'max_tokens' });
+
+    const res = await request(app)
+      .post('/api/v1/chat')
+      .send({ sessionId: `s-${Date.now()}`, message: 'hello' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.response).toMatch(/Eazy/); // rule-based engine answered
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('AI returned no text'),
+      'max_tokens'
+    );
+    warn.mockRestore();
   });
 });

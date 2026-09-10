@@ -10,7 +10,21 @@ const { getBusinessProfile } = require('../utils/businessProfile');
 // reason — mirrors services/notify.js's "never break the main flow" pattern.
 // ─────────────────────────────────────────────────────────────────────────────
 const AI_MODEL = 'claude-sonnet-5';
-const AI_MAX_TOKENS = 500;
+// Sonnet 5 thinks adaptively whenever `thinking` is omitted, and thinking tokens
+// are billed as output and count against max_tokens. At the old ceiling of 500
+// a reply could spend most of its budget reasoning, hit the cap, and come back
+// with no text block at all — which getAIResponse reads as a failure and
+// silently answers from the rule-based engine instead. The bot would look like
+// it ignored the AI at random, with nothing in the logs to say why.
+//
+// The headroom is not an invitation to ramble: the system prompt caps replies at
+// 2-4 sentences, and `effort` is what actually governs the spend.
+const AI_MAX_TOKENS = 2000;
+// A chat bubble answering "how much is a logo?" is the workload that repays extra
+// reasoning least, and high (the default when this is omitted) is the setting
+// that costs the most for it. Low keeps the grounded, short answers this prompt
+// asks for while cutting both latency and the bill.
+const AI_EFFORT = 'low';
 // Most recent messages sent to the API per call — bounds input-token growth
 // on a long-running session. The full history still lives in Mongo regardless.
 const AI_HISTORY_LIMIT = 12;
@@ -68,12 +82,25 @@ async function getAIResponse(messages, userMessage) {
     const response = await getAnthropicClient().messages.create({
       model: AI_MODEL,
       max_tokens: AI_MAX_TOKENS,
+      output_config: { effort: AI_EFFORT },
       system: buildSystemPrompt(knowledge),
       messages: apiMessages,
     });
 
     const textBlock = response.content.find(b => b.type === 'text');
-    return textBlock?.text?.trim() || null;
+    const text = textBlock?.text?.trim() || null;
+
+    // Returning null here hands the turn to the rule-based engine, which is the
+    // right behaviour — but it is indistinguishable from "AI is switched off"
+    // unless it says so. `max_tokens` is the one cause worth naming: it means
+    // the ceiling above is too low, not that anything is down.
+    if (!text) {
+      console.warn(
+        '[chat] AI returned no text (stop_reason=%s), falling back to rule-based engine',
+        response.stop_reason
+      );
+    }
+    return text;
   } catch (err) {
     console.error('[chat] AI response failed, falling back to rule-based engine:', err.message);
     return null;
