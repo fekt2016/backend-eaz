@@ -100,12 +100,14 @@ describe('Chat — a volunteered credential never reaches the transcript', () =>
   // The model refusing to ASK is not the same as a customer refusing to TELL.
   const ChatSession = require('../models/ChatSession');
 
+  // Session ids are server-issued now (security audit 2026-09-10), so these read
+  // the id back off the response instead of dictating one — dictating one is the
+  // hijack the audit closed.
   it('stores [redacted] instead of the password the customer typed', async () => {
-    const sessionId = `redact-${Date.now()}`;
-    await request(app).post('/api/v1/chat')
-      .send({ sessionId, message: 'my password will be Hunter2Pass!' });
+    const res = await request(app).post('/api/v1/chat')
+      .send({ message: 'my password will be Hunter2Pass!' });
 
-    const saved = await ChatSession.findOne({ sessionId }).lean();
+    const saved = await ChatSession.findOne({ sessionId: res.body.data.sessionId }).lean();
     const text = saved.messages.map((m) => m.content).join(' ');
     expect(text).not.toContain('Hunter2Pass');
     expect(text).toMatch(/\[redacted\]/);
@@ -116,10 +118,8 @@ describe('Chat — a volunteered credential never reaches the transcript', () =>
     ['pwd=letmein123', 'letmein123'],
     ['the otp is 993211', '993211'],
   ])('redacts %s', async (message, secret) => {
-    const sessionId = `redact-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    await request(app).post('/api/v1/chat').send({ sessionId, message });
-
-    const saved = await ChatSession.findOne({ sessionId }).lean();
+    const res = await request(app).post('/api/v1/chat').send({ message });
+    const saved = await ChatSession.findOne({ sessionId: res.body.data.sessionId }).lean();
     expect(saved.messages.map((m) => m.content).join(' ')).not.toContain(secret);
   });
 
@@ -130,10 +130,8 @@ describe('Chat — a volunteered credential never reaches the transcript', () =>
     'what is the wifi password',
     'can you reset my password for me',
   ])('leaves %s alone', async (message) => {
-    const sessionId = `keep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    await request(app).post('/api/v1/chat').send({ sessionId, message });
-
-    const saved = await ChatSession.findOne({ sessionId }).lean();
+    const res = await request(app).post('/api/v1/chat').send({ message });
+    const saved = await ChatSession.findOne({ sessionId: res.body.data.sessionId }).lean();
     expect(saved.messages.some((m) => m.content === message)).toBe(true);
   });
 });

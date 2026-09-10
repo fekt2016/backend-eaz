@@ -300,8 +300,19 @@ async function trackOrder({ trackingNumber }) {
   };
 }
 
+// Allowlist rather than trusting the argument as an object key. The model is an
+// untrusted input source like any other, and `HOSTING_PLANS["__proto__"]` or
+// ["constructor"] would otherwise walk the prototype chain instead of the data.
+const HOSTING_PLAN_TYPES = ['shared', 'wordpress', 'vps', 'cloud', 'email'];
+
 function getHostingPlans({ planType } = {}) {
-  const types = planType ? [planType] : Object.keys(HOSTING_PLANS);
+  const requested = typeof planType === 'string' ? planType : '';
+  if (requested && !HOSTING_PLAN_TYPES.includes(requested)) {
+    return { error: 'Unknown plan type. Ask which kind of hosting they need.' };
+  }
+  const types = requested
+    ? [requested]
+    : HOSTING_PLAN_TYPES.filter((t) => Object.prototype.hasOwnProperty.call(HOSTING_PLANS, t));
   const plans = [];
 
   for (const type of types) {

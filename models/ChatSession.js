@@ -38,6 +38,19 @@ const chatSessionSchema = new mongoose.Schema({
   rating:        { type: Number, min: 1, max: 5 },
   ratingComment: { type: String, trim: true, default: '' },
   ratedAt:       { type: Date },
+  // ── AI spend guard (security audit 2026-09-10) ───────────────────────────
+  //
+  // POST /api/v1/chat is public by design — a visitor has no account. That makes
+  // it the one endpoint where an anonymous caller spends real money, and each
+  // message costs up to AI_MAX_TOOL_ROUNDS + 1 Anthropic calls, not one.
+  //
+  // The IP rate limiter bounds request rate; it does nothing about a single
+  // patient session, and nothing at all about a rotating-IP botnet. This is the
+  // per-conversation ceiling. Exceeding it is not an error — the session simply
+  // drops to the rule-based engine, so the widget keeps working.
+  aiCallsUsed: { type: Number, default: 0 },
+  aiCallsDay:  { type: String, default: '' }, // UTC yyyy-mm-dd, resets the counter
+
   // Last activity
   lastActivity: { type: Date, default: Date.now },
 }, { timestamps: true });

@@ -91,8 +91,11 @@ describe('POST /api/v1/chat — AI response (T13)', () => {
     });
     mockCreate.mockResolvedValueOnce(aiTextResponse('Sure, happy to help.'));
 
+    // The cookie is what proves ownership of a conversation now; without it the
+    // server correctly refuses to attach and starts a fresh session instead.
     await request(app)
       .post('/api/v1/chat')
+      .set('Cookie', [`ew_session=${sessionId}`])
       .send({ sessionId, message: 'can you help me?' });
 
     const sentMessages = mockCreate.mock.calls[0][0].messages;
@@ -127,6 +130,7 @@ describe('POST /api/v1/chat — AI response (T13)', () => {
 
     const res = await request(app)
       .post('/api/v1/chat')
+      .set('Cookie', [`ew_session=${sessionId}`])
       .send({ sessionId, message: 'still there?' });
 
     expect(res.status).toBe(200);
