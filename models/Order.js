@@ -235,7 +235,7 @@ const orderSchema = new mongoose.Schema({
   // memory problem. Caps are enforced here as well as in the controller, because
   // the controller is not the only writer.
   //
-  // Not an XSS control — app.js runs xss-clean globally and it traverses nested
+  // Not an XSS control — app.js runs middleware/sanitizeInput globally and it traverses nested
   // objects. This is about size and deliverability.
   customer: {
     name: {

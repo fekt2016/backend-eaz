@@ -19,13 +19,27 @@ const addPayment = async (req, res, next) => {
       receivedBy: req.user._id,
     });
 
-    // Deduct inventory once per job (on first payment) — guarded, and per-line
-    // flagged so an online part-order that already reserved stock isn't
-    // double-counted here.
-    if (!job.stockDeducted) {
-      await deductJobPartsOnce(job);
-      job.stockDeducted = true;
-      await job.save();
+    // Deduct inventory once per job (on first payment) — per-line flagged so an
+    // online part-order that already reserved stock isn't double-counted here.
+    //
+    // CLAIMED ATOMICALLY, because a repair is routinely settled twice at once —
+    // a deposit on the tablet while the balance goes through the till. Reading
+    // `stockDeducted`, deducting, then writing it back is three steps, and two
+    // payments arriving together both read `false`: measured at two payments
+    // taking 4 parts off the shelf for a 2-part repair, and five payments
+    // emptying a shelf of 10 down to 0.
+    //
+    // Same shape as the pending→paid guard in utils/fulfilShopOrder: one filter
+    // that only matches an unclaimed job, so exactly one caller proceeds.
+    const claimed = await RepairJob.findOneAndUpdate(
+      { _id: job._id, stockDeducted: { $ne: true } },
+      { $set: { stockDeducted: true } },
+      { new: true },
+    );
+    if (claimed) {
+      await deductJobPartsOnce(claimed);
+      // Persists the per-line `stockDeducted` flags the helper just set.
+      await claimed.save();
     }
 
     await payment.populate('receivedBy', 'name');
