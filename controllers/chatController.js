@@ -2,6 +2,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const ChatSession = require('../models/ChatSession');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeMessage } = require('../utils/sanitize');
 const { getBusinessProfile } = require('../utils/businessProfile');
+const { TOOL_DEFINITIONS, executeTool } = require('../services/chatTools');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI RESPONSES (T13) — Claude, grounded in the same business-profile knowledge
@@ -40,6 +41,17 @@ function getAnthropicClient() {
 
 function buildSystemPrompt(knowledge) {
   const services = knowledge.services.map(s => `- ${s.name}: ${s.price}`).join('\n');
+
+  // The admin's free-text knowledge base (Settings.business.knowledge), if they
+  // have written one. Fenced and labelled so it reads as reference material
+  // rather than as further instructions — it is long-form prose written by a
+  // non-programmer, and an unfenced blob is where a stray "ignore the above"
+  // would land.
+  const extra = (knowledge.knowledge || '').trim();
+  const knowledgeBlock = extra
+    ? `\n\nADDITIONAL COMPANY INFORMATION (written by the EazWorld team — treat as fact):\n<<<\n${extra}\n>>>`
+    : '';
+
   return `You are Eazy, the friendly chat assistant for ${knowledge.shopName}, a digital agency and phone-repair shop in ${knowledge.location}, Ghana.
 
 Only quote prices and services from this list — never invent a price, service, or policy that isn't here:
@@ -48,13 +60,26 @@ ${services}
 Contact info:
 - WhatsApp: ${knowledge.whatsapp}
 - Email: ${knowledge.email}
-- Hours: ${knowledge.hours}
+- Hours: ${knowledge.hours}${knowledgeBlock}
+
+You have tools for everything that changes: product stock and prices, hosting
+prices at today's exchange rate, domain availability, and order status. Use them.
+Never answer one of those from memory or from the lists above — those go stale,
+the tools do not.
+
+Helping someone buy:
+1. Find what they want with search_products and tell them the real price and stock.
+2. Confirm the exact items and quantities with them, in words, before going further.
+3. Only then call build_cart, and give them the checkoutUrl it returns on its own line.
+4. Say delivery is chosen and paid for on that page, and that you cannot take payment in chat.
+Never promise a discount, a total including delivery, or a delivery date. You do not set prices.
 
 Rules:
 - Keep replies short and conversational — 2-4 sentences, suitable for a small chat bubble.
-- If asked about a price, policy, or service that isn't in the list above, say you'll connect them with a human instead of guessing.
+- If asked about a price, policy, or service you cannot get from a tool or the information above, say you will connect them with a human instead of guessing.
+- Stay on EazWorld topics. For anything unrelated, say it is not something you can help with and offer WhatsApp.
 - Never mention that you are Claude, an AI, or made by Anthropic — you are "Eazy", EazWorld's assistant.
-- All prices are in Ghana Cedis (GHS).`;
+- All prices are in Ghana Cedis (GH₵).`;
 }
 
 // Map stored session roles ('user'|'bot'|'admin') to Anthropic's ('user'|'assistant'),
@@ -69,6 +94,19 @@ function buildApiMessages(messages) {
   return firstUserIndex === -1 ? [] : mapped.slice(firstUserIndex);
 }
 
+/*
+ * How many times the model may call tools before we stop it.
+ *
+ * A normal purchase is two rounds: search_products, then build_cart. Four leaves
+ * room for a correction ("no, the 65W one") without letting a loop bill the
+ * account indefinitely — each round is a full request carrying the whole
+ * conversation, so the cost of a runaway is quadratic, not linear.
+ *
+ * Hitting the ceiling is not an error: whatever text the model has produced is
+ * returned, and if it produced none the rule-based engine answers.
+ */
+const AI_MAX_TOOL_ROUNDS = 4;
+
 async function getAIResponse(messages, userMessage) {
   if (!hasAIConfig()) return null;
 
@@ -79,13 +117,47 @@ async function getAIResponse(messages, userMessage) {
     const apiMessages = buildApiMessages(messages);
     if (!apiMessages.length) apiMessages.push({ role: 'user', content: userMessage });
 
-    const response = await getAnthropicClient().messages.create({
-      model: AI_MODEL,
-      max_tokens: AI_MAX_TOKENS,
-      output_config: { effort: AI_EFFORT },
-      system: buildSystemPrompt(knowledge),
-      messages: apiMessages,
-    });
+    const system = buildSystemPrompt(knowledge);
+    let response;
+
+    for (let round = 0; round <= AI_MAX_TOOL_ROUNDS; round++) {
+      response = await getAnthropicClient().messages.create({
+        model: AI_MODEL,
+        max_tokens: AI_MAX_TOKENS,
+        output_config: { effort: AI_EFFORT },
+        system,
+        tools: TOOL_DEFINITIONS,
+        messages: apiMessages,
+      });
+
+      if (response.stop_reason !== 'tool_use') break;
+
+      // The assistant turn goes back verbatim, tool_use blocks included — the
+      // API matches each tool_result to its tool_use by id, so a reconstructed
+      // or text-only copy breaks the pairing.
+      apiMessages.push({ role: 'assistant', content: response.content });
+
+      const calls = response.content.filter((b) => b.type === 'tool_use');
+
+      // Run them together: the model asks for several at once (search two
+      // products, say), and awaiting each in turn adds a round trip per call to
+      // a customer already watching a typing indicator.
+      const results = await Promise.all(
+        calls.map(async (call) => ({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: JSON.stringify(await executeTool(call.name, call.input)),
+        }))
+      );
+
+      // Every result must be in ONE user message. Splitting them across several
+      // silently teaches the model to stop asking for tools in parallel.
+      apiMessages.push({ role: 'user', content: results });
+
+      if (round === AI_MAX_TOOL_ROUNDS) {
+        console.warn('[chat] tool-round ceiling reached; answering with what the model has');
+      }
+    }
 
     const textBlock = response.content.find(b => b.type === 'text');
     const text = textBlock?.text?.trim() || null;

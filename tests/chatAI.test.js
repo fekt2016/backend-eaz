@@ -182,3 +182,80 @@ describe('POST /api/v1/chat — AI budget and effort (2026-09-10)', () => {
     warn.mockRestore();
   });
 });
+
+describe('POST /api/v1/chat — tool use (2026-09-10)', () => {
+  const toolUse = (name, input) => ({
+    stop_reason: 'tool_use',
+    content: [{ type: 'tool_use', id: 'tu_1', name, input }],
+  });
+
+  it('sends the tool definitions with every request', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    mockCreate.mockResolvedValueOnce(aiTextResponse('Hello!'));
+
+    await request(app).post('/api/v1/chat')
+      .send({ sessionId: `s-${Date.now()}`, message: 'hi' });
+
+    const names = mockCreate.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['search_products', 'build_cart', 'track_order']));
+  });
+
+  it('runs the tool and feeds the result back for a second turn', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    mockCreate
+      .mockResolvedValueOnce(toolUse('search_products', { query: 'tecno' }))
+      .mockResolvedValueOnce(aiTextResponse('We have the Tecno Spark at GH₵1,650.00.'));
+
+    const res = await request(app).post('/api/v1/chat')
+      .send({ sessionId: `s-${Date.now()}`, message: 'any tecno phones?' });
+
+    expect(res.body.data.response).toMatch(/Tecno Spark/);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+
+    // The second request must replay the assistant turn verbatim and answer it
+    // with tool_result blocks — the API pairs them by tool_use_id, so a
+    // reconstructed or text-only copy breaks the exchange.
+    const second = mockCreate.mock.calls[1][0].messages;
+    const results = second[second.length - 1];
+    expect(results.role).toBe('user');
+    expect(results.content[0].type).toBe('tool_result');
+    expect(results.content[0].tool_use_id).toBe('tu_1');
+  });
+
+  it('stops after the tool-round ceiling instead of looping on the account', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // A model that only ever asks for another tool call.
+    mockCreate.mockResolvedValue(toolUse('search_products', { query: 'x' }));
+
+    const res = await request(app).post('/api/v1/chat')
+      .send({ sessionId: `s-${Date.now()}`, message: 'loop please' });
+
+    expect(res.status).toBe(200);
+    expect(mockCreate.mock.calls.length).toBeLessThanOrEqual(6);
+    // The model never produced text, so the rule-based engine answered — the
+    // same graceful degradation as an API failure. Its hallmark is the
+    // suggestion chips, which the model never returns.
+    expect(res.body.data.suggestions.length).toBeGreaterThan(0);
+    expect(res.body.data.response).toBeTruthy();
+    warn.mockRestore();
+    mockCreate.mockReset();
+  });
+
+  it('puts the admin knowledge base into the system prompt', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    const Settings = require('../models/Settings');
+    await Settings.findOneAndUpdate(
+      { key: 'global' },
+      { $set: { 'business.knowledge': 'Warranty on every repair is 30 days.' } },
+      { upsert: true }
+    );
+    require('../utils/businessProfile').clearBusinessProfileCache();
+    mockCreate.mockResolvedValueOnce(aiTextResponse('30 days.'));
+
+    await request(app).post('/api/v1/chat')
+      .send({ sessionId: `s-${Date.now()}`, message: 'warranty?' });
+
+    expect(mockCreate.mock.calls[0][0].system).toMatch(/Warranty on every repair is 30 days/);
+  });
+});

@@ -18,6 +18,7 @@ const DEFAULTS = {
   location:        'Accra, Ghana',
   hours:           'Monday – Friday, 8am – 6pm GMT',
   consultationPath: '/book-consultation',
+  knowledge: '',
   services: [
     { name: 'Web Design & Development', price: 'Starting from GHS 1,500', path: '/services/web-design' },
     { name: 'SEO', price: 'GHS 800 – 2,000/month', path: '/services/seo' },
@@ -50,6 +51,7 @@ async function getBusinessProfile() {
       location:         b.location || DEFAULTS.location,
       hours:            b.hours || DEFAULTS.hours,
       consultationPath: b.consultationPath || DEFAULTS.consultationPath,
+      knowledge:        b.knowledge || DEFAULTS.knowledge,
       services:         b.services?.length ? b.services : DEFAULTS.services,
     };
   } catch {

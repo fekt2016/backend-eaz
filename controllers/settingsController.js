@@ -191,6 +191,12 @@ const updateSettings = async (req, res, next) => {
           for (const f of ['shopName', 'shopPhone', 'whatsapp', 'email', 'location', 'hours', 'consultationPath']) {
             if (f in b) updates[`business.${f}`] = sanitizeMessage(String(b[f] ?? ''), 200) ?? '';
           }
+          // Its own line because it is long-form: 20k, not the 200-char cap the
+          // fields above share. Sanitised the same way — it reaches the model as
+          // trusted instruction text, so markup has no business in it.
+          if ('knowledge' in b) {
+            updates['business.knowledge'] = sanitizeMessage(String(b.knowledge ?? ''), 20000) ?? '';
+          }
           // Tax / VAT (T14) — display-only fields, not read into any order/invoice total math.
           if ('vatEnabled' in b)       updates['business.vatEnabled']      = !!b.vatEnabled;
           if ('pricesIncludeVat' in b) updates['business.pricesIncludeVat'] = !!b.pricesIncludeVat;

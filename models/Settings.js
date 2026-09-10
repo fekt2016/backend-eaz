@@ -53,6 +53,23 @@ const settingsSchema = new mongoose.Schema({
     location:          { type: String, default: 'Accra, Ghana' },
     hours:             { type: String, default: 'Monday – Friday, 8am – 6pm GMT' },
     consultationPath:  { type: String, default: '/book-consultation' },
+    /*
+     * Free-text knowledge base for the chat assistant (2026-09-10).
+     *
+     * Everything the bot should know that is NOT live data and NOT already a
+     * field above: delivery times, warranty terms, payment methods, returns,
+     * how a repair quote works. It is appended verbatim to the system prompt.
+     *
+     * Deliberately one free-text blob rather than structured fields. The owner
+     * writes prose, the model reads prose, and a schema would only force both
+     * ends through a shape that has to be redesigned every time the business
+     * learns a new question people ask.
+     *
+     * Live data does NOT belong here — prices, stock and availability change,
+     * and a stale price typed into this box is exactly the wrong answer to give
+     * a customer. Those come from the tools in services/chatTools.js.
+     */
+    knowledge:         { type: String, default: '', maxlength: 20000 },
     // ── Tax / VAT (T14 — display-only; nothing reads these into order/invoice
     //    totals math. A future task decides where, if anywhere, to surface them.)
     vatEnabled:        { type: Boolean, default: false },
