@@ -6,10 +6,17 @@ const {
   sendConsultationAdminAlert,
 } = require('../utils/email');
 const { sanitizeName, sanitizeEmail, sanitizePhone, sanitizeText, sanitizeMessage } = require('../utils/sanitize');
+const { isHoneypotTripped } = require('../utils/honeypot');
 
 /** Submit contact / consultation form */
 const submitContact = async (req, res, next) => {
   try {
+    // Honeypot: a filled hidden field is a bot. Mirror the real success
+    // response (same 201) and drop it — nothing stored, nothing emailed.
+    if (isHoneypotTripped(req, 'contact')) {
+      return res.status(201).json({ success: true, data: null });
+    }
+
     const name         = sanitizeName(req.body.name);
     const email        = sanitizeEmail(req.body.email);
     const phone        = sanitizePhone(req.body.phone);

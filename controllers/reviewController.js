@@ -1,11 +1,22 @@
 const Review = require('../models/Review');
 const { sanitizeName, sanitizeText, sanitizeMessage } = require('../utils/sanitize');
+const { isHoneypotTripped } = require('../utils/honeypot');
 
 /**
  * Submit a new review (public)
  */
 const submitReview = async (req, res, next) => {
   try {
+    // Honeypot: a filled hidden field is a bot. Mirror the real success
+    // response and drop it — nothing stored. This endpoint validates in the
+    // controller (no Zod schema), so `website` arrives on req.body untouched.
+    if (isHoneypotTripped(req, 'review')) {
+      return res.status(201).json({
+        success: true,
+        message: 'Thank you for your review!',
+      });
+    }
+
     const name    = sanitizeName(req.body.name);
     const service = sanitizeText(req.body.service, 100);
     const review  = sanitizeMessage(req.body.review, 2000);

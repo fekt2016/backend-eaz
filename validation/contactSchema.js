@@ -42,6 +42,13 @@ const submitContactSchema = z.object({
   // enum error is a 500-shaped ValidationError rather than a clean 400.
   type: z.enum(CONTACT_TYPES).optional(),
   plan: z.string().trim().max(100).optional(),
+
+  // Honeypot. A hidden field no human ever fills; a bot fills it. Declared as
+  // optional-unknown so it (a) survives `validate()`, which would otherwise
+  // strip it, and (b) can NEVER itself cause a 400 whatever the bot puts in it —
+  // the controller inspects it via utils/honeypot.js, fakes success and drops
+  // the submission. Never stored.
+  website: z.unknown().optional(),
 });
 
 module.exports = { submitContactSchema, CONTACT_TYPES };

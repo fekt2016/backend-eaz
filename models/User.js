@@ -116,6 +116,18 @@ const userSchema = new mongoose.Schema(
     //    app is world-readable to anyone holding the link, which is fine for a
     //    product photo and not for someone's national ID. Admins fetch a
     //    short-lived signed URL through a dedicated endpoint.
+    //
+    // DECISIONS STILL OPEN (see accountController.submitGhanaCard):
+    //  - `number` is stored in PLAINTEXT. Encrypting it at rest is a
+    //    security-policy call — note it would break the equality query the
+    //    cross-account duplicate check relies on unless the encryption is
+    //    deterministic.
+    //  - Cross-account uniqueness is currently enforced only in the controller
+    //    (reject if the same number is `pending`/`approved` elsewhere). The
+    //    race-safe backstop is a unique PARTIAL index
+    //    `{ 'ghanaCard.number': 1 }` filtered to non-empty numbers with
+    //    status in {pending, approved}; adding it needs a migration to clear
+    //    any pre-existing duplicates first.
     ghanaCard: {
       number: { type: String, select: false, default: '' },
       frontImageId: { type: String, default: '' },

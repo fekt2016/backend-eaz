@@ -117,6 +117,24 @@ const submitGhanaCard = async (req, res, next) => {
       });
     }
 
+    // One national ID belongs to one person. Block a number that is already
+    // under review or verified on another account before any upload happens.
+    // (`number` is select:false but still queryable.) A `rejected` submission
+    // elsewhere does not block — that may have been the wrong person entering
+    // the real holder's number. The DB-level guarantee is a unique partial
+    // index; see the note in models/User.js.
+    const clash = await User.findOne({
+      _id: { $ne: req.user._id },
+      'ghanaCard.number': number,
+      'ghanaCard.status': { $in: ['pending', 'approved'] },
+    }).select('_id').lean();
+    if (clash) {
+      return res.status(409).json({
+        success: false,
+        error: 'This Ghana Card number is already registered to another account. Contact support if this is a mistake.',
+      });
+    }
+
     const front = req.files && req.files.front && req.files.front[0];
     const back = req.files && req.files.back && req.files.back[0];
     if (!front || !back) {
@@ -236,10 +254,21 @@ const reviewGhanaCard = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Decision must be "approved" or "rejected".' });
     }
 
-    const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id).select('+ghanaCard.number');
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
     if (user.ghanaCard.status !== 'pending') {
       return res.status(409).json({ success: false, error: 'There is no pending submission to review.' });
+    }
+
+    // Defence in depth: `submitGhanaCard` already enforces the format, but a
+    // number could reach `pending` another way (a migration, a direct write).
+    // An approval is what makes it "verified", so re-check the shape here and
+    // refuse to approve a malformed one — it must be rejected instead.
+    if (decision === 'approved' && !GHANA_CARD_RE.test(String(user.ghanaCard.number || '').toUpperCase())) {
+      return res.status(422).json({
+        success: false,
+        error: 'The stored card number is not a valid Ghana Card number (GHA-123456789-0). Reject this submission and ask the customer to resubmit.',
+      });
     }
 
     user.ghanaCard.status = decision;

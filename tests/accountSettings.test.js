@@ -120,6 +120,40 @@ describe("Ghana Card — submission", () => {
     expect(res.body.error).toMatch(/front and back/i);
   });
 
+  it("rejects a number already pending/approved on another account", async () => {
+    const other = await makeUser();
+    await User.updateOne({ _id: other.user._id }, {
+      "ghanaCard.number": "GHA-123456789-0",
+      "ghanaCard.status": "approved",
+    });
+
+    const { token } = await makeUser();
+    const res = await auth(request(app).post(`${BASE}/account/ghana-card`), token)
+      .field("number", "GHA-123456789-0")
+      .attach("front", PNG, "front.png")
+      .attach("back", PNG, "back.png");
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already registered/i);
+  });
+
+  it("allows a number that was only ever rejected elsewhere", async () => {
+    const other = await makeUser();
+    await User.updateOne({ _id: other.user._id }, {
+      "ghanaCard.number": "GHA-123456789-0",
+      "ghanaCard.status": "rejected",
+    });
+
+    // No live Cloudinary in tests, so this can only get as far as the upload —
+    // the point is that it is NOT stopped by the duplicate guard first.
+    const { token } = await makeUser();
+    const res = await auth(request(app).post(`${BASE}/account/ghana-card`), token)
+      .field("number", "GHA-123456789-0")
+      .attach("front", PNG, "front.png");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/front and back/i);
+  });
+
   it("reports 'none' before anything is submitted", async () => {
     const { token } = await makeUser();
     const res = await auth(request(app).get(`${BASE}/account/ghana-card`), token);
@@ -198,6 +232,28 @@ describe("Ghana Card — admin review", () => {
     const res = await auth(request(app).patch(`${BASE}/admin/users/${target.user._id}/ghana-card`), admin.token)
       .send({ decision: "maybe" });
     expect(res.status).toBe(400);
+  });
+
+  it("refuses to APPROVE a pending submission whose stored number is malformed", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const made = await makeUser();
+    // A number that somehow reached 'pending' without passing submitGhanaCard.
+    await User.updateOne({ _id: made.user._id }, {
+      "ghanaCard.number": "GHA-12-9",
+      "ghanaCard.status": "pending",
+      "ghanaCard.submittedAt": new Date(),
+    });
+
+    const bad = await auth(request(app).patch(`${BASE}/admin/users/${made.user._id}/ghana-card`), admin.token)
+      .send({ decision: "approved" });
+    expect(bad.status).toBe(422);
+
+    // …but it can still be rejected.
+    const ok = await auth(request(app).patch(`${BASE}/admin/users/${made.user._id}/ghana-card`), admin.token)
+      .send({ decision: "rejected", reason: "Unreadable" });
+    expect(ok.status).toBe(200);
+    const fresh = await User.findById(made.user._id);
+    expect(fresh.ghanaCard.status).toBe("rejected");
   });
 
   it("refuses to review when nothing is pending", async () => {
