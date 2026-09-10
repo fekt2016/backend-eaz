@@ -210,3 +210,4 @@ describe('chat — nothing sensitive is echoed back', () => {
     expect(body).not.toMatch(/You are Eazy, the friendly chat assistant/);
   });
 });
+
