@@ -30,7 +30,7 @@ describe("send() reads Resend's result, not just the absence of a throw", () => 
   it("records a rejected send as failed, with Resend's reason", async () => {
     mockResendSend.mockResolvedValue({
       data: null,
-      error: { name: "validation_error", message: "The eazworld.co domain is not verified." },
+      error: { name: "validation_error", message: "The eazworldgh.com domain is not verified." },
     });
 
     const ok = await send({ to: "cust@example.com", subject: "Hi", html: "<p>x</p>", type: "welcome" });

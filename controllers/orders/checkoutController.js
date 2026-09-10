@@ -512,7 +512,7 @@ function orderCustomerEmail(customer) {
   const email = (customer.email || '').trim().toLowerCase();
   if (email) return email;
   const phone = (customer.phone || '').trim().replace(/\s+/g, '');
-  return `${phone || 'guest'}@eazworld.com`;
+  return `${phone || 'guest'}@eazworldgh.com`;
 }
 
 module.exports = {

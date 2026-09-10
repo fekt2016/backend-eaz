@@ -233,7 +233,7 @@ describe("PATCH /api/v1/hosting/orders/:id/mark-provisioned", () => {
       .set("Authorization", `Bearer ${token}`)
       .send(markBody());
 
-    expect(sendHostingCredentials.mock.calls[0][1].domain).toBe("kofivps.eazworld.com");
+    expect(sendHostingCredentials.mock.calls[0][1].domain).toBe("kofivps.eazworldgh.com");
   });
 
   it("uses the customer's domain when provided", async () => {

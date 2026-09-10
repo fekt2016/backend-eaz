@@ -49,7 +49,7 @@ const settingsSchema = new mongoose.Schema({
     shopName:         { type: String, default: 'EazWorld Repair' },
     shopPhone:         { type: String, default: '0244388190' },
     whatsapp:          { type: String, default: '233244388190' },
-    email:             { type: String, default: 'hello@eazworld.com' },
+    email:             { type: String, default: 'info@eazworldgh.com' },
     location:          { type: String, default: 'Accra, Ghana' },
     hours:             { type: String, default: 'Monday – Friday, 8am – 6pm GMT' },
     consultationPath:  { type: String, default: '/book-consultation' },

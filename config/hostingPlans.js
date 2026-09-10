@@ -57,7 +57,7 @@ function usdToGhs(usd) {
 const HOSTING_PLANS = {
   // Sized against the Namecheap Nebula reseller plan, which gives 30 GB disk,
   // 30 mailboxes and 25 cPanel accounts FOR THE WHOLE PLAN — shared by every
-  // customer and by eazworld.co itself. The previous tiers read those totals as
+  // customer and by eazworldgh.com itself. The previous tiers read those totals as
   // if they were per-account, which is how `enterprise` came to advertise 50 GB
   // (more disk than the entire plan holds) and `ultimate` unlimited storage and
   // mailboxes. Budget: 6 GB / 5 mailboxes / 2 accounts reserved for the site and
@@ -520,7 +520,7 @@ function getPlanPrice(planType, tier, billingCycle) {
 
 // Nameservers customers must point their domain at (for 'own'/'skip' domains).
 // Set HOSTING_NAMESERVERS to a comma-separated list from your WHM server,
-// e.g. "ns1.eazworld.co,ns2.eazworld.co".
+// e.g. "ns1.eazworldgh.com,ns2.eazworldgh.com".
 const HOSTING_NAMESERVERS = (process.env.HOSTING_NAMESERVERS || '')
   .split(',')
   .map((s) => s.trim())

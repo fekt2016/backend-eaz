@@ -10,7 +10,7 @@ to Namecheap on 2026-08-31.
 
 EazWorld does two different things with hosting, and only one of them fits a shared plan:
 
-1. Run `eazworld.co` — the Next.js site and the Express API.
+1. Run `eazworldgh.com` — the Next.js site and the Express API.
 2. **Sell** hosting to customers, provisioning a cPanel account per order.
 
 (2) needs **WHM** — `services/whm.js` calls `createacct`, `create_user_session` and
@@ -29,12 +29,12 @@ and packages are prefixed with it.
 
 ---
 
-## The domain — eazworld.co
+## The domain — eazworldgh.com
 
 | Setting | Value |
 |---|---|
 | Registrar | Namecheap |
-| Managed at | Namecheap → Domain List → `eazworld.co` |
+| Managed at | Namecheap → Domain List → `eazworldgh.com` |
 | Auto-renew | **must be ON** — the site and every customer email address depend on it |
 | WHOIS privacy | on (free forever with Namecheap) |
 | Transfer lock | on, except during a deliberate transfer |
@@ -53,14 +53,14 @@ NS1 = dns1.registrar-servers.com
 NS2 = dns2.registrar-servers.com
 ```
 
-Set them under Domain List → `eazworld.co` → Nameservers → **Custom DNS**. Propagation
+Set them under Domain List → `eazworldgh.com` → Nameservers → **Custom DNS**. Propagation
 takes up to 48 hours.
 
 Records, once the domain points at the reseller server:
 
 ```
 A     @                <server IP from cPanel → "Shared IP Address">
-CNAME www              eazworld.co
+CNAME www              eazworldgh.com
 A     api              <same server IP>
 ```
 
@@ -80,8 +80,8 @@ inside the reseller account's own cPanel.
 
 | | Backend API | Frontend |
 |---|---|---|
-| Application root | `~/api.eazworld.co` | `~/eazworld.co` |
-| Application URL | `api.eazworld.co` | `eazworld.co` |
+| Application root | `~/api.eazworldgh.com` | `~/eazworldgh.com` |
+| Application URL | `api.eazworldgh.com` | `eazworldgh.com` |
 | Startup file | `server.js` | `node_modules/.bin/next` (`start`) |
 | Node version | 20.x | 20.x |
 | Mode | Production | Production |
@@ -93,7 +93,7 @@ on boot and warns if the flag did not take.
 
 > ⚠️ **Cron needs a real `.env` file as well.** Variables set in *Setup Node.js App* are
 > injected by Passenger into the **web process only** — a crontab entry inherits none of
-> them. So the same values must also exist as `~/api.eazworld.co/.env`, or every job dies
+> them. So the same values must also exist as `~/api.eazworldgh.com/.env`, or every job dies
 > on a missing `MONGO_URL`. `scripts/runJob.js` calls `validateEnv()` before connecting so
 > this fails loudly on the first run rather than quietly at 2am. Keep the two in step:
 > changing a value in the cPanel UI does **not** change the file.
@@ -203,7 +203,7 @@ quotas at or under the figures shown — they are chosen so the whole catalogue 
 | Email rate | 50 msg/hour per domain | 200/hour | 200/hour |
 
 Every figure is a total for the whole plan, shared by all customers **and by
-`eazworld.co` itself** — not a per-account allowance. Reading them as per-account is how
+`eazworldgh.com` itself** — not a per-account allowance. Reading them as per-account is how
 the catalogue once advertised a 50 GB shared tier on a 30 GB plan, and an `ultimate` tier
 promising unlimited storage and unlimited mailboxes.
 
@@ -264,21 +264,21 @@ They are now driven by **cPanel cron**, through `scripts/runJob.js`. Set
 `IN_PROCESS_JOBS=false` in the API's cPanel environment so the old timers stay off:
 running both would double every reminder email and every reconciliation.
 
-cPanel → **Cron Jobs**. `~/api.eazworld.co` is the app root from the table above:
+cPanel → **Cron Jobs**. `~/api.eazworldgh.com` is the app root from the table above:
 
 ```cron
 # Hosting renewals: reminders, suspensions, terminations — daily, 02:15
-15 2 * * *   cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js renewals
+15 2 * * *   cd ~/api.eazworldgh.com && /usr/local/bin/node scripts/runJob.js renewals
 
 # Uncollected device reminders — twice daily, 08:30 and 20:30
-30 8,20 * * * cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js reminders
+30 8,20 * * * cd ~/api.eazworldgh.com && /usr/local/bin/node scripts/runJob.js reminders
 
 # Scheduled blog publishing — hourly, on the hour
-0 * * * *    cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js publish
+0 * * * *    cd ~/api.eazworldgh.com && /usr/local/bin/node scripts/runJob.js publish
 
 # Refund reconciliation — every 2 hours. Refunds settle over DAYS (a live MTN GHA
 # mobile-money refund reported ~9 days out), so a tighter schedule polls for nothing.
-0 */2 * * *  cd ~/api.eazworld.co && /usr/local/bin/node scripts/runJob.js refunds
+0 */2 * * *  cd ~/api.eazworldgh.com && /usr/local/bin/node scripts/runJob.js refunds
 ```
 
 Confirm the Node path with `which node` over SSH — cPanel's Node.js selector installs
@@ -291,7 +291,7 @@ only way anyone finds out — the in-process versions swallowed every error with
 Run one by hand to check wiring:
 
 ```bash
-cd ~/api.eazworld.co && npm run job:publish
+cd ~/api.eazworldgh.com && npm run job:publish
 ```
 
 Locally, nothing changes: `IN_PROCESS_JOBS` defaults to on, so `npm run dev` still

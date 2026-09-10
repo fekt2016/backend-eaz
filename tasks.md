@@ -71,7 +71,7 @@
       `services/spaceship.js` is deleted) and, unlike the previous registrar, it has a **sandbox**
       (`NAMECHEAP_SANDBOX=true`) — so the round-trip is finally provable without spending money.
       Two things to confirm before selling a domain: that `NAMECHEAP_CLIENT_IP` is allow-listed on
-      the Namecheap API key, and that the glue records for `ns1`/`ns2.eazworld.co` exist.
+      the Namecheap API key, and that the glue records for `ns1`/`ns2.eazworldgh.com` exist.
       ⚠️ `tests/setup.js` blanks the `NAMECHEAP_*` vars so a test run can never reach the sandbox —
       do not remove that.
   - **Location:** `services/*`, `controllers/*` charge/upload handlers
@@ -261,8 +261,8 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   production is doing today, it is not what this file said.
 
   **In `deploy/nginx.conf`:** `client_max_body_size 6m` (T81 — above multer's 5MB and
-  `express.json`'s 5mb so the APP owns the error); real `server_name eazworld.co
-  www.eazworld.co` and the dead `location /api/v1/domain/webhook` deleted (T82 — that route does
+  `express.json`'s 5mb so the APP owns the error); real `server_name eazworldgh.com
+  www.eazworldgh.com` and the dead `location /api/v1/domain/webhook` deleted (T82 — that route does
   not exist; the live one is `/api/webhooks/paystack`, and `/api/` already proxies to the same
   upstream); TLS 1.2/1.3 with modern ciphers, OCSP stapling and HSTS (T95). Two additions beyond
   the tasks: an ACME challenge location, so certbot's webroot renewal still works behind the
@@ -275,7 +275,7 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
   ### ⚠️ Two things still need a human before this deploys
 
   - [ ] **Confirm the TLS certificate paths.** They follow Let's Encrypt's usual layout for
-        `eazworld.co`, but the real lineage name is whatever certbot chose at first issue. Run
+        `eazworldgh.com`, but the real lineage name is whatever certbot chose at first issue. Run
         `sudo certbot certificates` and make `ssl_certificate`/`ssl_certificate_key` match. A
         wrong path means the site does not serve at all. A warning to this effect is at the top
         of the file.

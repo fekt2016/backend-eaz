@@ -32,11 +32,11 @@ function resolveMongoUrl() {
 }
 
 const ACCOUNTS = [
-  { role: 'superadmin', name: 'Super Admin', email: 'superadmin@eazworld.com', password: 'Eaz@Super2026' },
-  { role: 'admin',      name: 'Admin',       email: 'admin@eazworld.com',      password: 'Eaz@Admin2026' },
-  { role: 'staff',      name: 'Staff',       email: 'staff@eazworld.com',      password: 'Eaz@Staff2026' },
-  { role: 'technician', name: 'Technician',  email: 'technician@eazworld.com', password: 'Eaz@Tech2026' },
-  { role: 'user',       name: 'Customer',    email: 'customer@eazworld.com',   password: 'Eaz@Customer2026' },
+  { role: 'superadmin', name: 'Super Admin', email: 'superadmin@eazworldgh.com', password: 'Eaz@Super2026' },
+  { role: 'admin',      name: 'Admin',       email: 'admin@eazworldgh.com',      password: 'Eaz@Admin2026' },
+  { role: 'staff',      name: 'Staff',       email: 'staff@eazworldgh.com',      password: 'Eaz@Staff2026' },
+  { role: 'technician', name: 'Technician',  email: 'technician@eazworldgh.com', password: 'Eaz@Tech2026' },
+  { role: 'user',       name: 'Customer',    email: 'customer@eazworldgh.com',   password: 'Eaz@Customer2026' },
 ];
 
 function assertNotProduction() {

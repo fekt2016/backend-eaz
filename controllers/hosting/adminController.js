@@ -594,7 +594,7 @@ const markProvisioned = async (req, res, next) => {
     sendHostingCredentials(order, {
       username,
       password,
-      domain: domain || order.domain || `${username}.eazworld.com`,
+      domain: domain || order.domain || `${username}.eazworldgh.com`,
     }).catch(() => {});
 
     await logFromRequest(req, {

@@ -393,8 +393,8 @@ describe("registerDomain", () => {
   });
 
   it("sets EazWorld nameservers at registration time when hosting was ordered", async () => {
-    process.env.NAMESERVER_1 = "ns1.eazworld.co";
-    process.env.NAMESERVER_2 = "ns2.eazworld.co";
+    process.env.NAMESERVER_1 = "ns1.eazworldgh.com";
+    process.env.NAMESERVER_2 = "ns2.eazworldgh.com";
     axios.get.mockResolvedValueOnce(
       xmlOk('<DomainCreateResult Domain="mybiz.com" Registered="true" />'),
     );
@@ -402,7 +402,7 @@ describe("registerDomain", () => {
       useEazWorldNameservers: true,
     });
     const sent = decodeURIComponent(axios.get.mock.calls[0][0]);
-    expect(sent).toContain("Nameservers=ns1.eazworld.co,ns2.eazworld.co");
+    expect(sent).toContain("Nameservers=ns1.eazworldgh.com,ns2.eazworldgh.com");
   });
 });
 
@@ -466,8 +466,8 @@ describe("sandbox guard", () => {
 
 describe("setEazWorldNameservers", () => {
   it("splits the domain into SLD/TLD and sends both nameservers", async () => {
-    process.env.NAMESERVER_1 = "ns1.eazworld.co";
-    process.env.NAMESERVER_2 = "ns2.eazworld.co";
+    process.env.NAMESERVER_1 = "ns1.eazworldgh.com";
+    process.env.NAMESERVER_2 = "ns2.eazworldgh.com";
     axios.get.mockResolvedValueOnce(xmlOk("<DomainDNSSetCustomResult Update=\"true\" />"));
 
     const result = await namecheap.setEazWorldNameservers("MyBiz.com");
@@ -476,7 +476,7 @@ describe("setEazWorldNameservers", () => {
     const sent = decodeURIComponent(axios.get.mock.calls[0][0]);
     expect(sent).toContain("SLD=mybiz");
     expect(sent).toContain("TLD=com");
-    expect(sent).toContain("Nameservers=ns1.eazworld.co,ns2.eazworld.co");
+    expect(sent).toContain("Nameservers=ns1.eazworldgh.com,ns2.eazworldgh.com");
   });
 
   it("reports the API's error message on failure", async () => {

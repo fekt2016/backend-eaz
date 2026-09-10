@@ -131,8 +131,8 @@ There is no root, so there is **no Nginx and no PM2**. The backend is tuned for 
 
 1. Clone both repos into cPanel → **Git Version Control**.
 2. Register each app in cPanel → **Setup Node.js App**:
-   - API — app root `~/api.eazworld.co`, startup file `server.js`
-   - Frontend — app root `~/eazworld.co`, startup file `node_modules/.bin/next` (`start`)
+   - API — app root `~/api.eazworldgh.com`, startup file `server.js`
+   - Frontend — app root `~/eazworldgh.com`, startup file `node_modules/.bin/next` (`start`)
 3. Set production env vars in that same screen (they are *not* committed; `.env` is server-only).
    Include `NODE_OPTIONS=--max-old-space-size=512` on the API.
 4. Point DNS at `dns1.registrar-servers.com` / `dns2.registrar-servers.com` (Custom DNS).

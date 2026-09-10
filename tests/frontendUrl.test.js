@@ -32,18 +32,18 @@ afterEach(() => {
 
 describe("frontendUrl (T119)", () => {
   it("returns the configured URL in production", () => {
-    const f = loadWith({ NODE_ENV: "production", FRONTEND_URL: "https://www.eazworld.co" });
-    expect(f()).toBe("https://www.eazworld.co");
+    const f = loadWith({ NODE_ENV: "production", FRONTEND_URL: "https://www.eazworldgh.com" });
+    expect(f()).toBe("https://www.eazworldgh.com");
   });
 
   it("strips a trailing slash so callers can concatenate paths safely", () => {
-    const f = loadWith({ NODE_ENV: "production", FRONTEND_URL: "https://www.eazworld.co/" });
-    expect(f()).toBe("https://www.eazworld.co");
+    const f = loadWith({ NODE_ENV: "production", FRONTEND_URL: "https://www.eazworldgh.com/" });
+    expect(f()).toBe("https://www.eazworldgh.com");
   });
 
   it("falls back to CLIENT_URL when FRONTEND_URL is absent", () => {
-    const f = loadWith({ NODE_ENV: "production", FRONTEND_URL: "", CLIENT_URL: "https://alt.eazworld.co" });
-    expect(f()).toBe("https://alt.eazworld.co");
+    const f = loadWith({ NODE_ENV: "production", FRONTEND_URL: "", CLIENT_URL: "https://alt.eazworldgh.com" });
+    expect(f()).toBe("https://alt.eazworldgh.com");
   });
 
   // The actual defect. Before T119 this returned "" and every caller carried on.

@@ -382,7 +382,7 @@ const createPartOrder = async (req, res, next) => {
     const amountPesewas    = unitPricePesewas * qty;
     const subtotalPesewas  = amountPesewas;
 
-    const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
+    const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworldgh.com`;
     const reference = `PRT_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
 
     const transaction = await paystack.transaction.initialize({

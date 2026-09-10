@@ -48,7 +48,7 @@ async function provisionHostingAccount(orderRef) {
 
   const username = whm.generateUsername(doc.customer.email);
   const password = whm.generatePassword();
-  const domain = doc.domain || `${username}.eazworld.com`;
+  const domain = doc.domain || `${username}.eazworldgh.com`;
 
   const result = await whm.createAccount({
     username,
@@ -86,7 +86,7 @@ async function provisionHostingAccount(orderRef) {
       })
       .catch(() => {});
 
-    const isTempDomain = !doc.domain || (doc.domain.endsWith('.eazworld.com') && doc.domain.split('.').length === 3);
+    const isTempDomain = !doc.domain || (doc.domain.endsWith('.eazworldgh.com') && doc.domain.split('.').length === 3);
 
     // Case 1: Customer chose "Register new domain" in hosting checkout
     // → Register the domain via Namecheap AND automatically set EazWorld nameservers
@@ -101,7 +101,7 @@ async function provisionHostingAccount(orderRef) {
           email: doc.customer.email,
           phone: doc.customer.phone || '',
         },
-        { useEazWorldNameservers: true } // ← auto-sets ns1/ns2.eazworld.co
+        { useEazWorldNameservers: true } // ← auto-sets ns1/ns2.eazworldgh.com
       );
 
       if (regResult.success) {

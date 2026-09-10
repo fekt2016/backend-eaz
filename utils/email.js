@@ -6,8 +6,8 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 // From-address precedence: RESEND_FROM_EMAIL (.env, what Resend actually accepts)
 // → legacy EMAIL_FROM → default.
-const FROM = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'EazWorld <noreply@eazworld.com>';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@eazworld.com';
+const FROM = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'EazWorld <noreply@eazworldgh.com>';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'info@eazworldgh.com';
 
 async function send({ to, subject, html, type = 'other', orderId = null, meta = {} }) {
   const recipient = Array.isArray(to) ? to[0] : to;
@@ -177,7 +177,7 @@ async function sendConsultationConfirmation(contact) {
       <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
         <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">EazWorld · Nima, Accra, Ghana</p>
         <p style="margin:0;font-size:12px;color:#9ca3af;">
-          <a href="mailto:info@eazworld.co" style="color:#9ca3af;">info@eazworld.co</a> ·
+          <a href="mailto:info@eazworldgh.com" style="color:#9ca3af;">info@eazworldgh.com</a> ·
           <a href="tel:+233244388190" style="color:#9ca3af;">+233 24 438 8190</a>
         </p>
       </div>

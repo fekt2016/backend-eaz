@@ -857,7 +857,7 @@ const createRepairOrder = async (req, res, next) => {
     }
 
     const totalPesewas = subtotalPesewas + shippingFeePesewas;
-    const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
+    const email     = cleanEmail || job.customer?.email || `${cleanPhone}@pos.eazworldgh.com`;
     const reference = `RPO_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
 
     const transaction = await paystack.transaction.initialize({

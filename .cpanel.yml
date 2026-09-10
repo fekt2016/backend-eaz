@@ -15,7 +15,7 @@
 
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/$(whoami)/api.eazworld.co/
+    - export DEPLOYPATH=/home/$(whoami)/api.eazworldgh.com/
     - /bin/mkdir -p $DEPLOYPATH/tmp
 
     # Application source. .env is deliberately NOT copied — it lives only on the

@@ -62,12 +62,12 @@ async function sendHostingCredentials(order, { username, password, domain }) {
   if (!order?.customer?.email) return;
   const cpanelUrl = process.env.CPANEL_URL || `https://${domain}:2083`;
   const planLabel = `${order.planType} ${order.tier}`;
-  const ns1 = process.env.NAMESERVER_1 || 'ns1.eazworld.co';
-  const ns2 = process.env.NAMESERVER_2 || 'ns2.eazworld.co';
+  const ns1 = process.env.NAMESERVER_1 || 'ns1.eazworldgh.com';
+  const ns2 = process.env.NAMESERVER_2 || 'ns2.eazworldgh.com';
 
-  // A temp domain looks like "username.eazworld.com" — if the customer provided
+  // A temp domain looks like "username.eazworldgh.com" — if the customer provided
   // their own domain, show nameserver setup instructions.
-  const isTempDomain = domain.endsWith('.eazworld.com') && domain.split('.').length === 3;
+  const isTempDomain = domain.endsWith('.eazworldgh.com') && domain.split('.').length === 3;
   const nameserverSection = isTempDomain ? '' : `
     <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px;margin:24px 0;">
       <p style="margin:0 0 8px;font-weight:600;color:#92400e;">📡 Point your domain to EazWorld</p>

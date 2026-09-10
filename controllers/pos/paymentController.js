@@ -80,7 +80,7 @@ const createBalancePayment = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Nothing is outstanding on this repair.' });
     }
 
-    const email     = job.customer?.email || `${cleanPhone}@pos.eazworld.co`;
+    const email     = job.customer?.email || `${cleanPhone}@pos.eazworldgh.com`;
     const reference = `JBAL_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
 
     const transaction = await paystack.transaction.initialize({
@@ -147,7 +147,7 @@ const initiateMomoCharge = async (req, res, next) => {
     // Use customer email or generate a placeholder
     const chargeEmail = email
       || job.customer?.email
-      || `${cleanPhone}@pos.eazworld.co`;
+      || `${cleanPhone}@pos.eazworldgh.com`;
 
     const reference = `pos_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
 
@@ -202,7 +202,7 @@ const initiateCardCharge = async (req, res, next) => {
     // Use customer email or generate a placeholder
     const chargeEmail = email
       || job.customer?.email
-      || `${sanitizePhone(job.customer?.phone) || 'customer'}@pos.eazworld.co`;
+      || `${sanitizePhone(job.customer?.phone) || 'customer'}@pos.eazworldgh.com`;
 
     const reference = `poscard_${job._id}_${crypto.randomBytes(5).toString('hex')}`;
 

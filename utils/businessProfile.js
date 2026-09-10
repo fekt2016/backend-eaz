@@ -14,7 +14,7 @@ const DEFAULTS = {
   shopName:        process.env.SHOP_NAME  || 'EazWorld Repair',
   shopPhone:       process.env.SHOP_PHONE || '0244388190',
   whatsapp:        '233244388190',
-  email:           'hello@eazworld.com',
+  email:           'info@eazworldgh.com',
   location:        'Accra, Ghana',
   hours:           'Monday – Friday, 8am – 6pm GMT',
   consultationPath: '/book-consultation',

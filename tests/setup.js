@@ -11,7 +11,7 @@ process.env.JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "1h";
 // `app.js` runs `dotenv.config()`, and this repo's .env holds LIVE credentials.
 // Without this block the suite really does call third parties: a password-reset
 // test was sending mail through Resend and getting back
-// "403 — the eazworld.com domain is not verified", which surfaced as a
+// "403 — the eazworldgh.com domain is not verified", which surfaced as a
 // "Cannot log after tests are done" warning and made a fully green run still
 // exit 1. Real network I/O also makes runs nondeterministic.
 //
