@@ -16,7 +16,7 @@
  * runs once regardless of how many app processes exist.
  *
  * Usage:
- *   node scripts/runJob.js <renewals|reminders|publish|refunds>
+ *   node scripts/runJob.js <renewals|reminders|publish|refunds|chat-idle>
  *   npm run job:renewals
  *
  * Exit codes: 0 on success, 1 on failure — so cron's MAILTO reports a real
@@ -47,6 +47,10 @@ const JOBS = {
   refunds: {
     describe: 'refund reconciliation (T15)',
     run: () => require('../services/refundReconcileJob').runRefundReconcileJob(),
+  },
+  'chat-idle': {
+    describe: 'close abandoned chat conversations, and report customers still waiting',
+    run: () => require('../services/chatIdleJob').runChatIdleJob(),
   },
 };
 

@@ -45,7 +45,8 @@
     "seed:role-accounts": "node scripts/seedRoleAccounts.js",
     "user:set-role": "node scripts/setUserAdmin.js",
     "user:verify": "node scripts/verifyUser.js",
-    "catalogue:replace": "node scripts/replaceCatalogue.js"
+    "catalogue:replace": "node scripts/replaceCatalogue.js",
+    "job:chat-idle": "node scripts/runJob.js chat-idle"
   },
   "keywords": [],
   "author": "",

@@ -14,6 +14,7 @@ jest.mock("../utils/renewalJob", () => ({ runRenewalJob: jest.fn() }));
 jest.mock("../services/reminderJob", () => ({ runReminderJob: jest.fn() }));
 jest.mock("../utils/scheduledPublishJob", () => ({ runScheduledPublishJob: jest.fn() }));
 jest.mock("../services/refundReconcileJob", () => ({ runRefundReconcileJob: jest.fn() }));
+jest.mock("../services/chatIdleJob", () => ({ runChatIdleJob: jest.fn() }));
 
 const { JOBS } = require("../scripts/runJob");
 
@@ -21,12 +22,17 @@ const renewals = require("../utils/renewalJob");
 const reminders = require("../services/reminderJob");
 const publish = require("../utils/scheduledPublishJob");
 const refunds = require("../services/refundReconcileJob");
+const chatIdle = require("../services/chatIdleJob");
 
 beforeEach(() => jest.clearAllMocks());
 
 describe("runJob registry", () => {
-  it("registers exactly the four jobs cron drives", () => {
-    expect(Object.keys(JOBS).sort()).toEqual(["publish", "refunds", "reminders", "renewals"]);
+  // Exact, not a subset: a job added here without a crontab entry never runs,
+  // and this list is the prompt to add one. chat-idle joined 2026-09-10.
+  it("registers exactly the jobs cron drives", () => {
+    expect(Object.keys(JOBS).sort()).toEqual(
+      ["chat-idle", "publish", "refunds", "reminders", "renewals"]
+    );
   });
 
   it.each([
@@ -34,6 +40,7 @@ describe("runJob registry", () => {
     ["reminders", () => reminders.runReminderJob],
     ["publish", () => publish.runScheduledPublishJob],
     ["refunds", () => refunds.runRefundReconcileJob],
+    ["chat-idle", () => chatIdle.runChatIdleJob],
   ])("%s calls its own runner and no other", (name, getRunner) => {
     JOBS[name].run();
 
@@ -44,6 +51,7 @@ describe("runJob registry", () => {
       reminders.runReminderJob,
       publish.runScheduledPublishJob,
       refunds.runRefundReconcileJob,
+      chatIdle.runChatIdleJob,
     ];
     const others = all.filter((fn) => fn !== getRunner());
     others.forEach((fn) => expect(fn).not.toHaveBeenCalled());

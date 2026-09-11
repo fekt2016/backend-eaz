@@ -1,5 +1,5 @@
 const express = require('express');
-const { sendMessage, getSessions, getSession, updateSession, deleteSession, adminReply, getMessages, acceptChat, claimSession, rateSession, getChatMetrics } = require('../controllers/chatController');
+const { sendMessage, getSessions, getSession, updateSession, deleteSession, adminReply, getMessages, acceptChat, claimSession, rateSession, endSession, getChatMetrics } = require('../controllers/chatController');
 const { protect, restrictTo } = require('../middleware/auth');
 
 const router = express.Router();
@@ -26,6 +26,9 @@ router.post('/sessions/:sessionId/reply',  protect, restrictTo('admin', 'staff')
 
 // Public — widget polling for new messages (admin replies)
 router.get('/sessions/:sessionId/messages', getMessages);
+// Public — the customer closes their own conversation. Cookie-gated like the
+// rating route: you can only end a chat you can prove is yours.
+router.post('/sessions/:sessionId/end', endSession);
 // Public — the customer rates the closed conversation (T69 phase 4). Same
 // cookie-ownership gate as the polling route above: the rater has no account.
 router.post('/sessions/:sessionId/rating', rateSession);

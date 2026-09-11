@@ -279,7 +279,24 @@ cPanel → **Cron Jobs**. `~/api.eazworldgh.com` is the app root from the table 
 # Refund reconciliation — every 2 hours. Refunds settle over DAYS (a live MTN GHA
 # mobile-money refund reported ~9 days out), so a tighter schedule polls for nothing.
 0 */2 * * *  cd ~/api.eazworldgh.com && /usr/local/bin/node scripts/runJob.js refunds
+
+# Abandoned chat conversations — every 15 minutes. `lastActivity` was written on
+# every message and read by nothing, so a customer who closed the tab left a
+# session open forever: it cluttered the staff queue AND sat in the unresolved
+# population T69 measures first-response time across, dragging that number toward
+# infinity for a conversation nobody ever needed to answer.
+#
+# It does NOT close a customer who asked for a human and never got one — that
+# would tidy the queue by destroying the evidence. Those are counted and warned
+# about instead, which is what MAILTO carries to a person.
+*/15 * * * * cd ~/api.eazworldgh.com && /usr/local/bin/node scripts/runJob.js chat-idle
 ```
+
+Windows are env-overridable if these turn out wrong in practice:
+`CHAT_BOT_IDLE_MINUTES` (default 60), `CHAT_LIVE_IDLE_MINUTES` (240),
+`CHAT_WAITING_ALERT_MINUTES` (30). The bot window is deliberately generous —
+somebody comparing phone prices may come back twenty minutes later, and closing
+under a live customer is worse than leaving a dead chat open a little longer.
 
 Confirm the Node path with `which node` over SSH — cPanel's Node.js selector installs
 per-version, so it is often under `~/nodevenv/...` rather than `/usr/local/bin`.

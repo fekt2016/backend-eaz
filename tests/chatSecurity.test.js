@@ -211,3 +211,67 @@ describe('chat — nothing sensitive is echoed back', () => {
   });
 });
 
+
+describe('chat — ending a conversation', () => {
+  /*
+   * Ending used to be triggered by the literal message "[User ended the
+   * conversation]", so control flow on a public endpoint hung on a string
+   * comparison. It has its own cookie-gated route now, matching the rating
+   * endpoint — you can only end a chat you can prove is yours.
+   */
+  it('ends the caller\'s own conversation', async () => {
+    const { sessionId, cookie } = await startSession();
+    const res = await request(app)
+      .post(`${BASE}/chat/sessions/${sessionId}/end`)
+      .set('Cookie', [cookie]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.ended).toBe(true);
+    const saved = await ChatSession.findOne({ sessionId }).lean();
+    expect(saved.resolved).toBe(true);
+    expect(saved.resolvedAt).toBeTruthy();
+  });
+
+  it('refuses to end someone else\'s conversation', async () => {
+    const { sessionId } = await startSession();
+    const other = await startSession();
+
+    const noCookie = await request(app).post(`${BASE}/chat/sessions/${sessionId}/end`);
+    expect(noCookie.status).toBe(403);
+
+    const wrongCookie = await request(app)
+      .post(`${BASE}/chat/sessions/${sessionId}/end`)
+      .set('Cookie', [other.cookie]);
+    expect(wrongCookie.status).toBe(403);
+
+    expect((await ChatSession.findOne({ sessionId }).lean()).resolved).toBe(false);
+  });
+
+  it('is idempotent — a double-click must not move resolvedAt', async () => {
+    const { sessionId, cookie } = await startSession();
+    await request(app).post(`${BASE}/chat/sessions/${sessionId}/end`).set('Cookie', [cookie]);
+    const first = (await ChatSession.findOne({ sessionId }).lean()).resolvedAt;
+
+    await request(app).post(`${BASE}/chat/sessions/${sessionId}/end`).set('Cookie', [cookie]);
+    const second = (await ChatSession.findOne({ sessionId }).lean()).resolvedAt;
+
+    expect(second.getTime()).toBe(first.getTime()); // T69 measures this timestamp
+  });
+
+  /*
+   * A resolved chat that got another message used to just carry on while still
+   * flagged resolved — closed in the staff queue and live at the same time, with
+   * a resolvedAt pointing at a moment the conversation demonstrably had not
+   * ended. Reopening is right; doing it silently was not.
+   */
+  it('reopens deliberately when the customer comes back, clearing resolvedAt', async () => {
+    const { sessionId, cookie } = await startSession();
+    await request(app).post(`${BASE}/chat/sessions/${sessionId}/end`).set('Cookie', [cookie]);
+
+    await post({ sessionId, message: 'actually one more thing' }, cookie);
+
+    const saved = await ChatSession.findOne({ sessionId }).lean();
+    expect(saved.resolved).toBe(false);
+    expect(saved.resolvedAt).toBeFalsy(); // no phantom resolution time
+  });
+});
