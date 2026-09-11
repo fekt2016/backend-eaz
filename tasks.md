@@ -4,10 +4,7 @@
 > **`frontend-eaz/tasks.md`**. Cross-app tasks are listed in their primary repo and
 > cross-referenced.
 >
-> Sources of truth: **`REVIEWFULL.md`** (full audit 2026-08-29 — 927 backend tests passing, build +
-> lint clean; tasks T81-T100 come from it) and the earlier **`AUDIT.md`** (2026-08-18 — 112 backend + 31
-> frontend tests passing, build + lint clean). This file turns that audit's findings into
-> trackable tasks. Check the box when done and add a PR/commit reference.
+> Check the box when done and add a PR/commit reference.
 >
 > **Status key:** `[ ]` open · `[~]` in progress · `[x]` done · `[-]` won't fix / N/A
 > **Priority:** **P0** blocking · **P1** important · **P2** improvement
@@ -15,9 +12,13 @@
 > **Convention:** the **user** ticks boxes off (checks with issues); the agent **adds** new
 > issues to both `backend-eaz/tasks.md` and `frontend-eaz/tasks.md` when reported.
 >
-> ⚠️ The older `AUDIT_REPORT.md` in the repo is **stale** (it describes a pre-migration
-> Vite/React SPA with no auth). Its "critical" items are already resolved in the current
-> code — see the reconciliation note at the bottom. Do **not** re-open those tasks.
+> *Pruned 2026-09-11:* **T85** removed — it targeted `ecosystem.config.js:11-14`, and that file
+> was deleted with PM2 in the move to Passenger, so its remaining half had no subject. The
+> committed half (the `validateEnv.js` warning when `NODE_ENV` is unset, `a5f6a20`) shipped and
+> stands. Also removed: two empty section headers, a duplicated "Ad-hoc fixes" heading, and the
+> `AUDIT_REPORT.md` reconciliation table — `AUDIT_REPORT.md`, `REVIEWFULL.md` and `AUDIT.md`
+> have all been deleted from the repo, so both that table and the "sources of truth" line above
+> cited documents nobody can open.
 
 ---
 
@@ -78,46 +79,20 @@
   - **Source:** AUDIT.md §13, §19, §28, §29 P1 (all 🟣 rows in §4)
 
 
-## Ad-hoc fixes (found during work, outside the original audit)
-
-
-- [~] **T85 · PARTLY APPLIED 2026-08-30 — backend warning committed; ecosystem.config.js fix is UNVERSIONED (T122)** (audit ref EZ-005)
-  - **Issue:** `ecosystem.config.js:11-14` defines `NODE_ENV` only under `env_production`, which PM2
-    applies **only** with `--env production`. Started any other way it is unset and `PROD` is false.
-  - **Impact:** The auth cookie loses `Secure` and drops `sameSite` from `strict` to `lax`
-    (`controllers/authController.js:44`), **and** the error handler starts returning `err.stack` to
-    clients on every error (`middleware/errorHandler.js:1,70`). Both silently, together.
-  - **Repro:** `pm2 start ecosystem.config.js` (no `--env`), trigger any handled error, observe a
-    `stack` field in the JSON; inspect the login cookie for a missing `Secure` flag.
-  - **Fix:** Put `NODE_ENV: "production"` in the default `env` block too, and have `validateEnv.js`
-    refuse to boot (or log loudly) when `NODE_ENV` is unset on a non-local host. Document the command.
-  - **Location:** `ecosystem.config.js:11-14` (repo root); `controllers/authController.js:44`;
-    `middleware/errorHandler.js:1,70`
-  - **Acceptance:**
-    - [x] Starting with or without `--env production` yields `NODE_ENV=production`  ← done in the repo-root file, which is NOT in git (T122)
-
-  ### Implementation Notes (2026-08-30 — backend commit `a5f6a20`)
-
-  - **`utils/validateEnv.js` (committed):** warns loudly at boot when `NODE_ENV` is unset,
-    naming both controls that silently switch off — the auth cookie's `Secure`/`sameSite=strict`
-    and `err.stack` in responses. Verified: 1 warning when unset, 0 when production.
-  - **`ecosystem.config.js` (edited, NOT committable):** `NODE_ENV: "production"` now sits in the
-    default `env` block as well as `env_production`, for both apps, so a plain
-    `pm2 start ecosystem.config.js` no longer silently drops to non-production. Verified by
-    reading the parsed config. **This file lives at the monorepo root, which is not a git repo,
-    so the change cannot be committed or pushed — see T122.** A backup of the original is in the
-    session scratchpad.
-    - [ ] No stack traces in production API responses
-    - [ ] Auth cookies carry `Secure` and `SameSite=Strict`
-    - [ ] Startup fails loudly if the environment is ambiguous
-
-
----
-
 ## P2 — Improvements
 
 
-- [~] **T96 · SUPERSEDED 2026-09-01 — premise no longer holds; the surviving risk moved** (audit ref EZ-020)
+- [ ] **T96 · Jobs may double-run in production — `IN_PROCESS_JOBS` is unverified on the host** (audit ref EZ-020)
+
+  > **Retitled 2026-09-11.** This read "SUPERSEDED — premise no longer holds", which is how a
+  > live risk gets skipped: the *original* premise (PM2 `instances:1`) is indeed gone, but the
+  > body below documents the replacement, and it is neither hypothetical nor fixed. The old
+  > title said done; the content said open.
+  >
+  > **Now sharper:** a fifth cron job (`chat-idle`) was added 2026-09-11. If the production
+  > host does not set `IN_PROCESS_JOBS=false` while cron is configured, five jobs double-run,
+  > not four. `.env.example:143` ships `IN_PROCESS_JOBS=true` — the right default for local
+  > dev and the wrong one to copy to a server, which is exactly how this gets missed.
   - **Original issue:** renewal, reminder, scheduled-publish and refund-reconcile ran via in-process
     `setInterval`, correct only at PM2 `instances: 1` and wrong the moment the API scaled.
   - **What changed:** PM2 and `deploy/ecosystem.config.js` were deleted in `0097e7b`. The jobs moved
@@ -222,11 +197,6 @@ Not defects; product features that don't exist yet. Scope separately before buil
 
 ---
 
-## Final production re-audit (2026-08-29) — new findings
-
-
----
-
 ## Ad-hoc fixes (found during work, outside the original audit)
 
 _Shipped on request during the 2026-08-29 session, tracked here after the fact so the log is
@@ -286,6 +256,16 @@ expenses, visibility scoped by recorder · **T114** same-day cutoff noon → 5 P
 
 
 - [~] **T108 · CONNECTION FLAKE — root cause never reproduced; classification tool shipped 2026-09-01 · RE-OPENED 2026-08-30 · connection-level flake in the full serial run — an unexplained 426 and "socket hang up"** (found during T83 verification, 2026-08-29)
+  > **More evidence 2026-09-11.** Hit repeatedly during a day of full-suite runs. Two shapes,
+  > and they may be the same thing: (a) `tests/notifications.test.js` fails roughly 1 run in 3
+  > even in isolation, on a leftover Notification that a parallel suite created; (b) under load,
+  > suites report times of 1,200–6,486 s and "fail" as timeouts — one full run took 8,390 s
+  > against a normal 130 s, with load average at 18. Re-running the same commit with
+  > `--maxWorkers=3` gave 121 suites / 1,598 tests green in 139 s. So at least part of this is
+  > worker contention rather than ordering, and `--maxWorkers` is a cheap mitigation to try
+  > before chasing pollution. Test data generated as `EZW-${Date.now()}` also collides under
+  > parallelism — two were fixed 2026-09-10, others likely remain.
+
   - **Issue:** in `npx jest --runInBand`, "Paystack webhook — refund.processed / refund.failed ›
     completes a processing refund on refund.processed" (`tests/refunds.test.js:175`) gets
     **426 Upgrade Required** where it expects 200. Run on its own the file is **19/19 green**, on
@@ -517,21 +497,3 @@ setting it to `false`, every reminder and reconciliation runs twice. That is the
 failure arriving through a different door, and it is not checkable from this repo.
 
 ---
-
-## Notes / Reconciliation with `AUDIT_REPORT.md` (stale)
-
-`AUDIT_REPORT.md` predates the migration to the current stack and is **superseded** by
-`AUDIT.md`. Its items were checked against today's code:
-
-| AUDIT_REPORT.md claim | Status in current code |
-|-----------------------|------------------------|
-| "Auth API missing / frontend calls non-existent `/auth/*`" | ✅ **Resolved** — full auth is implemented and mounted (`authRoutes`, `protect`, `restrictTo`, JWT cookie, 2FA, reset). |
-| "No auth on contacts/projects/uploads/domain orders" | ✅ **Resolved** — all gated with `protect`/`restrictTo('admin')`; IDOR ownership checks on orders/domains/hosting (test-backed). |
-| "DomainOrder create will fail (schema mismatch)" | ✅ **Resolved** — domain payment + retry flows are test-backed and passing. |
-| "Env/PORT mismatch, Vite proxy can't reach API" | ✅ **N/A** — no Vite; Next.js rewrites → `NEXT_PUBLIC_API_URL`; backend on 5000. |
-| "Debug `console.log` in `DomainAndHostingPricingSection.jsx`" | ✅ **N/A** — that Vite component no longer exists. |
-| "Not on target stack (Next.js/Tailwind/Namecheap/PM2/Nginx)" | ✅ **Done** — current stack is exactly that. |
-| "npm audit vulnerabilities" (Vite/react-router/styled-components CVEs) | ➡️ **Superseded** — re-audit the current deps under **T11**; old CVE list is obsolete. |
-
-**Recommendation:** treat `AUDIT.md` + `backend-eaz/tasks.md` + `frontend-eaz/tasks.md` as
-authoritative; archive or delete `AUDIT_REPORT.md` to avoid confusion.
