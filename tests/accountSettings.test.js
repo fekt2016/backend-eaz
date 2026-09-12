@@ -56,7 +56,9 @@ describe("POST /account/deactivate", () => {
     expect(fresh.deactivationReason).toBe("Taking a break");
 
     // T91 — the session the request was made with is dead immediately.
-    const after = await auth(request(app).get(`${BASE}/auth/me`), token);
+    // Probed on a `protect`ed route: T178 moved GET /auth/me onto `attachUser`,
+    // where a dead session is a 200 with a null user rather than a refusal.
+    const after = await auth(request(app).get(`${BASE}/orders/mine`), token);
     expect(after.status).toBe(401);
   });
 

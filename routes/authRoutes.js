@@ -22,7 +22,7 @@ const {
   disableTwoFactor,
   verifyTwoFactor,
 } = require('../controllers/authController');
-const { protect, restrictTo } = require('../middleware/auth');
+const { protect, attachUser, restrictTo } = require('../middleware/auth');
 const {
   createUserSchema,
   registerSchema,
@@ -47,7 +47,10 @@ router.post('/login', validate(loginSchema), login);
 router.post('/logout', logout);
 router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
 router.patch('/reset-password/:token', validate(resetPasswordSchema), resetPassword);
-router.get('/me', protect, getMe);
+// T178 — GET is the one route whose question is "is anyone signed in?", so it
+// answers 200 with a null user rather than 401. PATCH below keeps `protect`:
+// changing a profile still requires one.
+router.get('/me', attachUser, getMe);
 router.patch('/me', protect, updateProfile);
 // T84 — binds the phone parked by PATCH /me, once its SMS PIN is proven.
 router.post('/me/phone/confirm', protect, confirmPhoneChange);

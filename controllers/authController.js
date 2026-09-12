@@ -578,10 +578,25 @@ const resendPin = async (req, res, next) => {
   }
 };
 
+/*
+ * T178 — "who is signed in?" is a question, and "nobody" is an answer, not a
+ * failure. This is mounted on `attachUser` rather than `protect`, so it returns
+ * 200 with a null user instead of a 401 the browser logs as a console error on
+ * every page view for every logged-out visitor.
+ *
+ * `reason` carries exactly what the old refusal carried — `unauthenticated`,
+ * `invalid_token`, `blocked`, `deactivated`, `unverified`, `session_ended` — so
+ * a client that routed on the 403's `requiresVerification` flag can route on
+ * `reason === "unverified"` instead. Nothing is lost, it just stops being an
+ * HTTP error.
+ *
+ * No user data is returned when there is no usable session; `req.user` is null
+ * in every one of those cases, set by `attachUser`.
+ */
 const getMe = async (req, res) => {
   res.status(200).json({
     success: true,
-    data: { user: req.user }
+    data: { user: req.user || null, reason: req.authReason || null }
   });
 };
 

@@ -47,8 +47,11 @@ describe("protect — unverified accounts (T92)", () => {
   it("403s a pending signup and says why, rather than 401", async () => {
     const user = await makeUser(pendingVerification);
 
+    // T178 moved GET /auth/me off `protect` and onto `attachUser`, so it is no
+    // longer a probe for this gate. The gate itself is unchanged — this now
+    // asks a route that still carries `protect`.
     const res = await request(app)
-      .get("/api/v1/auth/me")
+      .get("/api/v1/orders/mine")
       .set("Authorization", `Bearer ${tokenFor(user)}`);
 
     // 403, not 401: the token is valid and the client must be told the
@@ -62,7 +65,7 @@ describe("protect — unverified accounts (T92)", () => {
     const user = await makeUser();
 
     const res = await request(app)
-      .get("/api/v1/auth/me")
+      .get("/api/v1/orders/mine")
       .set("Authorization", `Bearer ${tokenFor(user)}`);
 
     expect(res.status).toBe(200);
@@ -75,7 +78,7 @@ describe("protect — unverified accounts (T92)", () => {
     const user = await makeUser({ isVerified: false, verifyPin: undefined });
 
     const res = await request(app)
-      .get("/api/v1/auth/me")
+      .get("/api/v1/orders/mine")
       .set("Authorization", `Bearer ${tokenFor(user)}`);
 
     expect(res.status).toBe(200);
@@ -98,7 +101,7 @@ describe("protect — unverified accounts (T92)", () => {
     const user = await makeUser({ ...pendingVerification, name: "Secret Person" });
 
     const res = await request(app)
-      .get("/api/v1/auth/me")
+      .get("/api/v1/orders/mine")
       .set("Authorization", `Bearer ${tokenFor(user)}`);
 
     const body = JSON.stringify(res.body);
@@ -107,7 +110,8 @@ describe("protect — unverified accounts (T92)", () => {
   });
 
   it("still 401s an anonymous caller — the gate does not replace authentication", async () => {
-    const res = await request(app).get("/api/v1/auth/me");
+    // Same note as above: the probe moved, the gate did not.
+    const res = await request(app).get("/api/v1/orders/mine");
     expect(res.status).toBe(401);
   });
 });
